@@ -591,6 +591,26 @@ class BGCTextDataset(Dataset):
             return len(self.chunks)
         return len(self.offsets)
 
+    def prefix_mask_sanity_check(self, n: int = 4) -> list[dict[str, int]]:
+        """Read a few samples and confirm every row has supervised tokens.
+
+        Used at startup (rank 0) to fail fast if H3 prefix masking would
+        leave a row with zero unmasked labels. Returns the per-sample
+        stats so the caller can log them.
+        """
+        stats: list[dict[str, int]] = []
+        for i in range(min(n, len(self))):
+            item = self[i]
+            L = int(item["length"])
+            p = int(item["prefix_token_count"])
+            if p >= L:
+                raise ValueError(
+                    f"Prefix-mask sanity failed at idx={i}: prefix_token_count="
+                    f"{p} >= length={L}; no sequence tokens to train on."
+                )
+            stats.append({"idx": i, "length": L, "prefix": p, "supervised": L - p})
+        return stats
+
     def __getitem__(self, idx: int) -> dict[str, Any]:
         if self.chunks is None:
             record_idx = idx
@@ -606,6 +626,12 @@ class BGCTextDataset(Dataset):
         seq = rec["sequence"]
         training_text = rec["training_text"]
 
+        # Derive the prefix string in both paths so we can mask prefix
+        # positions from the loss downstream (H3). `training_prefix_for_chunking`
+        # raises if neither canonical assembly nor `training_text[:-len(seq)]`
+        # is consistent, which gives the truncate (legacy) path the same
+        # integrity check as chunk mode.
+        prefix = training_prefix_for_chunking(rec)
         if self.chunks is None:
             nt_start, nt_end = 0, len(seq)
             text = training_text
@@ -614,12 +640,19 @@ class BGCTextDataset(Dataset):
                 raise ValueError(
                     f"Record {record_idx}: training_text does not end with sequence"
                 )
-            prefix = training_prefix_for_chunking(rec)
             sub = seq[nt_start:nt_end]
             text = prefix + sub
 
         tokens = self.tokenizer.tokenize(text)
         ids = list(tokens) if isinstance(tokens, (list, tuple)) else [int(t) for t in tokens]
+
+        # Count prefix tokens once for label-masking. Relies on Evo2's
+        # CharLevelTokenizer where `tokenize(prefix + sub)` is the
+        # concatenation of `tokenize(prefix)` and `tokenize(sub)`; any
+        # tokenizer that merges across the seam would break this invariant
+        # and require a different masking strategy.
+        prefix_token_count = count_prefix_tokens(self.tokenizer, prefix)
+
         if len(ids) > self.max_seq_len:
             if self.chunks is not None and not self._prefix_warned and is_main():
                 rank0_print(
@@ -630,9 +663,22 @@ class BGCTextDataset(Dataset):
                 self._prefix_warned = True
             ids = ids[: self.max_seq_len]
 
+        # Guard against pathological rows where the prefix alone fills the
+        # whole window. Should be unreachable under --auto-prefix-budget +
+        # H6's adaptive seq_budget, but we never want to ship a sample with
+        # zero supervised tokens.
+        if prefix_token_count >= len(ids):
+            raise ValueError(
+                f"Record {record_idx} (chunk_idx={idx}): prefix tokenises to "
+                f"{prefix_token_count} tokens, but sample only has {len(ids)} "
+                f"tokens after clipping; no sequence tokens left to train on. "
+                f"Increase --prefix-budget or refresh the auto-prefix-budget scan."
+            )
+
         out: dict[str, Any] = {
             "input_ids": ids,
             "length": len(ids),
+            "prefix_token_count": prefix_token_count,
             "accession": rec.get("accession", ""),
             "class": rec.get("compound_class", ""),
             "record_idx": record_idx,
@@ -645,23 +691,33 @@ class BGCTextDataset(Dataset):
 
 def collate_pad(batch: list[dict[str, Any]],
                 pad_id: int = PAD_TOKEN_ID) -> dict[str, Any]:
+    # Labels are initialised to IGNORE_INDEX, then only the **sequence**
+    # token positions (after the prefix, before the pad) are copied from
+    # input_ids. The CE loss in `causal_lm_loss` calls cross_entropy with
+    # ignore_index=IGNORE_INDEX, so the model is never penalised for
+    # predicting the prefix or the pad — matching the "prompt → generate"
+    # training objective. (H3 in the audit plan.)
     content_max = max(b["length"] for b in batch)
     B = len(batch)
     input_ids = torch.full((B, content_max), pad_id, dtype=torch.long)
     labels    = torch.full((B, content_max), IGNORE_INDEX, dtype=torch.long)
     for i, b in enumerate(batch):
-        L   = b["length"]
+        L = b["length"]
+        p = int(b["prefix_token_count"])
         ids = torch.tensor(b["input_ids"], dtype=torch.long)
         input_ids[i, :L] = ids
-        labels[i, :L]    = ids
+        if p < L:
+            labels[i, p:L] = ids[p:]
     first = batch[0]
     return {
         "input_ids":     input_ids,
         "labels":        labels,
         "content_max_len": content_max,
         "first_record_idx": int(first["record_idx"]),
+        "first_chunk_idx": int(first["chunk_idx"]),
         "first_nt_start": int(first["nt_start"]),
         "first_nt_end": int(first["nt_end"]),
+        "first_prefix_token_count": int(first["prefix_token_count"]),
     }
 
 
@@ -671,7 +727,8 @@ def collate_pad_to_max(batch: list[dict[str, Any]], max_seq_len: int,
 
     Dataset items are already truncated to <= max_seq_len. Padding tail
     uses `pad_id`; labels on padded positions are IGNORE_INDEX so loss
-    does not train on filler tokens.
+    does not train on filler tokens. Prefix positions are likewise
+    IGNORE_INDEX (H3 prefix masking).
     """
     content_max = max(b["length"] for b in batch)
     if content_max > max_seq_len:
@@ -682,18 +739,22 @@ def collate_pad_to_max(batch: list[dict[str, Any]], max_seq_len: int,
     input_ids = torch.full((B, max_seq_len), pad_id, dtype=torch.long)
     labels    = torch.full((B, max_seq_len), IGNORE_INDEX, dtype=torch.long)
     for i, b in enumerate(batch):
-        L   = b["length"]
+        L = b["length"]
+        p = int(b["prefix_token_count"])
         ids = torch.tensor(b["input_ids"], dtype=torch.long)
         input_ids[i, :L] = ids
-        labels[i, :L]    = ids
+        if p < L:
+            labels[i, p:L] = ids[p:]
     first = batch[0]
     return {
         "input_ids":       input_ids,
         "labels":          labels,
         "content_max_len": content_max,
         "first_record_idx": int(first["record_idx"]),
+        "first_chunk_idx": int(first["chunk_idx"]),
         "first_nt_start": int(first["nt_start"]),
         "first_nt_end": int(first["nt_end"]),
+        "first_prefix_token_count": int(first["prefix_token_count"]),
     }
 
 
@@ -1300,6 +1361,18 @@ def main() -> None:
         **ds_common,
     )
 
+    # H3 prefix-mask sanity: confirm a few rows of each split have >0
+    # supervised (non-prefix, non-pad) tokens. Cheap rank-0-only check.
+    if is_main():
+        for split_name, ds in (("train", train_ds), ("val", val_ds)):
+            stats = ds.prefix_mask_sanity_check(n=4)
+            for s in stats:
+                rank0_print(
+                    f"  prefix-mask {split_name}: idx={s['idx']} "
+                    f"length={s['length']} prefix={s['prefix']} "
+                    f"supervised={s['supervised']}"
+                )
+
     world_size    = ddp_world_size()
     train_sampler = DistributedSampler(train_ds, num_replicas=world_size,
                                        rank=ddp_rank(), shuffle=True, seed=args.seed)
@@ -1378,8 +1451,12 @@ def main() -> None:
             for micro_step, batch in enumerate(train_loader):
                 content_max_len = batch.pop("content_max_len", None)
                 first_record_idx = batch.pop("first_record_idx", None)
+                first_chunk_idx = batch.pop("first_chunk_idx", None)
                 first_nt_start = batch.pop("first_nt_start", None)
                 first_nt_end = batch.pop("first_nt_end", None)
+                first_prefix_token_count = batch.pop(
+                    "first_prefix_token_count", None
+                )
                 input_ids = batch["input_ids"].to(local_rank, non_blocking=True)
                 labels    = batch["labels"].to(local_rank, non_blocking=True)
                 collated_seq_len = int(input_ids.shape[1])
@@ -1434,8 +1511,10 @@ def main() -> None:
                                 "content_max_len": int(content_max_len)
                                 if content_max_len is not None else collated_seq_len,
                                 "first_record_idx": first_record_idx,
+                                "first_chunk_idx": first_chunk_idx,
                                 "first_nt_start": first_nt_start,
                                 "first_nt_end": first_nt_end,
+                                "first_prefix_token_count": first_prefix_token_count,
                             }
                             append_jsonl(train_log_path, entry)
                             if wandb_run:
