@@ -43,6 +43,13 @@ correctly without repeated setup explanations.
   - `L=65536` passes but is near limit.
   - `L=98304` OOMs.
 - Conservative default remains `L=32768`; `L=65536` is stretch/conditional.
+- **Long sequences:** production training uses `--long-seq-strategy chunk
+  --chunk-overlap 2048` (deterministic tiling; full nucleotide coverage; canonical
+  prefix from JSON fields; default `--auto-prefix-budget` scans `max_prefix_tokens`
+  into sidecar meta). Sidecars: `data/processed/splits_combined/<split>.lengths.npy`
+  + `.meta.json`; pre-build lengths with `python scripts/build_chunk_index.py`.
+  The L=32k **pilot** keeps default `--long-seq-strategy truncate` for continuity
+  with earlier smoke metrics (`FINETUNE_GUIDE.md` §3, `PROJECT_GUIDE.md` §13).
 
 ## Common Commands
 

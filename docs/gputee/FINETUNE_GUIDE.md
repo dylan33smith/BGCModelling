@@ -262,39 +262,66 @@ in each JSONL record is the exact string to feed to the model.
 
 Median: **22,951 bp** · p90: 58,859 bp · p99: 123,724 bp
 
-Training is capped at **32,768 bp** per sequence (see §4). This covers 83% of sequences
-at full length; the remaining ~17% (≈44,757 records — 14.0% in the 50–100 kb band and
-2.2% in the 100–262 kb band) are centre-cropped. The crop preserves the core
-biosynthetic genes, which are in the middle of the region antiSMASH calls.
+**Long-sequence handling (`scripts/finetune_evo2_lora.py`, May 2026).** `--max-seq-len`
+is the maximum **tokenizer positions** per training example (prefix + nucleotide
+window). Two modes:
 
-**Known limitations of the centre-crop-only policy.** The 17% tail is substantial and
-the current plan addresses it with a single strategy (centre-crop). A few caveats are
-worth stating explicitly so the decision is recorded rather than implicit:
+1. **`--long-seq-strategy truncate` (default)** — Legacy path: tokenize the full
+   `training_text` string, then clip token IDs to `--max-seq-len`. Only the head of
+   long clusters is supervised each step. The **L=32k pilot** in `PROJECT_GUIDE.md`
+   §13 stays on this default so it matches earlier smoke/pilot behaviour.
+2. **`--long-seq-strategy chunk` (production)** — Deterministic **nucleotide** tiling.
+   The conditioning prefix is **not guessed**: Phase 1 rows match
+   ``|COMPOUND_CLASS:{compound_class}|{taxonomic_tag}`` from JSON fields (with a
+   fallback slice of `training_text` if a future corpus diverges). **By default**
+   (`--auto-prefix-budget`, on unless `--no-auto-prefix-budget`): rank 0 scans the
+   whole split once with the Evo2 tokenizer, records **`max_prefix_tokens`** in
+   `<split>.lengths.meta.json` (tagged with the Evo2 checkpoint id), and every
+   chunk uses `max_seq_len - max_prefix_tokens` nucleotides of `sequence` per
+   window—so the prefix is never clipped as long as the scan matches the tokenizer
+   used at training. With **`--no-auto-prefix-budget`**, a fixed **`--prefix-budget`**
+   (default 256) is used instead (legacy / reproducibility). Consecutive windows
+   overlap by **`--chunk-overlap`** nucleotides (default **2048**); stride =
+   `(max_seq_len - prefix_token_cap) - chunk_overlap`. **Train and val** each use
+   their own scanned cap from their respective meta files. Absolute `val_loss` /
+   perplexity are **not comparable** to truncate-only runs.
 
-1. **The "core genes are in the middle" assumption is stated but not tested.**
-   antiSMASH defines the region *around* the core biosynthetic genes, so centre-cropping
-   preserves those genes by construction. Flanking tailoring, regulatory, transport, and
-   resistance genes — which can matter for a synthesis-ready cluster — are what gets
-   dropped. For records in the 100–262 kb band (2.2%, ~5,983 records), a 32 k centre
-   crop discards ~70–90% of the record.
-2. **Val loss is computed on the same 32 k crop.** Train/val/test are split on
-   full-length records, but both training and validation see the crop. Val loss will
-   look fine even if the model never observes a flank longer than 16 k either side of
-   centre. No long-context held-out evaluation is currently defined.
-3. **Train / inference length mismatch.** Evo2 7B supports 262 k at inference, so the
-   fine-tuned model *can* be asked to generate full-length 50–150 kb BGCs. It would do
-   so having only ever been fine-tuned on ≤32 k windows. The docs don't currently
-   discuss this mismatch or how it interacts with the evaluation suite.
-4. **No plan currently pushes L past 32 k at train time.** The §12.7 smoke benchmark
-   decision rule terminates at L = 32 768; it doesn't have a branch for "if the H100
-   shows headroom, try L = 65 536 to shrink the long tail." Block-level activation
-   checkpointing (§12.7 and §13 of `PROJECT_GUIDE.md`) is the memory lever that would
-   enable this, but the cost/benefit has not been worked through.
+**Sidecars (chunk mode).** Before the first chunked run, build (or let rank 0
+auto-build) per-JSONL length caches next to the split files (or under
+`--lengths-cache-dir`, default: parent of `--train`):
 
-Candidate strategies to address (1)–(4) — random-window-per-epoch, multi-chunk per
-record, curriculum L, and/or pushing L > 32 768 under block-level activation
-checkpointing — are listed as open options in `PROJECT_GUIDE.md` §13 "Future
-enhancements" and are **not** adopted decisions.
+- `data/processed/splits_combined/<split>.lengths.npy` — `int32` length of
+  `sequence` per JSONL line
+- `data/processed/splits_combined/<split>.lengths.meta.json` — fingerprint
+  (`path`, `size`, `mtime`, `count`) so stale caches are rebuilt when the JSONL
+  changes; after the first chunked run (with `--auto-prefix-budget`) also holds
+  `max_prefix_tokens` and `max_prefix_tokens_evo_tag` for reproducible windowing.
+
+One-shot pre-build / chunk-count preview:
+
+```bash
+python scripts/build_chunk_index.py \
+  --jsonl data/processed/splits_combined/train.jsonl \
+          data/processed/splits_combined/val.jsonl \
+          data/processed/splits_combined/test.jsonl \
+  --max-seq-len 32768 --chunk-overlap 2048
+```
+
+**Production launch (gputee):** add
+`--long-seq-strategy chunk --chunk-overlap 2048` to the §13 templates in
+`PROJECT_GUIDE.md` (optional `--lengths-cache-dir` if train/val live outside the
+same directory). `train_log.jsonl` rows include `first_record_idx`,
+`first_nt_start`, `first_nt_end` (from the first sample in the logged micro-batch)
+for windowing audits.
+
+Residual notes (unchanged trade-offs):
+
+- **Train / inference length mismatch** can remain if you generate longer
+  sequences at inference than `max_seq_len`; chunking improves *coverage* of
+  native-length training clusters but does not remove the need to validate
+  long outputs separately.
+- **Pushing `L` past 32k** is still gated on H100 memory (§12.7); chunking is
+  orthogonal to the `--max-seq-len` knob.
 
 ---
 
@@ -330,8 +357,13 @@ Override via CLI flags.
 | `--warmup-steps`       | `200`      | `200`         | ~1% of first epoch                                 |
 | `--batch-size`         | `4`        | `4`           | Sequences per GPU per step                         |
 | `--grad-accum`         | `8`        | `8`           | Effective batch = 128 sequences                    |
-| `--max-seq-len`        | `32768`    | `32768`       | Covers 83% of training sequences at full length    |
-| `--max-epochs`         | `2`        | `2`           | ~4,332 steps; early stop on val loss plateau       |
+| `--max-seq-len`        | `32768`    | `32768`       | Max tokens per example (prefix + sequence window); see §3 chunk vs truncate |
+| `--long-seq-strategy`  | `truncate` | `truncate`    | `truncate` = head clip; **`chunk`** = full nt coverage (production; see §3) |
+| `--chunk-overlap`      | `2048`     | `2048`        | Nucleotide overlap between windows (`chunk` mode only) |
+| `--auto-prefix-budget` | on         | on            | Scan split → store `max_prefix_tokens` in meta; chunk windows use `L - max_prefix_tokens` (`chunk` mode) |
+| `--no-auto-prefix-budget` | —      | —             | Force fixed `--prefix-budget` for every row (`chunk` mode) |
+| `--prefix-budget`      | `256`      | `256`         | Fixed prefix token cap when `--no-auto-prefix-budget` (`chunk` mode) |
+| `--max-epochs`         | `2`        | `2`           | ~4,332 steps at one record per dataset index; chunk steps/epoch depend on scanned prefix cap (see §3) |
 | `--weight-decay`       | `0.01`     | `0.1`         | Lower for LoRA — heavy WD hurts tiny adapter params |
 | `--grad-clip`          | `1.0`      | `1.0`         | Max gradient norm                                  |
 | `--beta1`              | `0.9`      | `0.9`         | Standard AdamW                                     |
@@ -1176,8 +1208,8 @@ Project decision from these no-checkpoint results:
 - **Do not use the 8,192 no-AC smoke pass as production evidence.** It
   indicates near-saturation, not a comfortable operating point.
 
-The result of this benchmark will also replace the "pending" row in the
-§4 "Memory at runtime" table.
+Follow-up AC-enabled sweeps (§12.7) populated the §4 “Memory at runtime”
+tables; treat the no-AC numbers above as diagnostic ceiling estimates only.
 
 **What "block-level activation checkpointing" actually means.** This is
 PyTorch's `torch.utils.checkpoint` API, applied at the granularity of one
@@ -1345,11 +1377,19 @@ Current recommendation for production planning:
 #### Coverage impact of `L=65536` on current combined train split
 
 Using `data/processed/splits_combined/train.jsonl` (277,238 records), counting
-full-length inclusion by `training_text` length:
+full-length inclusion by `training_text` length **when using head truncation**
+(`--long-seq-strategy truncate`):
 
 - `L=32768`: 179,685 / 277,238 = **64.8%** included without truncation
 - `L=65536`: 256,875 / 277,238 = **92.7%** included without truncation
 - Delta: **+77,190 records** (**+27.8 percentage points**) from 32k -> 65,536
+
+With **`--long-seq-strategy chunk`** at `L=32768`, every nucleotide in every
+`sequence` field is supervised across one or more windows (overlap regions are
+supervised multiple times). Step count scales with the emitted chunk index
+(about **1.4×–1.5×** more optimizer steps per epoch vs truncate at L=32k for
+this split, depending on `max_prefix_tokens` from `--auto-prefix-budget` vs a
+fixed `--prefix-budget`).
 
 This quantifies the trade-off: 65,536 materially improves full-length coverage,
 but requires passing production-like stability checks (not only short smoke

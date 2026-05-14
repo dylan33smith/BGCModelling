@@ -72,10 +72,16 @@ BCGModelling/
 │   ├── antismash_db_to_jsonl.py    # Step 1b — antiSMASH DB v5 → JSONL
 │   ├── annotate_contig_edge.py     # Post-hoc contig_edge annotation (single tar pass)
 │   ├── split_dataset.py            # Step 2  — stratified train/val/test
+│   ├── plot_data_stats.py          # Dataset statistics / plots (optional)
 │   ├── finetune_evo2.py            # Step 3a — Evo2 full fine-tune (reference only; OOMs on both trojai and gputee)
 │   ├── finetune_evo2_lora.py       # Step 3b — Evo2 LoRA fine-tune (use this)
 │   ├── evaluate_bgc.py             # Step 4  — full evaluation CLI
-│   └── eval_smoke.py               # Quick sanity checks
+│   ├── eval_smoke.py               # Quick sanity checks
+│   ├── check_data_eval_readiness.py # Preflight: data + binaries for 8-metric eval (§13.2)
+│   ├── queue_h100_smoke.sh         # Idle-GPU wrapper — padded memory sweeps (FINETUNE_GUIDE §12.7)
+│   ├── queue_h100_preflight.sh     # Idle-GPU wrapper — production-like preflight matrix
+│   ├── queue_h100_pilot.sh         # Idle-GPU wrapper — short L=32k pilot on combined splits (§13 ⭐ NEXT)
+│   └── queue_h100_resume_test.sh   # Idle-GPU wrapper — resume-path regression after checkpoint changes (FINETUNE §12.8)
 │
 └── data/
     ├── mibig/
@@ -106,8 +112,14 @@ BCGModelling/
         │   └── heldout_accessions.txt          #   526 accessions (val + test)
         └── splits_combined/                    # MIBiG + antiSMASH combined splits
             ├── train.jsonl                     # 277,238 records
+            ├── train.lengths.npy               # int32 len(sequence) per line (chunk mode sidecar)
+            ├── train.lengths.meta.json         # fingerprint — rebuild if train.jsonl changes
             ├── val.jsonl                       #  34,655 records
+            ├── val.lengths.npy
+            ├── val.lengths.meta.json
             ├── test.jsonl                      #  34,655 records
+            ├── test.lengths.npy
+            ├── test.lengths.meta.json
             └── heldout_accessions.txt
 ```
 
@@ -1397,22 +1409,36 @@ Scaffolding is now concretely defined:
    - Use **`L=65536`** only if you accept the **~74 GB peak** VRAM profile and longer wall-clock vs **`L=32768`**, and the **32k pilot** on natural collation is green.
    - Otherwise prefer **`L=32768`** for maximum margin.
 
-3. **Launch templates prepared (only `--max-seq-len` differs):**
+**Long-sequence tiling (production vs pilot).** Multi-day **production** runs on
+`data/processed/splits_combined/{train,val}.jsonl` should use
+`--long-seq-strategy chunk --chunk-overlap 2048` so every nucleotide in each BGC
+is supervised across deterministic windows (see `FINETUNE_GUIDE.md` §3). By default
+the trainer **auto-scans** max prefix token length per split into
+`<split>.lengths.meta.json` (`--auto-prefix-budget`); use `--no-auto-prefix-budget`
+only for strict alignment with older fixed-256-token window counts. Build
+or refresh length sidecars with `python scripts/build_chunk_index.py` whenever
+JSONLs are regenerated. The **L=32k pilot** (`scripts/queue_h100_pilot.sh`) keeps
+the trainer default **`--long-seq-strategy truncate`** so pilot metrics stay
+comparable to earlier truncate-only smoke runs.
+
+3. **Launch templates prepared (`--max-seq-len` differs; production adds chunk flags):**
 
 ```bash
-# Template A (conservative): L=32768
+# Template A (conservative): L=32768 + full-sequence chunking
 deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
   --train data/processed/splits_combined/train.jsonl \
   --val data/processed/splits_combined/val.jsonl \
   --output-dir /data2/ds85/bgcmodel_runs/phase1_lora_prod_<TS>_L32768 \
-  --max-seq-len 32768 --grad-accum 32
+  --max-seq-len 32768 --grad-accum 32 \
+  --long-seq-strategy chunk --chunk-overlap 2048
 
-# Template B (stretch): L=65536
+# Template B (stretch): L=65536 + full-sequence chunking
 deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
   --train data/processed/splits_combined/train.jsonl \
   --val data/processed/splits_combined/val.jsonl \
   --output-dir /data2/ds85/bgcmodel_runs/phase1_lora_prod_<TS>_L65536 \
-  --max-seq-len 65536 --grad-accum 32
+  --max-seq-len 65536 --grad-accum 32 \
+  --long-seq-strategy chunk --chunk-overlap 2048
 ```
 
 4. **Restart SOP (documented):**
@@ -1429,6 +1455,8 @@ deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
    - Use queued scripts on shared GPU when possible:
      - smoke: `scripts/queue_h100_smoke.sh`
      - production-like preflight: `scripts/queue_h100_preflight.sh`
+     - **L=32k pilot (natural collation):** `scripts/queue_h100_pilot.sh`
+     - resume regression: `scripts/queue_h100_resume_test.sh`
 
 ### 13.2  Data and evaluation readiness (start now; independent of final `L`)
 
@@ -1503,30 +1531,21 @@ Immediate readiness actions:
 - Additional compound classes when antiSMASH data available
 - Codon-optimised MIBiG training variants (if M7 shows poor E. coli compatibility)
 
-#### Open options for handling the >32,768 bp sequence tail (not adopted decisions)
+#### Open options for handling the >32,768 bp sequence tail
 
-Background: the current training plan caps `--max-seq-len` at 32,768 and
-centre-crops the ~17% of records longer than that (see `FINETUNE_GUIDE.md` §3
-for the full caveats — flanking genes discarded, val/test computed on the same
-crop, train/inference length mismatch). The plan currently addresses this tail
-with a single strategy (centre-crop) and has no branch for revisiting it. The
-options below are candidates to evaluate; none is currently committed to.
+**Adopted (2026-05):** deterministic **multi-chunk tiling** with **2 kb overlap**
+is implemented in `scripts/finetune_evo2_lora.py` (`--long-seq-strategy chunk`;
+default remains `truncate` for the L=32k pilot). See `FINETUNE_GUIDE.md` §3 for
+sidecars, `scripts/build_chunk_index.py`, and val-loss comparability notes.
+
+Remaining **optional** directions (not required for Phase 1):
 
 - **Long-context held-out evaluation.** Define a validation subset of records
   with full length ≥ 50 kb and a metric that scores the model's behaviour on
-  the flanks (e.g. perplexity computed on held-out flank regions). This is a
-  pre-requisite for all of the strategies below — without it there is no
-  signal to distinguish them.
-- **Random-window-per-epoch.** Instead of a fixed centre crop, draw a random
-  32 k window from each >32 k record each epoch. Preserves train-time L (and
-  therefore the §12.7 memory budget) while exposing the flanks over multiple
-  epochs. Trade-off: validation loss becomes noisier unless val uses a fixed
-  window; some evaluation protocol changes required.
-- **Multi-chunk per record.** Slice each >32 k record into multiple
-  non-overlapping (or overlapping) 32 k chunks and emit each as a separate
-  training sample. Increases step count per epoch roughly in proportion to
-  the mean-length-over-32 k ratio (maybe ~1.3–1.5×); otherwise preserves the
-  §12.7 memory budget.
+  the flanks (e.g. perplexity computed on held-out flank regions).
+- **Random-window-per-epoch.** Instead of deterministic chunks, draw a random
+  window each epoch for train only. Trade-off: noisier val unless val stays
+  deterministic / chunked.
 - **Curriculum L.** Train early epochs at a small L (e.g. 8 k or 16 k) and
   raise L over training. Memory/throughput friendly; only addresses the tail
   if the final L is ≥ the desired cap.

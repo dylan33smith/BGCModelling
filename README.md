@@ -1,8 +1,8 @@
 # BCGModelling
 
 Fine-tune Evo2 7B to generate synthesis-ready biosynthetic gene cluster (BGC)
-nucleotide sequences conditioned on compound class, compound identity, and
-taxonomic lineage.
+nucleotide sequences conditioned on biosynthetic **class** and taxonomic **lineage**
+(**Phase 1**); **Phase 2+** adds explicit **compound** conditioning for named-product design.
 
 ## Documentation
 

@@ -10,7 +10,7 @@
 
 Biosynthetic gene clusters (BGCs) are genomic regions in bacteria and fungi where all the genes required to synthesise a specific natural product are physically co-localised. Historically, discovering and deploying these clusters has relied on a parts-based approach: isolate individual genetic elements, characterise them separately, and reassemble them by hand. This is slow, fails to account for emergent regulatory complexity, and is limited to variants of what nature has already evolved.
 
-The emergence of large-scale genomic language models, particularly Evo2, creates a new possibility: learning the full nucleotide-level grammar of BGCs across all domains of life and using that knowledge to generate synthetic clusters that are coherent, novel, and optimised for expression in a chosen chassis organism. This project proposes to fine-tune Evo2 to generate complete, synthesis-ready BGC nucleotide sequences conditioned on a target compound, its **biosynthetic class**, and a chassis organism, and to validate the pipeline through a multi-layered computational evaluation suite designed to be robust in the absence of experimental data.
+The emergence of large-scale genomic language models, particularly Evo2, creates a new possibility: learning the full nucleotide-level grammar of BGCs across all domains of life and using that knowledge to generate synthetic clusters that are coherent, novel, and optimised for expression in a chosen chassis organism. This project fine-tunes Evo2 on merged MIBiG + antiSMASH corpora with **`COMPOUND_CLASS` + chassis lineage** in **Phase 1**, extending toward **compound-conditioned** generation in **Phase 2+**, and validates the stack through a multi-layered computational evaluation suite designed to be robust in the absence of experimental data.
 
 # **2\. Novel Contribution and Positioning**
 
@@ -20,9 +20,11 @@ The most directly relevant prior work is Kawano et al. (2025, PLOS Computational
 
 ## **2.2  This Project's Contribution**
 
-This work proposes the first end-to-end computational pipeline for generating synthesis-ready BGC nucleotide sequences conditioned on a **specific target compound, a harmonised biosynthetic class (`COMPOUND_CLASS`), and a chassis organism**. The novel elements are:
+**Phase 1 (implemented, May 2026)** ships an end-to-end path on **`data/processed/splits_combined/`**: LoRA fine-tuning with **`COMPOUND_CLASS` + Evo2 taxonomic tag** only (**no `COMPOUND` token** in merged JSONL — see §3.2 and `PROJECT_GUIDE.md` §7 / §9). **Phase 2+** reintroduces compound-level conditioning for publication-facing “design toward a named metabolite” demos.
 
-* Fine-tuning Evo2 with **hierarchical conditioning tokens**: a shared `COMPOUND_CLASS` token (aligned across MIBiG and antiSMASH) plus a **`COMPOUND` slot that is always present**—MIBiG rows use a normalised metabolite name; bulk antiSMASH and other non-MIBiG rows use a single reserved **`NO_COMPOUND` sentinel**—so the prefix template is fixed and class-level breadth supervision shares the same token positions as compound-specific supervision.  
+The broader research contribution — spanning Phase 1 now and Phase 2+ next — includes:
+
+* **Phase 2+ target — hierarchical conditioning tokens:** a shared `COMPOUND_CLASS` token (aligned across MIBiG and antiSMASH) plus a **`COMPOUND` slot that is always present**—MIBiG rows use a normalised metabolite name; bulk antiSMASH rows use a reserved **`NO_COMPOUND` sentinel**—so the prefix template is fixed and class-level breadth supervision shares the same token positions as compound-specific supervision. (**Phase 1** uses class-only alignment first; §3.2 details the split.)  
 * Using the Kawano et al. domain-level model as an independent evaluation metric to verify that generated sequences encode the expected functional domain architecture.  
 * Testing raw model output without post-processing, cleanly isolating what the model itself has learned about BGC structure, codon usage, and regulatory grammar.  
 * An eight-metric computational evaluation suite spanning sequence naturalness, protein foldability, biosynthetic architecture, organism compatibility, synthesis manufacturability, structural novelty, and protein homology — designed to be fully convincing in the absence of wet lab data.  
@@ -32,7 +34,7 @@ This work proposes the first end-to-end computational pipeline for generating sy
 
 ## **3.1  Input Specification**
 
-At inference time, the user provides three inputs: (1) a **biosynthetic class** (`COMPOUND_CLASS`, harmonised vocabulary shared with training), (2) a **target compound** (`COMPOUND`, MIBiG-style name for the initial scope), and (3) a **chassis organism**. Scope is restricted to MIBiG compounds in the initial version, providing experimentally validated ground-truth BGC sequences for evaluation; the class for each target is taken from MIBiG annotations and/or the same harmonisation mapping used to build the training corpus (Section 4.2). The chassis organism is encoded using Evo2's existing taxonomic tag system, which forms part of the model's pretraining vocabulary:
+At inference time, the user provides (1) a **biosynthetic class** (`COMPOUND_CLASS`, harmonised vocabulary shared with training), (2) a **target compound** (`COMPOUND`, MIBiG-style name — **used once Phase 2+ checkpoints include compound conditioning**; **Phase 1** checkpoints match training and use **`COMPOUND_CLASS` + chassis taxonomic tag only**), and (3) a **chassis organism**. Scope is restricted to MIBiG compounds in the initial version, providing experimentally validated ground-truth BGC sequences for evaluation; the class for each target is taken from MIBiG annotations and/or the same harmonisation mapping used to build the training corpus (Section 4.2). The chassis organism is encoded using Evo2's existing taxonomic tag system, which forms part of the model's pretraining vocabulary:
 
 |D\_\_BACTERIA;P\_\_PSEUDOMONADOTA;C\_\_GAMMAPROTEOBACTERIA;O\_\_ENTEROBACTERALES;F\_\_ENTEROBACTERIACEAE;G\_\_ESCHERICHIA;S\_\_ESCHERICHIA|
 
@@ -97,9 +99,9 @@ Treat this subsection as **research directions** once compound conditioning land
 
 | Database | Version | BGC Count | Access | Role |
 | :---- | :---- | :---- | :---- | :---- |
-| MIBiG | 4.0 (Dec 2024\) | 3,059 | mibig.secondarymetabolites.org | Primary fine-tuning: **`COMPOUND_CLASS` \+ `COMPOUND`** per entry, experimentally validated BGCs |
+| MIBiG | 4.0 (Dec 2024\) | 3,059 | mibig.secondarymetabolites.org | Source of validated BGCs; **Phase 1 merged JSONL** uses **`COMPOUND_CLASS` only** (compound token stripped at merge). **Phase 2+** restores **`COMPOUND`** on MIBiG rows alongside class-only antiSMASH bulk rows. |
 | antiSMASH DB | **v5** (Jan 2026\) | **343,923 records** in migrated JSONL; ~497K BGCs at DB scope | antismash-db.secondarymetabolites.org | Class-only **`COMPOUND_CLASS`** rows for breadth (`PROJECT_GUIDE.md` §4.3); merged with MIBiG for Phase 1 training |
-| NPAtlas | 3.0 | 36,545 compounds | npatlas.org | Compound label normalisation and **auxiliary mapping** from structures or names to harmonised `COMPOUND_CLASS` where helpful |
+| NPAtlas | 3.0 | 36,454 compounds | npatlas.org | Compound label normalisation and **auxiliary mapping** from structures or names to harmonised `COMPOUND_CLASS` where helpful |
 
 ## **4.2  Data Pipeline**
 

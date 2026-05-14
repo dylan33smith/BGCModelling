@@ -183,6 +183,54 @@ def parse_args() -> argparse.Namespace:
                         "padding). Use for GPU memory sweeps so peak memory reflects "
                         "the requested L even when dataset samples are shorter. "
                         "Validation still uses natural-length collation.")
+    p.add_argument(
+        "--long-seq-strategy",
+        type=str,
+        default="truncate",
+        choices=["truncate", "chunk"],
+        help="truncate: tokenize full training_text then clip to --max-seq-len "
+             "(legacy). chunk: slice each record's nucleotide sequence into "
+             "windows with --chunk-overlap; nucleotide budget per chunk is "
+             "max_seq_len minus the prefix token count (see --auto-prefix-budget).",
+    )
+    p.add_argument(
+        "--chunk-overlap",
+        type=int,
+        default=2048,
+        help="Nucleotide overlap between consecutive chunks (--long-seq-strategy chunk). "
+             "Stride = (max_seq_len - prefix_token_cap) - chunk_overlap.",
+    )
+    p.add_argument(
+        "--prefix-budget",
+        type=int,
+        default=256,
+        help="Fixed tokenizer-token allowance for the conditioning prefix when "
+             "--no-auto-prefix-budget is set (chunk mode). Ignored when auto scan is on.",
+    )
+    apb = p.add_mutually_exclusive_group()
+    apb.add_argument(
+        "--auto-prefix-budget",
+        dest="auto_prefix_budget",
+        action="store_true",
+        help="Chunk mode (default): scan each JSONL once with the Evo2 tokenizer, "
+             "store max prefix token count in <stem>.lengths.meta.json, and use "
+             "max_seq_len - max_prefix_tokens for nucleotide windows (canonical "
+             "prefix from COMPOUND_CLASS + taxonomic_tag). Falls back to "
+             "--prefix-budget if scan is disabled.",
+    )
+    apb.add_argument(
+        "--no-auto-prefix-budget",
+        dest="auto_prefix_budget",
+        action="store_false",
+        help="Chunk mode: use fixed --prefix-budget for every row (legacy).",
+    )
+    p.set_defaults(auto_prefix_budget=True)
+    p.add_argument(
+        "--lengths-cache-dir",
+        type=Path,
+        default=None,
+        help="Directory for <jsonl_stem>.lengths.npy sidecars (default: parent of --train).",
+    )
     p.add_argument("--max-steps",  type=int, default=0,
                    help="If >0, stop after this many optimizer steps (smoke tests)")
     p.add_argument("--resume-from", type=Path, default=None,
@@ -272,11 +320,225 @@ def save_env(output_dir: Path) -> None:
 # Dataset  (identical to finetune_evo2.py)
 # ────────────────────────────────────────────────────────────────────────
 
+
+def _lengths_sidecar_paths(cache_dir: Path, jsonl_path: Path) -> tuple[Path, Path]:
+    stem = jsonl_path.stem
+    return cache_dir / f"{stem}.lengths.npy", cache_dir / f"{stem}.lengths.meta.json"
+
+
+def _lengths_meta_matches(meta: dict[str, Any], jsonl_path: Path) -> bool:
+    stat = jsonl_path.stat()
+    return (
+        meta.get("path") == str(jsonl_path.resolve())
+        and meta.get("size") == stat.st_size
+        and meta.get("mtime") == int(stat.st_mtime)
+    )
+
+
+def load_or_build_lengths_sidecar(jsonl_path: Path, cache_dir: Path) -> np.ndarray:
+    """Load int32 per-record sequence lengths; build sidecar if missing or stale."""
+    npy_path, meta_path = _lengths_sidecar_paths(cache_dir, jsonl_path)
+    stem = jsonl_path.stem
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    if npy_path.exists() and meta_path.exists():
+        meta = json.loads(meta_path.read_text())
+        if _lengths_meta_matches(meta, jsonl_path):
+            arr = np.load(npy_path)
+            if int(meta.get("count", -1)) == len(arr):
+                return arr.astype(np.int32, copy=False)
+
+    lengths: list[int] = []
+    with jsonl_path.open("rb") as f:
+        for raw in f:
+            if not raw.strip():
+                continue
+            rec = json.loads(raw)
+            lengths.append(len(rec["sequence"]))
+    arr = np.asarray(lengths, dtype=np.int32)
+    stat = jsonl_path.stat()
+    meta = {
+        "path": str(jsonl_path.resolve()),
+        "size": stat.st_size,
+        "mtime": int(stat.st_mtime),
+        "count": len(arr),
+    }
+    tmp_npy = cache_dir / f"{stem}.lengths.pending-{os.getpid()}.npy"
+    tmp_meta = meta_path.with_suffix(".json.pending")
+    np.save(tmp_npy, arr)
+    tmp_meta.write_text(json.dumps(meta, indent=2))
+    os.replace(tmp_npy, npy_path)
+    os.replace(tmp_meta, meta_path)
+    return arr
+
+
+def canonical_phase1_prefix(rec: dict[str, Any]) -> str:
+    """Rebuild Phase 1 conditioning prefix from JSON fields (merge pipeline format)."""
+    cc = str(rec.get("compound_class", ""))
+    tax = str(rec.get("taxonomic_tag", ""))
+    return f"|COMPOUND_CLASS:{cc}|{tax}"
+
+
+def training_prefix_for_chunking(rec: dict[str, Any]) -> str:
+    """Prefix string before ``sequence``; prefer canonical assembly, else slice."""
+    seq = rec.get("sequence") or ""
+    tt = rec.get("training_text") or ""
+    canon = canonical_phase1_prefix(rec)
+    if seq and canon + seq == tt:
+        return canon
+    if seq and tt.endswith(seq):
+        return tt[: len(tt) - len(seq)]
+    raise ValueError(
+        "Cannot derive training prefix: need training_text to end with sequence "
+        "and (optional) canonical |COMPOUND_CLASS:…| + taxonomic_tag match."
+    )
+
+
+def count_prefix_tokens(tokenizer: Any, prefix: str) -> int:
+    toks = tokenizer.tokenize(prefix)
+    return len(toks) if isinstance(toks, (list, tuple)) else len(list(toks))
+
+
+def scan_jsonl_max_prefix_tokens(jsonl_path: Path, tokenizer: Any) -> tuple[int, int]:
+    """Return (max_prefix_token_count, n_rows_where_canonical_mismatch)."""
+    max_tok = 0
+    n_mismatch = 0
+    with jsonl_path.open("rb") as f:
+        for raw in f:
+            if not raw.strip():
+                continue
+            rec = json.loads(raw)
+            seq = rec.get("sequence") or ""
+            tt = rec.get("training_text") or ""
+            canon = canonical_phase1_prefix(rec)
+            if seq and canon + seq != tt:
+                n_mismatch += 1
+            prefix = training_prefix_for_chunking(rec)
+            max_tok = max(max_tok, count_prefix_tokens(tokenizer, prefix))
+    return max_tok, n_mismatch
+
+
+def ensure_max_prefix_tokens_in_meta(
+    jsonl_path: Path,
+    cache_dir: Path,
+    tokenizer: Any,
+    evo_model_tag: str,
+) -> int:
+    """Write ``max_prefix_tokens`` (+ evo tag) into lengths meta; return the value."""
+    _, meta_path = _lengths_sidecar_paths(cache_dir, jsonl_path)
+    if not meta_path.exists():
+        raise FileNotFoundError(f"Missing lengths meta: {meta_path}")
+    meta = json.loads(meta_path.read_text())
+    if not _lengths_meta_matches(meta, jsonl_path):
+        raise ValueError(f"Stale lengths meta for {jsonl_path}; rebuild sidecars first.")
+    if (
+        meta.get("max_prefix_tokens_evo_tag") == evo_model_tag
+        and "max_prefix_tokens" in meta
+    ):
+        v = int(meta["max_prefix_tokens"])
+        rank0_print(f"  {jsonl_path.name}: max_prefix_tokens={v} (from meta)")
+        return v
+    rank0_print(f"  {jsonl_path.name}: scanning max prefix token length…")
+    max_tok, n_bad = scan_jsonl_max_prefix_tokens(jsonl_path, tokenizer)
+    if n_bad:
+        rank0_print(
+            f"  WARNING: {n_bad:,} rows where canonical prefix+sequence != "
+            f"training_text; used training_text[:-len(sequence)] for those."
+        )
+    meta["max_prefix_tokens"] = int(max_tok)
+    meta["max_prefix_tokens_evo_tag"] = evo_model_tag
+    meta_path.write_text(json.dumps(meta, indent=2))
+    rank0_print(f"  {jsonl_path.name}: max_prefix_tokens={max_tok} (written to meta)")
+    return max_tok
+
+
+def load_max_prefix_tokens_from_meta(
+    jsonl_path: Path, cache_dir: Path, evo_model_tag: str
+) -> int:
+    _, meta_path = _lengths_sidecar_paths(cache_dir, jsonl_path)
+    meta = json.loads(meta_path.read_text())
+    if not _lengths_meta_matches(meta, jsonl_path):
+        raise ValueError(f"Stale lengths meta for {jsonl_path}")
+    if meta.get("max_prefix_tokens_evo_tag") != evo_model_tag:
+        raise ValueError(
+            f"{meta_path}: max_prefix_tokens_evo_tag mismatch "
+            f"(expected {evo_model_tag!r}). Re-run on rank 0 to refresh."
+        )
+    if "max_prefix_tokens" not in meta:
+        raise KeyError(f"{meta_path} missing max_prefix_tokens; run training on rank 0.")
+    return int(meta["max_prefix_tokens"])
+
+
+def build_nt_chunk_spans(
+    seq_len_nt: int,
+    max_seq_len: int,
+    prefix_token_cap: int,
+    chunk_overlap_nt: int,
+) -> list[tuple[int, int]]:
+    """Return [(nt_start, nt_end), ...] covering [0, seq_len_nt) in nucleotide space."""
+    seq_budget = max_seq_len - prefix_token_cap
+    if seq_budget <= 0:
+        raise ValueError(
+            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap ({prefix_token_cap})"
+        )
+    if chunk_overlap_nt >= seq_budget:
+        raise ValueError(
+            f"chunk_overlap ({chunk_overlap_nt}) must be < sequence budget "
+            f"(max_seq_len - prefix_token_cap) = {seq_budget}"
+        )
+    stride = seq_budget - chunk_overlap_nt
+    if stride <= 0:
+        raise ValueError(
+            "stride = max_seq_len - prefix_token_cap - chunk_overlap must be > 0"
+        )
+    if seq_len_nt <= seq_budget:
+        return [(0, seq_len_nt)]
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while True:
+        end = min(start + seq_budget, seq_len_nt)
+        spans.append((start, end))
+        if end >= seq_len_nt:
+            break
+        start += stride
+    return spans
+
+
+def build_all_chunk_indices(
+    lengths: np.ndarray,
+    max_seq_len: int,
+    prefix_token_cap: int,
+    chunk_overlap_nt: int,
+) -> list[tuple[int, int, int]]:
+    """Flat index: (record_idx, nt_start, nt_end)."""
+    chunks: list[tuple[int, int, int]] = []
+    for rec_idx, slen in enumerate(lengths.astype(int).tolist()):
+        for nt0, nt1 in build_nt_chunk_spans(
+            slen, max_seq_len, prefix_token_cap, chunk_overlap_nt
+        ):
+            chunks.append((rec_idx, nt0, nt1))
+    return chunks
+
+
 class BGCTextDataset(Dataset):
-    def __init__(self, jsonl_path: Path, tokenizer, max_seq_len: int) -> None:
-        self.jsonl_path  = jsonl_path
-        self.tokenizer   = tokenizer
+    def __init__(
+        self,
+        jsonl_path: Path,
+        tokenizer: Any,
+        max_seq_len: int,
+        *,
+        long_seq_strategy: str = "truncate",
+        chunk_overlap: int = 2048,
+        prefix_token_cap: int = 256,
+        lengths_cache_dir: Path | None = None,
+    ) -> None:
+        self.jsonl_path = jsonl_path
+        self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len
+        self.long_seq_strategy = long_seq_strategy
+        self.chunk_overlap = chunk_overlap
+        self.prefix_token_cap = prefix_token_cap
+        self.lengths_cache_dir = lengths_cache_dir
+
         self.offsets: list[int] = []
         with jsonl_path.open("rb") as f:
             offset = 0
@@ -288,25 +550,97 @@ class BGCTextDataset(Dataset):
                 offset += len(line)
         rank0_print(f"  {jsonl_path.name}: indexed {len(self.offsets):,} records")
 
+        self.chunks: list[tuple[int, int, int]] | None = None
+        self._prefix_warned = False
+
+        if long_seq_strategy == "chunk":
+            if lengths_cache_dir is None:
+                raise ValueError("lengths_cache_dir is required for long_seq_strategy=chunk")
+            lengths = load_or_build_lengths_sidecar(jsonl_path, lengths_cache_dir)
+            if len(lengths) != len(self.offsets):
+                raise ValueError(
+                    f"Lengths sidecar count {len(lengths)} != jsonl line count "
+                    f"{len(self.offsets)} for {jsonl_path}"
+                )
+            self.chunks = build_all_chunk_indices(
+                lengths, max_seq_len, prefix_token_cap, chunk_overlap
+            )
+            rank0_print(
+                f"  {jsonl_path.name}: chunk mode → {len(self.chunks):,} windows "
+                f"(overlap_nt={chunk_overlap}, prefix_token_cap={prefix_token_cap})"
+            )
+            self._assert_prefix_token_cap_on_sample()
+
+    def _assert_prefix_token_cap_on_sample(self) -> None:
+        """Validate prefix token length on the first JSONL record."""
+        with self.jsonl_path.open("rb") as f:
+            f.seek(self.offsets[0])
+            line = f.readline()
+        rec = json.loads(line)
+        prefix = training_prefix_for_chunking(rec)
+        n_prefix = count_prefix_tokens(self.tokenizer, prefix)
+        if n_prefix > self.prefix_token_cap:
+            raise ValueError(
+                f"Prefix tokenizes to {n_prefix} tokens but effective cap is "
+                f"{self.prefix_token_cap}. Increase --prefix-budget, refresh meta "
+                f"scan, or fix conditioning format."
+            )
+
     def __len__(self) -> int:
+        if self.chunks is not None:
+            return len(self.chunks)
         return len(self.offsets)
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
+        if self.chunks is None:
+            record_idx = idx
+            chunk_idx = idx
+        else:
+            record_idx, nt_start, nt_end = self.chunks[idx]
+            chunk_idx = idx
+
         with self.jsonl_path.open("rb") as f:
-            f.seek(self.offsets[idx])
+            f.seek(self.offsets[record_idx])
             line = f.readline()
-        rec  = json.loads(line)
-        text = rec["training_text"]
+        rec = json.loads(line)
+        seq = rec["sequence"]
+        training_text = rec["training_text"]
+
+        if self.chunks is None:
+            nt_start, nt_end = 0, len(seq)
+            text = training_text
+        else:
+            if not training_text.endswith(seq):
+                raise ValueError(
+                    f"Record {record_idx}: training_text does not end with sequence"
+                )
+            prefix = training_prefix_for_chunking(rec)
+            sub = seq[nt_start:nt_end]
+            text = prefix + sub
+
         tokens = self.tokenizer.tokenize(text)
         ids = list(tokens) if isinstance(tokens, (list, tuple)) else [int(t) for t in tokens]
         if len(ids) > self.max_seq_len:
+            if self.chunks is not None and not self._prefix_warned and is_main():
+                rank0_print(
+                    f"  WARNING: chunk token length {len(ids)} > max_seq_len "
+                    f"{self.max_seq_len}; clipping tail (record_idx={record_idx}, "
+                    f"nt_start={nt_start}, nt_end={nt_end})."
+                )
+                self._prefix_warned = True
             ids = ids[: self.max_seq_len]
-        return {
+
+        out: dict[str, Any] = {
             "input_ids": ids,
-            "length":    len(ids),
+            "length": len(ids),
             "accession": rec.get("accession", ""),
-            "class":     rec.get("compound_class", ""),
+            "class": rec.get("compound_class", ""),
+            "record_idx": record_idx,
+            "chunk_idx": idx,
+            "nt_start": nt_start if self.chunks is not None else 0,
+            "nt_end": nt_end if self.chunks is not None else len(seq),
         }
+        return out
 
 
 def collate_pad(batch: list[dict[str, Any]],
@@ -320,10 +654,14 @@ def collate_pad(batch: list[dict[str, Any]],
         ids = torch.tensor(b["input_ids"], dtype=torch.long)
         input_ids[i, :L] = ids
         labels[i, :L]    = ids
+    first = batch[0]
     return {
         "input_ids":     input_ids,
         "labels":        labels,
         "content_max_len": content_max,
+        "first_record_idx": int(first["record_idx"]),
+        "first_nt_start": int(first["nt_start"]),
+        "first_nt_end": int(first["nt_end"]),
     }
 
 
@@ -348,10 +686,14 @@ def collate_pad_to_max(batch: list[dict[str, Any]], max_seq_len: int,
         ids = torch.tensor(b["input_ids"], dtype=torch.long)
         input_ids[i, :L] = ids
         labels[i, :L]    = ids
+    first = batch[0]
     return {
         "input_ids":       input_ids,
         "labels":          labels,
         "content_max_len": content_max,
+        "first_record_idx": int(first["record_idx"]),
+        "first_nt_start": int(first["nt_start"]),
+        "first_nt_end": int(first["nt_end"]),
     }
 
 
@@ -903,9 +1245,60 @@ def main() -> None:
         rank0_print("  Activation checkpointing: disabled")
 
     # ── Datasets ──────────────────────────────────────────────────────
+    cache_dir = (
+        args.lengths_cache_dir
+        if args.lengths_cache_dir is not None
+        else args.train.parent
+    )
+    if args.long_seq_strategy == "chunk":
+        if is_main():
+            rank0_print(
+                "Ensuring nucleotide length sidecars for chunk mode "
+                f"(cache dir: {cache_dir})..."
+            )
+            load_or_build_lengths_sidecar(args.train, cache_dir)
+            load_or_build_lengths_sidecar(args.val, cache_dir)
+            if args.auto_prefix_budget:
+                ensure_max_prefix_tokens_in_meta(
+                    args.train, cache_dir, tokenizer, EVO2_MODEL_NAME)
+                ensure_max_prefix_tokens_in_meta(
+                    args.val, cache_dir, tokenizer, EVO2_MODEL_NAME)
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
     rank0_print("Indexing datasets...")
-    train_ds = BGCTextDataset(args.train, tokenizer, args.max_seq_len)
-    val_ds   = BGCTextDataset(args.val,   tokenizer, args.max_seq_len)
+    train_cap = args.prefix_budget
+    val_cap = args.prefix_budget
+    if args.long_seq_strategy == "chunk" and args.auto_prefix_budget:
+        train_cap = load_max_prefix_tokens_from_meta(
+            args.train, cache_dir, EVO2_MODEL_NAME)
+        val_cap = load_max_prefix_tokens_from_meta(
+            args.val, cache_dir, EVO2_MODEL_NAME)
+    elif args.long_seq_strategy == "chunk" and is_main():
+        rank0_print(
+            f"  Chunk mode: fixed prefix_token_cap={args.prefix_budget} "
+            f"(--no-auto-prefix-budget)"
+        )
+
+    ds_common: dict[str, Any] = {
+        "long_seq_strategy": args.long_seq_strategy,
+        "chunk_overlap": args.chunk_overlap,
+        "lengths_cache_dir": cache_dir if args.long_seq_strategy == "chunk" else None,
+    }
+    train_ds = BGCTextDataset(
+        args.train,
+        tokenizer,
+        args.max_seq_len,
+        prefix_token_cap=train_cap,
+        **ds_common,
+    )
+    val_ds = BGCTextDataset(
+        args.val,
+        tokenizer,
+        args.max_seq_len,
+        prefix_token_cap=val_cap,
+        **ds_common,
+    )
 
     world_size    = ddp_world_size()
     train_sampler = DistributedSampler(train_ds, num_replicas=world_size,
@@ -984,6 +1377,9 @@ def main() -> None:
 
             for micro_step, batch in enumerate(train_loader):
                 content_max_len = batch.pop("content_max_len", None)
+                first_record_idx = batch.pop("first_record_idx", None)
+                first_nt_start = batch.pop("first_nt_start", None)
+                first_nt_end = batch.pop("first_nt_end", None)
                 input_ids = batch["input_ids"].to(local_rank, non_blocking=True)
                 labels    = batch["labels"].to(local_rank, non_blocking=True)
                 collated_seq_len = int(input_ids.shape[1])
@@ -1037,6 +1433,9 @@ def main() -> None:
                                 "collated_seq_len": collated_seq_len,
                                 "content_max_len": int(content_max_len)
                                 if content_max_len is not None else collated_seq_len,
+                                "first_record_idx": first_record_idx,
+                                "first_nt_start": first_nt_start,
+                                "first_nt_end": first_nt_end,
                             }
                             append_jsonl(train_log_path, entry)
                             if wandb_run:
