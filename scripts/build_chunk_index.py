@@ -81,21 +81,24 @@ def build_nt_chunk_spans(
     max_seq_len: int,
     prefix_token_cap: int,
     chunk_overlap_nt: int,
+    slack_tokens: int = 0,
 ) -> list[tuple[int, int]]:
-    seq_budget = max_seq_len - prefix_token_cap
+    seq_budget = max_seq_len - prefix_token_cap - slack_tokens
     if seq_budget <= 0:
         raise ValueError(
-            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap ({prefix_token_cap})"
+            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap "
+            f"({prefix_token_cap}) + slack_tokens ({slack_tokens})"
         )
     if chunk_overlap_nt >= seq_budget:
         raise ValueError(
             f"chunk_overlap ({chunk_overlap_nt}) must be < sequence budget "
-            f"(max_seq_len - prefix_token_cap) = {seq_budget}"
+            f"(max_seq_len - prefix_token_cap - slack_tokens) = {seq_budget}"
         )
     stride = seq_budget - chunk_overlap_nt
     if stride <= 0:
         raise ValueError(
-            "stride = max_seq_len - prefix_token_cap - chunk_overlap must be > 0"
+            "stride = max_seq_len - prefix_token_cap - slack_tokens - "
+            "chunk_overlap must be > 0"
         )
     if seq_len_nt <= seq_budget:
         return [(0, seq_len_nt)]
@@ -115,11 +118,12 @@ def build_all_chunk_indices(
     max_seq_len: int,
     prefix_token_cap: int,
     chunk_overlap_nt: int,
+    slack_tokens: int = 0,
 ) -> list[tuple[int, int, int]]:
     chunks: list[tuple[int, int, int]] = []
     for rec_idx, slen in enumerate(lengths.astype(int).tolist()):
         for nt0, nt1 in build_nt_chunk_spans(
-            slen, max_seq_len, prefix_token_cap, chunk_overlap_nt
+            slen, max_seq_len, prefix_token_cap, chunk_overlap_nt, slack_tokens,
         ):
             chunks.append((rec_idx, nt0, nt1))
     return chunks
@@ -150,6 +154,13 @@ def main() -> None:
     p.add_argument("--max-seq-len", type=int, default=32768)
     p.add_argument("--chunk-overlap", type=int, default=2048)
     p.add_argument("--prefix-budget", type=int, default=256)
+    p.add_argument(
+        "--prefix-slack-tokens",
+        type=int,
+        default=0,
+        help="Preview slack subtracted from seq_budget; matches "
+             "scripts/finetune_evo2_lora.py --prefix-slack-tokens (H6).",
+    )
     args = p.parse_args()
 
     for jsonl_path in args.jsonl:
@@ -169,13 +180,16 @@ def main() -> None:
             args.max_seq_len,
             args.prefix_budget,
             args.chunk_overlap,
+            args.prefix_slack_tokens,
         )
+        seq_budget = args.max_seq_len - args.prefix_budget - args.prefix_slack_tokens
         print(f"  chunks @ L={args.max_seq_len}, overlap={args.chunk_overlap}, "
-              f"prefix_token_cap={args.prefix_budget} (CLI preview; trainer may use "
-              f"meta max_prefix_tokens when --auto-prefix-budget): {len(chunks):,}  "
+              f"prefix_token_cap={args.prefix_budget}, slack={args.prefix_slack_tokens} "
+              f"(CLI preview; trainer may use meta max_prefix_tokens/slack when "
+              f"--auto-prefix-budget): {len(chunks):,}  "
               f"(x{len(chunks) / max(n, 1):.3f} vs records)")
-        over = int((lengths > (args.max_seq_len - args.prefix_budget)).sum())
-        print(f"  records with len(sequence) > (L - prefix_budget): {over:,} "
+        over = int((lengths > seq_budget).sum())
+        print(f"  records with len(sequence) > seq_budget ({seq_budget}): {over:,} "
               f"({over / max(n, 1):.2%})")
 
 

@@ -226,6 +226,16 @@ def parse_args() -> argparse.Namespace:
     )
     p.set_defaults(auto_prefix_budget=True)
     p.add_argument(
+        "--prefix-slack-tokens",
+        type=int,
+        default=0,
+        help="Chunk mode: extra token headroom subtracted from seq_budget so "
+             "len(tokenize(prefix + sub)) is guaranteed <= max_seq_len even if "
+             "the tokenizer ever introduces a seam token (H6). Stored in the "
+             "lengths sidecar meta; --auto-prefix-budget scans for empirical "
+             "overflow and uses max(--prefix-slack-tokens, measured).",
+    )
+    p.add_argument(
         "--lengths-cache-dir",
         type=Path,
         default=None,
@@ -417,26 +427,87 @@ def scan_jsonl_max_prefix_tokens(jsonl_path: Path, tokenizer: Any) -> tuple[int,
     return max_tok, n_mismatch
 
 
+def compute_prefix_slack_tokens(
+    jsonl_path: Path,
+    tokenizer: Any,
+    max_seq_len: int,
+    prefix_token_cap: int,
+    n_samples: int = 64,
+) -> int:
+    """Sample records and measure worst-case tokeniser-vs-character overflow.
+
+    For Evo2's CharLevelTokenizer this returns 0 because
+    ``len(tokenize(prefix + sub)) == len(prefix) + len(sub)`` exactly. The
+    function exists to make any future tokenizer change (BPE, sentencepiece,
+    etc.) fail loudly during sidecar build instead of silently clipping the
+    tail of long chunks at training time (audit item H6).
+
+    Returns ``max(observed_overflow) + 4`` so the chunked ``seq_budget`` can
+    be shrunk to keep every record under ``max_seq_len`` even when the
+    tokenizer merges across the prefix↔sequence seam.
+    """
+    seq_budget = max_seq_len - prefix_token_cap
+    if seq_budget <= 0:
+        raise ValueError(
+            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap ({prefix_token_cap})"
+        )
+    max_overflow = 0
+    seen = 0
+    with jsonl_path.open("rb") as f:
+        for raw in f:
+            if seen >= n_samples:
+                break
+            if not raw.strip():
+                continue
+            rec = json.loads(raw)
+            seq = rec.get("sequence") or ""
+            if not seq:
+                continue
+            prefix = training_prefix_for_chunking(rec)
+            sub = seq[: min(seq_budget, len(seq))]
+            text = prefix + sub
+            toks = tokenizer.tokenize(text)
+            n = len(toks) if isinstance(toks, (list, tuple)) else len(list(toks))
+            if n > max_seq_len:
+                max_overflow = max(max_overflow, n - max_seq_len)
+            seen += 1
+    return max_overflow + 4 if max_overflow > 0 else 0
+
+
 def ensure_max_prefix_tokens_in_meta(
     jsonl_path: Path,
     cache_dir: Path,
     tokenizer: Any,
     evo_model_tag: str,
-) -> int:
-    """Write ``max_prefix_tokens`` (+ evo tag) into lengths meta; return the value."""
+    max_seq_len: int,
+    cli_prefix_slack_tokens: int = 0,
+) -> tuple[int, int]:
+    """Write ``max_prefix_tokens`` + ``prefix_slack_tokens`` (+ evo tag) into lengths meta.
+
+    ``cli_prefix_slack_tokens`` acts as a floor; the empirically-measured
+    overflow slack (from :func:`compute_prefix_slack_tokens`) overrides if
+    larger. Returns ``(max_prefix_tokens, prefix_slack_tokens)``.
+    """
     _, meta_path = _lengths_sidecar_paths(cache_dir, jsonl_path)
     if not meta_path.exists():
         raise FileNotFoundError(f"Missing lengths meta: {meta_path}")
     meta = json.loads(meta_path.read_text())
     if not _lengths_meta_matches(meta, jsonl_path):
         raise ValueError(f"Stale lengths meta for {jsonl_path}; rebuild sidecars first.")
-    if (
+    cached_ok = (
         meta.get("max_prefix_tokens_evo_tag") == evo_model_tag
         and "max_prefix_tokens" in meta
-    ):
+        and "prefix_slack_tokens" in meta
+        and int(meta["prefix_slack_tokens"]) >= int(cli_prefix_slack_tokens)
+    )
+    if cached_ok:
         v = int(meta["max_prefix_tokens"])
-        rank0_print(f"  {jsonl_path.name}: max_prefix_tokens={v} (from meta)")
-        return v
+        s = int(meta["prefix_slack_tokens"])
+        rank0_print(
+            f"  {jsonl_path.name}: max_prefix_tokens={v} "
+            f"slack={s} (from meta)"
+        )
+        return v, s
     rank0_print(f"  {jsonl_path.name}: scanning max prefix token length…")
     max_tok, n_bad = scan_jsonl_max_prefix_tokens(jsonl_path, tokenizer)
     if n_bad:
@@ -444,16 +515,30 @@ def ensure_max_prefix_tokens_in_meta(
             f"  WARNING: {n_bad:,} rows where canonical prefix+sequence != "
             f"training_text; used training_text[:-len(sequence)] for those."
         )
+    measured_slack = compute_prefix_slack_tokens(
+        jsonl_path, tokenizer, max_seq_len, int(max_tok),
+    )
+    slack = max(int(cli_prefix_slack_tokens), measured_slack)
     meta["max_prefix_tokens"] = int(max_tok)
+    meta["prefix_slack_tokens"] = int(slack)
     meta["max_prefix_tokens_evo_tag"] = evo_model_tag
     meta_path.write_text(json.dumps(meta, indent=2))
-    rank0_print(f"  {jsonl_path.name}: max_prefix_tokens={max_tok} (written to meta)")
-    return max_tok
+    rank0_print(
+        f"  {jsonl_path.name}: max_prefix_tokens={max_tok} "
+        f"slack={slack} (written to meta; measured_overflow_slack={measured_slack})"
+    )
+    return int(max_tok), int(slack)
 
 
 def load_max_prefix_tokens_from_meta(
     jsonl_path: Path, cache_dir: Path, evo_model_tag: str
-) -> int:
+) -> tuple[int, int]:
+    """Return ``(max_prefix_tokens, prefix_slack_tokens)``.
+
+    Missing ``prefix_slack_tokens`` (legacy meta written before audit item
+    H6) is treated as 0 with a one-line note, so existing sidecars keep
+    working until the next ``--auto-prefix-budget`` scan refreshes them.
+    """
     _, meta_path = _lengths_sidecar_paths(cache_dir, jsonl_path)
     meta = json.loads(meta_path.read_text())
     if not _lengths_meta_matches(meta, jsonl_path):
@@ -465,7 +550,16 @@ def load_max_prefix_tokens_from_meta(
         )
     if "max_prefix_tokens" not in meta:
         raise KeyError(f"{meta_path} missing max_prefix_tokens; run training on rank 0.")
-    return int(meta["max_prefix_tokens"])
+    max_tok = int(meta["max_prefix_tokens"])
+    if "prefix_slack_tokens" not in meta:
+        rank0_print(
+            f"  {meta_path.name}: legacy meta without prefix_slack_tokens; "
+            f"defaulting to 0 (will be added on next --auto-prefix-budget run)."
+        )
+        slack = 0
+    else:
+        slack = int(meta["prefix_slack_tokens"])
+    return max_tok, slack
 
 
 def build_nt_chunk_spans(
@@ -473,22 +567,31 @@ def build_nt_chunk_spans(
     max_seq_len: int,
     prefix_token_cap: int,
     chunk_overlap_nt: int,
+    slack_tokens: int = 0,
 ) -> list[tuple[int, int]]:
-    """Return [(nt_start, nt_end), ...] covering [0, seq_len_nt) in nucleotide space."""
-    seq_budget = max_seq_len - prefix_token_cap
+    """Return [(nt_start, nt_end), ...] covering [0, seq_len_nt) in nucleotide space.
+
+    ``slack_tokens`` shrinks ``seq_budget`` so that
+    ``len(tokenize(prefix + sub))`` is guaranteed to fit in ``max_seq_len``
+    even if the tokenizer ever introduces a seam token (audit item H6).
+    For Evo2's CharLevelTokenizer the empirical slack is 0.
+    """
+    seq_budget = max_seq_len - prefix_token_cap - slack_tokens
     if seq_budget <= 0:
         raise ValueError(
-            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap ({prefix_token_cap})"
+            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap "
+            f"({prefix_token_cap}) + slack_tokens ({slack_tokens})"
         )
     if chunk_overlap_nt >= seq_budget:
         raise ValueError(
             f"chunk_overlap ({chunk_overlap_nt}) must be < sequence budget "
-            f"(max_seq_len - prefix_token_cap) = {seq_budget}"
+            f"(max_seq_len - prefix_token_cap - slack_tokens) = {seq_budget}"
         )
     stride = seq_budget - chunk_overlap_nt
     if stride <= 0:
         raise ValueError(
-            "stride = max_seq_len - prefix_token_cap - chunk_overlap must be > 0"
+            "stride = max_seq_len - prefix_token_cap - slack_tokens - chunk_overlap "
+            "must be > 0"
         )
     if seq_len_nt <= seq_budget:
         return [(0, seq_len_nt)]
@@ -508,12 +611,13 @@ def build_all_chunk_indices(
     max_seq_len: int,
     prefix_token_cap: int,
     chunk_overlap_nt: int,
+    slack_tokens: int = 0,
 ) -> list[tuple[int, int, int]]:
     """Flat index: (record_idx, nt_start, nt_end)."""
     chunks: list[tuple[int, int, int]] = []
     for rec_idx, slen in enumerate(lengths.astype(int).tolist()):
         for nt0, nt1 in build_nt_chunk_spans(
-            slen, max_seq_len, prefix_token_cap, chunk_overlap_nt
+            slen, max_seq_len, prefix_token_cap, chunk_overlap_nt, slack_tokens,
         ):
             chunks.append((rec_idx, nt0, nt1))
     return chunks
@@ -529,6 +633,7 @@ class BGCTextDataset(Dataset):
         long_seq_strategy: str = "truncate",
         chunk_overlap: int = 2048,
         prefix_token_cap: int = 256,
+        slack_tokens: int = 0,
         lengths_cache_dir: Path | None = None,
     ) -> None:
         self.jsonl_path = jsonl_path
@@ -537,6 +642,7 @@ class BGCTextDataset(Dataset):
         self.long_seq_strategy = long_seq_strategy
         self.chunk_overlap = chunk_overlap
         self.prefix_token_cap = prefix_token_cap
+        self.slack_tokens = slack_tokens
         self.lengths_cache_dir = lengths_cache_dir
 
         self.offsets: list[int] = []
@@ -551,7 +657,6 @@ class BGCTextDataset(Dataset):
         rank0_print(f"  {jsonl_path.name}: indexed {len(self.offsets):,} records")
 
         self.chunks: list[tuple[int, int, int]] | None = None
-        self._prefix_warned = False
 
         if long_seq_strategy == "chunk":
             if lengths_cache_dir is None:
@@ -563,11 +668,12 @@ class BGCTextDataset(Dataset):
                     f"{len(self.offsets)} for {jsonl_path}"
                 )
             self.chunks = build_all_chunk_indices(
-                lengths, max_seq_len, prefix_token_cap, chunk_overlap
+                lengths, max_seq_len, prefix_token_cap, chunk_overlap, slack_tokens,
             )
             rank0_print(
                 f"  {jsonl_path.name}: chunk mode → {len(self.chunks):,} windows "
-                f"(overlap_nt={chunk_overlap}, prefix_token_cap={prefix_token_cap})"
+                f"(overlap_nt={chunk_overlap}, prefix_token_cap={prefix_token_cap}, "
+                f"slack={slack_tokens})"
             )
             self._assert_prefix_token_cap_on_sample()
 
@@ -653,25 +759,28 @@ class BGCTextDataset(Dataset):
         # and require a different masking strategy.
         prefix_token_count = count_prefix_tokens(self.tokenizer, prefix)
 
+        # H6: chunk-mode tiling chooses nt windows so that
+        #     len(prefix) + (nt_end - nt_start) + slack <= max_seq_len
+        # for any reasonable tokenizer. If we still overflow here something
+        # is wrong (stale sidecar meta, tokenizer change, bad input row).
+        # Fail loudly rather than silently truncating the tail.
         if len(ids) > self.max_seq_len:
-            if self.chunks is not None and not self._prefix_warned and is_main():
-                rank0_print(
-                    f"  WARNING: chunk token length {len(ids)} > max_seq_len "
-                    f"{self.max_seq_len}; clipping tail (record_idx={record_idx}, "
-                    f"nt_start={nt_start}, nt_end={nt_end})."
+            if self.chunks is not None:
+                raise ValueError(
+                    f"Record {record_idx} (chunk_idx={idx}, nt_start={nt_start}, "
+                    f"nt_end={nt_end}): tokenised length {len(ids)} > max_seq_len "
+                    f"{self.max_seq_len}. The sidecar meta or prefix-slack scan is "
+                    f"stale; re-run `python scripts/build_chunk_index.py` and / or "
+                    f"a fresh `--auto-prefix-budget` scan."
                 )
-                self._prefix_warned = True
+            # Truncate-mode (legacy) keeps the original clip-tail behaviour.
             ids = ids[: self.max_seq_len]
 
-        # Guard against pathological rows where the prefix alone fills the
-        # whole window. Should be unreachable under --auto-prefix-budget +
-        # H6's adaptive seq_budget, but we never want to ship a sample with
-        # zero supervised tokens.
         if prefix_token_count >= len(ids):
             raise ValueError(
                 f"Record {record_idx} (chunk_idx={idx}): prefix tokenises to "
                 f"{prefix_token_count} tokens, but sample only has {len(ids)} "
-                f"tokens after clipping; no sequence tokens left to train on. "
+                f"tokens; no sequence tokens left to train on. "
                 f"Increase --prefix-budget or refresh the auto-prefix-budget scan."
             )
 
@@ -1321,24 +1430,30 @@ def main() -> None:
             load_or_build_lengths_sidecar(args.val, cache_dir)
             if args.auto_prefix_budget:
                 ensure_max_prefix_tokens_in_meta(
-                    args.train, cache_dir, tokenizer, EVO2_MODEL_NAME)
+                    args.train, cache_dir, tokenizer, EVO2_MODEL_NAME,
+                    args.max_seq_len, args.prefix_slack_tokens,
+                )
                 ensure_max_prefix_tokens_in_meta(
-                    args.val, cache_dir, tokenizer, EVO2_MODEL_NAME)
+                    args.val, cache_dir, tokenizer, EVO2_MODEL_NAME,
+                    args.max_seq_len, args.prefix_slack_tokens,
+                )
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
     rank0_print("Indexing datasets...")
     train_cap = args.prefix_budget
     val_cap = args.prefix_budget
+    train_slack = args.prefix_slack_tokens
+    val_slack = args.prefix_slack_tokens
     if args.long_seq_strategy == "chunk" and args.auto_prefix_budget:
-        train_cap = load_max_prefix_tokens_from_meta(
+        train_cap, train_slack = load_max_prefix_tokens_from_meta(
             args.train, cache_dir, EVO2_MODEL_NAME)
-        val_cap = load_max_prefix_tokens_from_meta(
+        val_cap, val_slack = load_max_prefix_tokens_from_meta(
             args.val, cache_dir, EVO2_MODEL_NAME)
     elif args.long_seq_strategy == "chunk" and is_main():
         rank0_print(
             f"  Chunk mode: fixed prefix_token_cap={args.prefix_budget} "
-            f"(--no-auto-prefix-budget)"
+            f"slack={args.prefix_slack_tokens} (--no-auto-prefix-budget)"
         )
 
     ds_common: dict[str, Any] = {
@@ -1351,6 +1466,7 @@ def main() -> None:
         tokenizer,
         args.max_seq_len,
         prefix_token_cap=train_cap,
+        slack_tokens=train_slack,
         **ds_common,
     )
     val_ds = BGCTextDataset(
@@ -1358,6 +1474,7 @@ def main() -> None:
         tokenizer,
         args.max_seq_len,
         prefix_token_cap=val_cap,
+        slack_tokens=val_slack,
         **ds_common,
     )
 
