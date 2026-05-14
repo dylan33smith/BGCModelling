@@ -1097,6 +1097,96 @@ def enable_block_activation_checkpointing(model: torch.nn.Module) -> int:
 # Checkpoint helpers  (LoRA-specific: save adapter + DS state separately)
 # ────────────────────────────────────────────────────────────────────────
 
+def gather_rng_state(device: torch.device | None = None) -> dict[str, Any]:
+    """Snapshot Python / NumPy / Torch (CPU + CUDA) RNG state.
+
+    Returned dict is per-rank: each rank has its own RNG sequence in
+    distributed training. Serialised via DeepSpeed's ``client_state``
+    (which is per-rank), so RNG sequences are restored exactly on resume.
+    """
+    state: dict[str, Any] = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch_cpu": torch.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["torch_cuda"] = (
+            torch.cuda.get_rng_state(device) if device is not None
+            else torch.cuda.get_rng_state()
+        )
+    return state
+
+
+def set_rng_state(state: dict[str, Any] | None,
+                  device: torch.device | None = None) -> bool:
+    """Restore RNG state captured by :func:`gather_rng_state`.
+
+    Best-effort: missing or unparseable fields are skipped with a warning
+    so a corrupt RNG snapshot can never block resume. Returns True if at
+    least one component was restored.
+    """
+    if not state:
+        return False
+    restored = False
+    try:
+        if state.get("python") is not None:
+            random.setstate(state["python"])
+            restored = True
+    except Exception as e:
+        rank0_print(f"  WARNING: failed to restore Python RNG: {e}")
+    try:
+        if state.get("numpy") is not None:
+            np.random.set_state(state["numpy"])
+            restored = True
+    except Exception as e:
+        rank0_print(f"  WARNING: failed to restore NumPy RNG: {e}")
+    try:
+        if state.get("torch_cpu") is not None:
+            torch.set_rng_state(state["torch_cpu"])
+            restored = True
+    except Exception as e:
+        rank0_print(f"  WARNING: failed to restore torch CPU RNG: {e}")
+    try:
+        if torch.cuda.is_available() and state.get("torch_cuda") is not None:
+            if device is not None:
+                torch.cuda.set_rng_state(state["torch_cuda"], device)
+            else:
+                torch.cuda.set_rng_state(state["torch_cuda"])
+            restored = True
+    except Exception as e:
+        rank0_print(f"  WARNING: failed to restore torch CUDA RNG: {e}")
+    return restored
+
+
+def make_client_state(
+    *,
+    step: int,
+    best_val_loss: float,
+    epoch: int,
+    micro_step_in_epoch: int,
+    device: torch.device | None = None,
+) -> dict[str, Any]:
+    """Build the dict persisted as ``client_state`` by DeepSpeed.
+
+    Includes everything needed for a faithful (data-stream + RNG) resume
+    (audit H1). Capture is wrapped in try/except so a transient RNG-gather
+    failure never blocks a checkpoint write (e.g. during the OOM
+    emergency-save path).
+    """
+    cs: dict[str, Any] = {
+        "step": int(step),
+        "best_val_loss": float(best_val_loss),
+        "epoch": int(epoch),
+        "micro_step_in_epoch": int(micro_step_in_epoch),
+    }
+    try:
+        cs["rng_state"] = gather_rng_state(device)
+    except Exception as e:
+        rank0_print(f"  WARNING: gather_rng_state failed ({e}); "
+                    f"resume will fall back to seed-only RNG")
+    return cs
+
+
 def save_lora_checkpoint(model_engine, args: argparse.Namespace,
                          ckpt_root: Path, tag: str,
                          client_state: dict) -> None:
@@ -1124,24 +1214,56 @@ def save_lora_checkpoint(model_engine, args: argparse.Namespace,
         rank0_print(f"  Adapter saved → {adapter_dir}")
 
 
-def load_lora_checkpoint(model_engine, resume_from: Path) -> tuple[int, float]:
-    """Load DeepSpeed optimizer state for resume. Returns (step, best_val_loss).
+def load_lora_checkpoint(
+    model_engine, resume_from: Path, device: torch.device | None = None,
+) -> dict[str, Any]:
+    """Load DeepSpeed optimizer state for resume and restore RNG.
 
-    The checkpoint was saved with exclude_frozen_parameters=True, so
-    mp_rank_00_model_states.pt only contains LoRA-trainable params.
+    Returns a dict with ``step``, ``best_val_loss``, ``epoch``,
+    ``micro_step_in_epoch``. RNG state, if present, is restored in-place
+    so the data stream is reproducible from the checkpoint forward
+    (audit H1).
+
+    The checkpoint was saved with ``exclude_frozen_parameters=True``, so
+    ``mp_rank_00_model_states.pt`` only contains LoRA-trainable params.
     The frozen base-model weights are already loaded from the HF cache,
     and the LoRA adapter weights are already restored via
-    PeftModel.from_pretrained. We pass load_module_strict=False so
-    DeepSpeed doesn't error on the missing frozen-param keys — the
-    optimizer states and client_state (step counter, best_val_loss)
-    are the only things we need from this checkpoint."""
+    ``PeftModel.from_pretrained``. We pass ``load_module_strict=False``
+    so DeepSpeed doesn't error on the missing frozen-param keys — the
+    optimizer state and client_state (step / best_val_loss / epoch /
+    micro_step / RNG) are the only things we need from this checkpoint.
+
+    Legacy checkpoints (saved before H1) that lack ``epoch`` /
+    ``micro_step_in_epoch`` / ``rng_state`` keys load with epoch=0,
+    micro_step_in_epoch=0, and seed-only RNG. ``step`` still applies, so
+    the optimizer / LR schedule pick up where they left off; only the
+    data-stream-from-resume invariant is weaker for legacy resumes.
+    """
     _, client_state = model_engine.load_checkpoint(
         str(resume_from.parent), tag=resume_from.name,
         load_module_strict=False,
     )
-    step          = int(client_state.get("step", 0)) if client_state else 0
-    best_val_loss = float(client_state.get("best_val_loss", float("inf"))) if client_state else float("inf")
-    return step, best_val_loss
+    if client_state is None:
+        client_state = {}
+    out: dict[str, Any] = {
+        "step": int(client_state.get("step", 0)),
+        "best_val_loss": float(client_state.get("best_val_loss", float("inf"))),
+        "epoch": int(client_state.get("epoch", 0)),
+        "micro_step_in_epoch": int(client_state.get("micro_step_in_epoch", 0)),
+    }
+    rng_state = client_state.get("rng_state")
+    if rng_state:
+        restored = set_rng_state(rng_state, device)
+        if restored:
+            rank0_print("  RNG state restored from checkpoint")
+        else:
+            rank0_print("  WARNING: checkpoint had rng_state but none could be applied")
+    else:
+        rank0_print(
+            "  Note: checkpoint has no rng_state (legacy pre-H1 ckpt). "
+            "Data stream will be reproduced from seed only."
+        )
+    return out
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1541,16 +1663,36 @@ def main() -> None:
     # ── Resume optimizer state ────────────────────────────────────────
     start_step    = 0
     best_val_loss = float("inf")
+    start_epoch   = 0
+    skip_micro    = 0
+    cuda_device   = torch.device(f"cuda:{local_rank}") if torch.cuda.is_available() else None
     if args.resume_from is not None and args.resume_from.exists():
         rank0_print(f"Loading DeepSpeed checkpoint from {args.resume_from}")
-        start_step, best_val_loss = load_lora_checkpoint(model_engine, args.resume_from)
-        rank0_print(f"  Resumed at step {start_step}  best_val_loss={best_val_loss:.4f}")
+        resume_state = load_lora_checkpoint(
+            model_engine, args.resume_from, device=cuda_device,
+        )
+        start_step    = resume_state["step"]
+        best_val_loss = resume_state["best_val_loss"]
+        start_epoch   = resume_state["epoch"]
+        skip_micro    = resume_state["micro_step_in_epoch"]
+        # If the saved micro_step_in_epoch landed past the end of the
+        # epoch (e.g. checkpoint written at the boundary), roll over to
+        # the next epoch with no skip.
+        if skip_micro >= len(train_loader):
+            start_epoch += 1
+            skip_micro = 0
+        rank0_print(
+            f"  Resumed at step {start_step} epoch={start_epoch} "
+            f"micro_step_in_epoch={skip_micro} best_val_loss={best_val_loss:.4f}"
+        )
 
     # ── Training loop ─────────────────────────────────────────────────
     rank0_print(f"Starting LoRA training from step {start_step}")
     model_engine.train()
 
     step             = start_step
+    epoch            = start_epoch
+    micro_step       = max(skip_micro - 1, 0)
     log_buffer_loss  = 0.0
     log_buffer_count = 0
     last_log_time    = time.time()
@@ -1561,11 +1703,37 @@ def main() -> None:
     ckpt_root      = args.output_dir / "checkpoints"
 
     try:
-        for epoch in range(args.max_epochs):
+        for epoch in range(start_epoch, args.max_epochs):
             train_sampler.set_epoch(epoch)
             rank0_print(f"── Epoch {epoch+1}/{args.max_epochs} ──")
 
-            for micro_step, batch in enumerate(train_loader):
+            # H1: faithful resume. For the first epoch after resume, skip
+            # forward through the dataloader by the same number of
+            # micro-batches we'd already consumed when the checkpoint was
+            # written. Skipping still triggers dataset reads + tokenisation
+            # (no fast-forward in DistributedSampler), but it's bounded by
+            # `save_every * grad_accum` micro-batches per resume, which is
+            # acceptable next to the cost of an unfaithful data stream.
+            this_epoch_skip = skip_micro if epoch == start_epoch else 0
+            micro_iter = enumerate(train_loader)
+            if this_epoch_skip > 0:
+                rank0_print(
+                    f"  Resume skip-ahead: advancing "
+                    f"{this_epoch_skip:,} micro-batches in epoch {epoch+1}"
+                )
+                t_skip = time.time()
+                advanced = 0
+                for _ in micro_iter:
+                    advanced += 1
+                    if advanced >= this_epoch_skip:
+                        break
+                rank0_print(
+                    f"  Skip complete ({advanced:,} micro-batches in "
+                    f"{time.time() - t_skip:.1f}s); resuming at "
+                    f"micro_step={this_epoch_skip}"
+                )
+
+            for micro_step, batch in micro_iter:
                 content_max_len = batch.pop("content_max_len", None)
                 first_record_idx = batch.pop("first_record_idx", None)
                 first_chunk_idx = batch.pop("first_chunk_idx", None)
@@ -1686,7 +1854,12 @@ def main() -> None:
                         if current_val <= best_val_loss + 1e-9:
                             save_lora_checkpoint(
                                 model_engine, args, ckpt_root, "best",
-                                {"step": step, "best_val_loss": best_val_loss})
+                                make_client_state(
+                                    step=step, best_val_loss=best_val_loss,
+                                    epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                                    device=cuda_device,
+                                ),
+                            )
 
                     # ── Periodic checkpoint
                     if step % args.save_every == 0:
@@ -1694,7 +1867,12 @@ def main() -> None:
                             rank0_print(f"  Saving checkpoint step_{step}...")
                         save_lora_checkpoint(
                             model_engine, args, ckpt_root, f"step_{step}",
-                            {"step": step, "best_val_loss": best_val_loss})
+                            make_client_state(
+                                step=step, best_val_loss=best_val_loss,
+                                epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                                device=cuda_device,
+                            ),
+                        )
                         if is_main():
                             cleanup_old_checkpoints(ckpt_root, keep_last=args.keep_last_ckpts)
                             generate_plots(args.output_dir)
@@ -1712,7 +1890,12 @@ def main() -> None:
                         rank0_print("Graceful shutdown → saving interrupted checkpoint")
                         save_lora_checkpoint(
                             model_engine, args, ckpt_root, f"step_{step}_interrupted",
-                            {"step": step, "best_val_loss": best_val_loss})
+                            make_client_state(
+                                step=step, best_val_loss=best_val_loss,
+                                epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                                device=cuda_device,
+                            ),
+                        )
                         if is_main():
                             generate_plots(args.output_dir)
                         return
@@ -1728,7 +1911,12 @@ def main() -> None:
         try:
             save_lora_checkpoint(
                 model_engine, args, ckpt_root, f"step_{step}_oom",
-                {"step": step, "best_val_loss": best_val_loss})
+                make_client_state(
+                    step=step, best_val_loss=best_val_loss,
+                    epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                    device=cuda_device,
+                ),
+            )
         except Exception as ee:
             rank0_print(f"Emergency checkpoint failed: {ee}")
         raise
@@ -1740,7 +1928,12 @@ def main() -> None:
             try:
                 save_lora_checkpoint(
                     model_engine, args, ckpt_root, f"step_{step}_final",
-                    {"step": step, "best_val_loss": best_val_loss})
+                    make_client_state(
+                        step=step, best_val_loss=best_val_loss,
+                        epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                        device=cuda_device,
+                    ),
+                )
                 if is_main():
                     # Clean peft-format adapter at <output_dir>/final_adapter/
                     # is the documented load path (docs/gputee/FINETUNE_GUIDE.md §11).
