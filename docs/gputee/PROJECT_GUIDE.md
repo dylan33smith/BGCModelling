@@ -1487,6 +1487,67 @@ Immediate readiness actions:
 3. Keep the readiness snapshot alongside launch metadata for every production
    run so data/command drift is auditable.
 
+### 13.3  Pre-launch checklist (multi-day production runs)
+
+Walk through this before kicking off any L=32k / L=65k production
+training. Treat any unchecked item as a launch blocker.
+
+**Environment / host**
+
+- [ ] Activate the right env: `micromamba activate bgcmodel`.
+- [ ] Export `HF_HOME=/data2/ds85/hf_cache` in the same shell.
+- [ ] `nvidia-smi --query-compute-apps=pid,used_gpu_memory,gpu_uuid --format=csv`
+      returns header only (no resident process > 500 MiB on the H100).
+- [ ] `df -h /data2` shows ≥ 150 GiB free (each periodic checkpoint
+      ≈ 390 MB but DeepSpeed scratch + WandB cache + samples add up
+      over a 5+ day run).
+- [ ] `du -sh /data2/ds85/hf_cache/hub/models--arcinstitute--evo2_7b_262k`
+      is ~13–14 GB (otherwise the first model load downloads ~14 GB).
+
+**Data**
+
+- [ ] `python scripts/check_data_eval_readiness.py --json > readiness.json`
+      and archive next to the run dir; every "required: yes" row shows
+      "status: ready".
+- [ ] `data/processed/splits_combined/{train,val}.jsonl` and the matching
+      `.lengths.npy` + `.lengths.meta.json` sidecars exist; rebuild with
+      `python scripts/build_chunk_index.py` if the JSONLs were
+      regenerated.
+
+**Code**
+
+- [ ] `git status` is clean, or the staged changes are intentional and
+      documented in the run config.
+- [ ] `git log -1 --oneline` matches what you expect to be the production
+      commit. The audit pass (H1/H3/H6 + Group A hygiene + Group B docs)
+      is committed (see `MIGRATION_CHANGELOG.md` entry on the
+      `2026-05-14 audit` block).
+- [ ] `assert_pad_token_safe`, `prefix_mask_sanity_check`, and the
+      `--resume-from` existence checks are present (they run at trainer
+      startup; any failure aborts before training starts).
+
+**Launch parameters**
+
+- [ ] `--batch-size 1 --grad-accum 128` (mandatory at L=32k; see
+      `FINETUNE_GUIDE.md` §4 / Update 2026-05-14).
+- [ ] `--long-seq-strategy chunk --chunk-overlap 2048` (production must
+      chunk; pilots may use truncate to compare to history).
+- [ ] `--max-seq-len` matches the chosen template (A=32768, B=65536).
+- [ ] `--output-dir /data2/ds85/bgcmodel_runs/phase1_lora_prod_<TS>_L<LEN>`
+      with a fresh timestamp.
+- [ ] Launching from inside `tmux` so SSH drops don't kill the run.
+
+**During the first hour**
+
+- [ ] Watch `pilot.log` / `train.log` for `Starting LoRA training from
+      step 0` and the first `train_log.jsonl` row.
+- [ ] Confirm `gpu_mem_gb` is comfortably below 78 GB after step 1.
+- [ ] Confirm `collated_seq_len` ≤ `--max-seq-len` on every logged row.
+- [ ] Confirm `first_prefix_token_count` > 0 (the H3 mask is active).
+
+If any of those four runtime checks fails, kill the run and
+investigate before the first checkpoint write.
+
 ### Completed (cumulative)
 
 

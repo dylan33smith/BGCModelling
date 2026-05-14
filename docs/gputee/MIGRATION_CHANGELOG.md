@@ -808,6 +808,143 @@ that have since been measured.
 `docs/gputee/README.md`, `README.md`, this changelog. No code
 changes in this entry.
 
+### 38. Pre-production audit pass — H1, H3, H6 + Group A/B hygiene (2026-05-14)
+
+**Change:** Full audit pass triggered by the first attempted L=32k
+pilot OOM. The pilot was launched with the documented
+`--batch-size 4 --grad-accum 32` configuration and OOM'd on forward.
+A retry at `--batch-size 2` OOM'd on backward. The only configuration
+that fits L=32,768 on this 80 GB H100 is `--batch-size 1 --grad-accum
+128` (same 128-sequence effective batch).
+
+That observation prompted a wider check of the fine-tuning stack
+("is anything else this wrong?"). The audit produced a ranked
+fix-list (H1–H9, C1–C5, M1–M7, L1–L3). The substantive code fixes
+landed as **separate commits** so each is individually revertable:
+
+- **`feat(trainer): chunked long-sequence handling with prefix-aware
+  tiling`** — promoted the pre-existing uncommitted chunk-mode
+  infrastructure (canonical phase-1 prefix construction, sidecar
+  `<split>.lengths.npy` + `.meta.json`, deterministic nucleotide
+  tiling with overlap, auto-scanned `max_prefix_tokens`,
+  `scripts/build_chunk_index.py` pre-builder) into a single committed
+  baseline that the subsequent fixes build on.
+- **H3 — `mask prefix tokens from CE loss`**. `BGCTextDataset` now
+  records `prefix_token_count` per sample; both collate paths set
+  `labels[:, :p] = IGNORE_INDEX`. The model is no longer trained to
+  reproduce the canonical conditioning prefix (which is by
+  construction reconstructible from JSON fields); only the BGC
+  sequence half contributes to the loss. **Train/val loss values are
+  therefore not directly comparable to pre-H3 runs.**
+- **H6 — `adaptive seq-budget slack + hard overflow error`**.
+  `compute_prefix_slack_tokens` empirically measures how many extra
+  tokens the active tokenizer would produce at the prefix↔sequence
+  seam vs the prefix + nt halves measured in isolation. The slack is
+  persisted in `.lengths.meta.json` alongside `max_prefix_tokens`
+  (legacy meta files load with `slack = 0` for backward compat). The
+  chunk planner subtracts `prefix_token_cap + slack` from
+  `max_seq_len`. The silent tail-clip in `BGCTextDataset.__getitem__`
+  was replaced with `raise ValueError` so any overflow surfaces
+  loudly. Under CharLevelTokenizer the measured slack is 0; this
+  matters mainly for any future tokenizer change.
+- **H1 — `faithful mid-epoch resume via skip-ahead + RNG state`**.
+  Checkpoint `client_state` now stores `epoch`, `micro_step_in_epoch`,
+  and a 4-tuple RNG snapshot (Python random, NumPy, torch CPU,
+  torch CUDA per-rank). On resume the trainer calls
+  `train_sampler.set_epoch(epoch)`, skips the first
+  `micro_step_in_epoch` items in `enumerate(train_loader)`, and
+  restores RNG before re-entering the training body. This makes the
+  data stream and RNG-dependent ops (LoRA dropout) reproducible to
+  the byte from a given checkpoint. Legacy pre-H1 checkpoints still
+  resume on `step` + `best_val_loss` only.
+
+Then a **Group A hygiene commit** (`fix(trainer,pilot): hygiene
+pass (C4 C5 M1 M4 M7 H7 H9)`):
+
+- **C5:** `cleanup_old_checkpoints` matched against
+  `^step_(\d+)$` (was substring + naive split → swept up
+  `step_N_oom`, `step_N_interrupted`, `step_N_final`); `best/` and
+  suffixed dirs are now explicitly preserved and refuses to act on
+  `keep_last <= 0`.
+- **C4:** Pilot verifier treats missing `final_adapter/` as a hard
+  error (was a warning) and also checks that
+  `adapter_config.json` + `adapter_model.safetensors` exist inside it.
+- **M1:** `queue_h100_pilot.sh` probes for `deepspeed` inside the
+  micromamba env instead of the launcher's PATH (the launcher is
+  routinely invoked from outside the env).
+- **M4:** `assert_pad_token_safe(tokenizer)` runs at startup; refuses
+  to train if `PAD_TOKEN_ID` collides with any character that could
+  appear in a training sample (CharLevelTokenizer + PAD=0 is safe;
+  this future-proofs against a tokenizer swap).
+- **M7:** `--resume-from /missing/path` now raises
+  `FileNotFoundError`; same for a present resume dir that lacks the
+  `adapter/` subdir. Previously the trainer silently re-initialised
+  a fresh adapter, which trained "from a checkpoint" that did not
+  exist.
+- **H7:** Removed `_assert_prefix_token_cap_on_sample`; it only ever
+  checked record 0. H3's `prefix_mask_sanity_check` samples several
+  records and is the live check now.
+- **H9:** OOM handler calls `torch.cuda.empty_cache()` +
+  `gc.collect()` before the emergency save and falls back to a
+  rank-0 adapter-only `peft.save_pretrained` if the full DeepSpeed
+  save also OOMs. Original OOM is still re-raised.
+
+Then a **Group B docs commit** (`docs: bs=1 ga=128 reality at L=32k +
+production chunk flags`):
+
+- `FINETUNE_GUIDE.md`: §4 hyperparam table + "Effective batch size
+  and throughput" + "Steps and time estimate" updated to bs=1
+  ga=128 reality; §6 templates A/B switched to bs=1 ga=128 + chunk
+  flags; §6 resume recipe documents H1's new `client_state` entries +
+  M7 guard; `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+  stripped from every launch command (the "not-supported-on-this-host"
+  caveat remains).
+- `PROJECT_GUIDE.md`: §13 NEXT row + §13.1 launch templates updated
+  to bs=1 ga=128 + chunk flags.
+- `scripts/queue_h100_pilot.sh`: header comment, `--help`, and
+  pre-launch log explicitly call out the bs=1 ga=128 override at
+  L>=32768. Defaults stay at bs=4 ga=32 for reproducibility per
+  user instruction; a warning fires if both `L>=32768` and `bs>1`
+  are passed.
+
+Then a **Group C project-memory commit** (this entry):
+
+- `CLAUDE.md`: added the bs=1 ga=128 finding + H1/H3/H6 summaries to
+  Current Decisions.
+- `FINETUNE_GUIDE.md` §5: added the audit-field reference table
+  (`first_record_idx`, `first_chunk_idx`, `first_nt_start`,
+  `first_nt_end`, `first_prefix_token_count`, `collated_seq_len`,
+  `content_max_len`) explaining what each `train_log.jsonl` column
+  means and how to use it to validate chunking + H3 masking on a
+  live run.
+- `PROJECT_GUIDE.md` §13.3: new pre-launch checklist (env, data,
+  code, launch params, first-hour runtime checks) that any
+  multi-day production run must walk through.
+
+**Decisions deferred from H1–H9:**
+
+- **H2** (checkpoint retention): subsumed by C5; keeping all special
+  checkpoints + last `N` periodic checkpoints is the policy.
+- **H4** (chunk overlap weighting): kept as-is per user — the
+  overlapped tokens reinforce learning rather than getting
+  double-weighted in a harmful way.
+- **H5** (`--long-seq-strategy truncate`): documented as **legacy**
+  in `FINETUNE_GUIDE.md` §4 hyperparam table; no code fix. Used
+  only by the L=32k pilot for continuity with earlier metrics.
+
+**Why this matters:** before the audit, an OOM at the documented
+launch settings would have read as a hardware regression. The audit
+made it clear the documented settings were the issue, fixed three
+correctness gaps (prefix loss, overflow handling, resume fidelity)
+that were independent of the OOM but would have hurt production
+quality, and rewrote the operational docs so the next person
+launching does not repeat the OOM.
+
+**Files (all four commits combined):**
+`scripts/finetune_evo2_lora.py`, `scripts/build_chunk_index.py`,
+`scripts/queue_h100_pilot.sh`, `docs/gputee/FINETUNE_GUIDE.md`,
+`docs/gputee/PROJECT_GUIDE.md`, `CLAUDE.md`, this file.
+
 ---
 
 ## Summary of what was intentionally left unchanged

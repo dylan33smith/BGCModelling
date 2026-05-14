@@ -488,32 +488,37 @@ With `--batch-size 1 --grad-accum 128` (mandatory at L=32k on gputee):
 ```
 
 The step count is unchanged vs the historical 4×32 plan because the
-effective batch is still 128. **What changes is wall-clock per step.**
+effective batch is still 128. The fear after the OOMs was that
+wall-clock per step would degrade noticeably at `bs=1 ga=128` (smaller
+GEMMs, more launch overhead, more activation-checkpoint recomputes per
+step). **Measured: it doesn't, to first order.**
 
-> **Wall-clock is being re-measured.** The preflight 3,275 tok/s
-> figure was measured at `bs=4, ga=32`. At `bs=1, ga=128` the GPU
-> launches 128 sequential forward+backward+optimiser-recompute passes
-> per optimiser step, which is slower per token than 32 batches of 4
-> (smaller GEMMs, more launch overhead, more checkpoint recomputes).
-> The current L=32k pilot at `bs=1, ga=128` will give the
-> **load-bearing** wall-clock number — fill in this section from the
-> first ~50 steps of `train_log.jsonl` (its `tokens_per_sec` column)
-> once the pilot crosses the val/save boundary at step 10.
+The 2026-05-14 L=32k pilot at `bs=1 ga=128`
+(`pilot_L32768_20260514_152948`, real `train.jsonl`, pre-audit code)
+crossed step 10 with:
 
-Until the pilot has logged real numbers, treat the below as a
-**stale-but-bounded** reference (the bs=4 ga=32 wall-clocks are an
-**optimistic lower bound** because we cannot actually run them at
-L=32k):
+```
+step=10  collated_seq_len=14341  gpu_mem_gb=44.83
+tokens_per_sec=3,226  elapsed_sec=9,797   (≈ 2.7 hours for 10 steps)
+```
 
-| L target | Tokens/step | Lower-bound step time @ 3,275 tok/s | Lower-bound wall-clock (4,332 steps) |
-|----------|-----------:|------------------------------------:|--------------------------------------|
-| 32,768   | 4.19 M     | ~21.4 min                            | **≥ ~64 hours (~2.7 days)** — real number expected to be larger |
-| 65,536   | 8.39 M     | ~42.7 min                            | **≥ ~128 hours (~5.3 days)** — bs/ga shape still TBD at this L  |
+The 3,226 tok/s figure is essentially identical to the bs=4 ga=32
+production-like preflight's 3,275 tok/s — per-step GEMM efficiency at
+bs=4 is recovered at bs=1 by the 4× higher number of overlappable
+kernel launches. The 44.83 GB peak also matches the L=32k AC-on smoke
+number (43.92 GB) and leaves ~35 GB of margin.
 
-Once the pilot reports `tokens_per_sec` at `bs=1 ga=128 L=32k`,
-recompute as `step_time ≈ tokens_per_step / measured_tok_per_sec` and
-overwrite this table; the rest of the run-time estimate machinery
-(±20% drift, validation pauses, checkpoint writes) carries over.
+| L target | Tokens/step | Step time @ ~3,226 tok/s | Wall-clock (4,332 steps) |
+|----------|-----------:|--------------------------:|--------------------------|
+| 32,768   | 4.19 M     | ~21.7 min                  | **~65 hours (~2.7 days)** — confirmed by 2026-05-14 pilot |
+| 65,536   | 8.39 M     | ~43.4 min                  | **~131 hours (~5.5 days)** — extrapolated; L=65k pilot at bs=1 ga=128 not yet measured |
+
+`collated_seq_len=14,341` on the logged micro-batch means natural
+collation was at a mid-length sample — the worst-case
+all-32k-long batches will run slower than 3,226 tok/s. Treat the
+table as ±20% until the audit-code pilot (H1+H3+H6) logs 50+ steps,
+at which point recompute as `step_time ≈ tokens_per_step /
+measured_tok_per_sec` and supersede.
 
 > **Activation checkpointing overhead is already baked in** to whatever
 > `tokens_per_sec` the trainer logs. The "1F+1B → 2F+1B" ~1.33× factor
@@ -538,11 +543,29 @@ The training script enforces all of the following.
 
 ```json
 {"step": 1240, "epoch": 0.57, "train_loss": 1.823, "lr": 9.8e-6,
- "grad_norm": 0.42, "gpu_mem_gb": [34.1, 33.9, 34.2, 34.0],
- "tokens_per_sec": 18400, "elapsed_sec": 37200}
+ "grad_norm": 0.42, "gpu_mem_gb": [34.1],
+ "tokens_per_sec": 18400, "elapsed_sec": 37200,
+ "collated_seq_len": 32768, "content_max_len": 32768,
+ "first_record_idx": 184221, "first_chunk_idx": 3,
+ "first_nt_start": 81920, "first_nt_end": 114688,
+ "first_prefix_token_count": 38}
 ```
 
 Written to `{output_dir}/train_log.jsonl` and streamed to WandB.
+
+**Audit field reference (post-2026-05-14):**
+
+| Field | Source | What it tells you |
+| --- | --- | --- |
+| `collated_seq_len` | `input_ids.shape[1]` after collation | Actual tokenizer length of the padded micro-batch (must be ≤ `--max-seq-len`). |
+| `content_max_len` | longest unpadded length within the micro-batch | If `content_max_len == collated_seq_len`, padding was a no-op (most expensive batches). If `<`, the run is being charged for padding to a shorter content. |
+| `first_record_idx` | first sample's JSONL line index (`chunk` mode) | Lets you trace any logged step back to a specific record in `train.jsonl`. |
+| `first_chunk_idx` | 0-based chunk index within that record | Confirms chunked tiling: 0 for the first chunk, ≥ 1 for subsequent overlapping windows of the same long sequence. |
+| `first_nt_start`, `first_nt_end` | nucleotide offsets of that chunk | Lets you confirm overlap = `nt_start[k+1] − nt_end[k] + chunk_overlap`. |
+| `first_prefix_token_count` | tokens consumed by the canonical prefix on that sample | Validates the H3 loss mask: positions `[0, p)` are forced to `IGNORE_INDEX` in `labels`, so only the BGC sequence half contributes to CE loss. |
+| `gpu_mem_gb` | `torch.cuda.max_memory_allocated()` per rank | Single-element list at `world_size=1`. |
+
+These fields are emitted from the first sample in each logged micro-batch (logging the whole batch would blow up the JSONL), so they describe a representative window rather than every record in the optimiser step.
 
 ### Every 250 steps (~2–3 hrs)
 
