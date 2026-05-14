@@ -73,11 +73,13 @@ Project design notes:
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import json
 import math
 import os
 import random
+import re
 from functools import partial
 import shutil
 import signal
@@ -408,6 +410,39 @@ def count_prefix_tokens(tokenizer: Any, prefix: str) -> int:
     return len(toks) if isinstance(toks, (list, tuple)) else len(list(toks))
 
 
+def assert_pad_token_safe(tokenizer: Any) -> None:
+    """Fail fast if ``PAD_TOKEN_ID`` collides with any character we'd train on.
+
+    The collate fills tail positions with ``PAD_TOKEN_ID`` (and marks
+    those positions IGNORE in labels). If the tokenizer happens to map a
+    real character (nucleotide or prefix punctuation) to the same id, a
+    real position would be indistinguishable from padding and the loss
+    mask would ignore real content. CharLevelTokenizer encodes characters
+    by ord(), so PAD_TOKEN_ID=0 is safe — this check just keeps the
+    invariant explicit (audit M4).
+    """
+    test_chars = "ACGTUNacgtun|:_-"
+    bad: list[str] = []
+    for c in test_chars:
+        try:
+            toks = tokenizer.tokenize(c)
+        except Exception:
+            continue
+        if not toks:
+            continue
+        first = toks[0] if isinstance(toks, (list, tuple)) else next(iter(toks), None)
+        if first is None:
+            continue
+        if int(first) == PAD_TOKEN_ID:
+            bad.append(c)
+    if bad:
+        raise ValueError(
+            f"PAD_TOKEN_ID={PAD_TOKEN_ID} collides with character(s) {bad!r} "
+            f"under the active tokenizer; the labels mask would silently drop "
+            f"real content. Change PAD_TOKEN_ID or use a different tokenizer."
+        )
+
+
 def scan_jsonl_max_prefix_tokens(jsonl_path: Path, tokenizer: Any) -> tuple[int, int]:
     """Return (max_prefix_token_count, n_rows_where_canonical_mismatch)."""
     max_tok = 0
@@ -675,22 +710,11 @@ class BGCTextDataset(Dataset):
                 f"(overlap_nt={chunk_overlap}, prefix_token_cap={prefix_token_cap}, "
                 f"slack={slack_tokens})"
             )
-            self._assert_prefix_token_cap_on_sample()
-
-    def _assert_prefix_token_cap_on_sample(self) -> None:
-        """Validate prefix token length on the first JSONL record."""
-        with self.jsonl_path.open("rb") as f:
-            f.seek(self.offsets[0])
-            line = f.readline()
-        rec = json.loads(line)
-        prefix = training_prefix_for_chunking(rec)
-        n_prefix = count_prefix_tokens(self.tokenizer, prefix)
-        if n_prefix > self.prefix_token_cap:
-            raise ValueError(
-                f"Prefix tokenizes to {n_prefix} tokens but effective cap is "
-                f"{self.prefix_token_cap}. Increase --prefix-budget, refresh meta "
-                f"scan, or fix conditioning format."
-            )
+            # H7: the legacy `_assert_prefix_token_cap_on_sample` only
+            # checked record 0; the broader `prefix_mask_sanity_check`
+            # called from main() (H3) samples several rows and validates
+            # prefix < length on each, so the record-0-only assertion has
+            # been removed.
 
     def __len__(self) -> int:
         if self.chunks is not None:
@@ -1353,19 +1377,45 @@ def gpu_memory_gb() -> list[float]:
     return [torch.cuda.max_memory_allocated(i) / 1e9
             for i in range(torch.cuda.device_count())]
 
+# Only "step_<digits>" (pure numeric) checkpoints are eligible for
+# cleanup. Special-purpose checkpoints — `best/`, `step_N_interrupted/`,
+# `step_N_oom/`, `step_N_final/` — are deliberately preserved (audit C5).
+_STEP_CKPT_RE = re.compile(r"^step_(\d+)$")
+
+
 def cleanup_old_checkpoints(ckpt_root: Path, keep_last: int) -> None:
+    """Delete the oldest pure-step checkpoints, keeping the newest N.
+
+    Non-numeric or suffixed checkpoint dirs (``best/``, ``*_interrupted``,
+    ``*_oom``, ``*_final``) are NEVER deleted by this function — they
+    encode events worth preserving across the run lifetime.
+    """
     if not ckpt_root.exists():
         return
-    step_dirs = sorted(
-        [p for p in ckpt_root.iterdir()
-         if p.is_dir() and p.name.startswith("step_")],
-        key=lambda p: int(p.name.split("_")[1]),
-    )
-    for stale in step_dirs[:-keep_last]:
+    if keep_last <= 0:
+        rank0_print(
+            f"  cleanup_old_checkpoints: keep_last={keep_last} <= 0; "
+            f"refusing to delete (would wipe every periodic checkpoint)."
+        )
+        return
+    matched: list[tuple[int, Path]] = []
+    skipped: list[str] = []
+    for p in ckpt_root.iterdir():
+        if not p.is_dir():
+            continue
+        m = _STEP_CKPT_RE.match(p.name)
+        if m:
+            matched.append((int(m.group(1)), p))
+        elif p.name.startswith("step_") or p.name == "best":
+            skipped.append(p.name)
+    matched.sort(key=lambda t: t[0])
+    if skipped:
+        rank0_print(f"  cleanup: preserving special checkpoints: {sorted(skipped)}")
+    for _, stale in matched[:-keep_last]:
         try:
-            subprocess.run(["rm", "-rf", str(stale)], check=False)
-        except Exception:
-            pass
+            shutil.rmtree(stale, ignore_errors=True)
+        except Exception as e:
+            rank0_print(f"  cleanup: failed to remove {stale}: {e}")
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1449,6 +1499,27 @@ def main() -> None:
     tokenizer = evo_wrapper.tokenizer
     rank0_print(f"  Loaded in {time.time()-t0:.0f} s")
     rank0_print(f"  Base params: {sum(p.numel() for p in model.parameters()):,}")
+
+    # M4: pad-token vs nucleotide-token collision check.
+    assert_pad_token_safe(tokenizer)
+
+    # M7: fail loud if --resume-from is set but the directory or its
+    # `adapter/` subdir is missing. The old behaviour silently fell
+    # through to a fresh-adapter init, which trained from scratch while
+    # the user thought they were resuming.
+    if args.resume_from is not None:
+        if not args.resume_from.exists():
+            raise FileNotFoundError(
+                f"--resume-from {args.resume_from} does not exist; refusing "
+                f"to silently train from scratch."
+            )
+        adapter_dir = args.resume_from / "adapter"
+        if not adapter_dir.exists():
+            raise FileNotFoundError(
+                f"--resume-from {args.resume_from} has no adapter/ subdir; "
+                f"checkpoint is incomplete or wrong path. Pass the directory "
+                f"that contains both `adapter/` and `mp_rank_00_model_states.pt`."
+            )
 
     # Fix non-contiguous Wqkv tensors (FINETUNE_GUIDE.md §12.1 Bug 2)
     # AND: clone any inference-mode tensors so backward can save them.
@@ -1906,8 +1977,17 @@ def main() -> None:
                 break
 
     except torch.cuda.OutOfMemoryError as e:
-        rank0_print(f"CUDA OOM: {e}")
-        rank0_print("Attempting emergency checkpoint...")
+        rank0_print(f"CUDA OOM at step {step}: {e}")
+        # H9: free as much GPU memory as we can before the emergency
+        # save. save_lora_checkpoint allocates buffers for the ZeRO-
+        # sharded optimizer state and is itself OOM-prone immediately
+        # after a forward/backward failure.
+        try:
+            torch.cuda.empty_cache()
+            gc.collect()
+        except Exception:
+            pass
+        rank0_print("Attempting emergency checkpoint (full DS + adapter)...")
         try:
             save_lora_checkpoint(
                 model_engine, args, ckpt_root, f"step_{step}_oom",
@@ -1917,8 +1997,20 @@ def main() -> None:
                     device=cuda_device,
                 ),
             )
+            rank0_print("  Emergency checkpoint succeeded")
         except Exception as ee:
-            rank0_print(f"Emergency checkpoint failed: {ee}")
+            rank0_print(f"  Full emergency save failed: {ee}")
+            # Last-ditch fallback: just dump the adapter on rank 0.
+            # peft's save_pretrained is CPU-side, so it's the most
+            # likely thing to still succeed after the GPU is wedged.
+            if is_main():
+                try:
+                    adapter_dir = ckpt_root / f"step_{step}_oom" / "adapter"
+                    adapter_dir.mkdir(parents=True, exist_ok=True)
+                    model_engine.module.save_pretrained(str(adapter_dir))
+                    rank0_print(f"  Adapter-only fallback saved → {adapter_dir}")
+                except Exception as ee2:
+                    rank0_print(f"  Adapter-only save also failed: {ee2}")
         raise
 
     finally:

@@ -94,7 +94,14 @@ require_cmd() {
 require_cmd nvidia-smi
 require_cmd python
 require_cmd micromamba
-require_cmd deepspeed
+
+# M1: deepspeed lives inside the conda env, not on the launcher's PATH.
+# Probe for it inside the env instead of failing the launcher itself.
+if ! micromamba run -n "$ENV_NAME" command -v deepspeed >/dev/null 2>&1; then
+  echo "deepspeed not installed in micromamba env '${ENV_NAME}'." >&2
+  echo "Activate the env (or rebuild it) before running this script." >&2
+  exit 2
+fi
 
 if [[ ! -f "$TRAIN_JSONL" ]]; then
   echo "Train JSONL not found: $TRAIN_JSONL" >&2
@@ -350,11 +357,24 @@ else:
             errors.append(f"Expected checkpoint {ec} not found")
 
 # ── 5. Final adapter ──────────────────────────────────────────────────
+# C4: final_adapter/ is exported in the trainer's `finally` block when
+# step > start_step. For a max-steps-bounded smoke run that completes,
+# it MUST exist. Treat absence as a hard failure so the pilot verifier
+# can be trusted as a green-light for production runs.
 final_adapter = run_dir / "final_adapter"
 if final_adapter.exists():
     print(f"\n📊 final_adapter/: present ✅")
+    config_file = final_adapter / "adapter_config.json"
+    weight_file = final_adapter / "adapter_model.safetensors"
+    if not config_file.exists():
+        errors.append("final_adapter/adapter_config.json missing")
+    if not weight_file.exists():
+        errors.append("final_adapter/adapter_model.safetensors missing")
 else:
-    warnings.append("final_adapter/ not present (expected only if run completed all epochs)")
+    errors.append(
+        "final_adapter/ missing — trainer's finally block did not run "
+        "or save_pretrained failed. Inspect pilot.log for details."
+    )
 
 # ── Summary ───────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
