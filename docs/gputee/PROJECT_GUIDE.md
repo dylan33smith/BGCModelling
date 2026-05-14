@@ -1373,10 +1373,10 @@ detectable before HPLC.
 
 | Task                                            | Prerequisites                    | Notes                                                                        |
 | ----------------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------- |
-| **⭐ NEXT on gputee: `L=32768` pilot on real combined splits** | Smoke + AC ✅; combined JSONL ✅ | Stay on **`--max-seq-len 32768`** for this step. Run a **short pilot** on `data/processed/splits_combined/{train,val}.jsonl` with **production-like settings** (`--batch-size 4`, `--grad-accum 32`, default activation checkpointing, **no** `--smoke-pad-to-max-seq-len`) and enough steps to hit at least one validation and checkpoint path. **Goals:** confirm the stack runs end-to-end on real (variable-length) data, `train_log.jsonl` / `val_log.jsonl` / `config.json` (and related artefacts) contain what we need, and behaviour matches expectations before locking in a multi-day full run. Optional: archive `readiness.json` + run metadata beside the pilot output dir. |
+| **⭐ NEXT on gputee: `L=32768` pilot on real combined splits** | Smoke + AC ✅; combined JSONL ✅; audit code fixes (H1/H3/H6) ✅ | Stay on **`--max-seq-len 32768`** for this step. Run a **short pilot** on `data/processed/splits_combined/{train,val}.jsonl` with the **only micro-batch shape that fits at L=32k** on the 80 GB H100: **`--batch-size 1 --grad-accum 128`** (audit 2026-05-14: `bs=4` OOM on forward, `bs=2` OOM on backward; `bs=1 ga=128` preserves the 128-sequence effective batch). Default activation checkpointing, **no** `--smoke-pad-to-max-seq-len`. Enough steps to hit at least one validation and checkpoint path. **Goals:** confirm the stack runs end-to-end on real (variable-length) data, `train_log.jsonl` / `val_log.jsonl` / `config.json` (and related artefacts) contain what we need, prefix-masked CE loss (H3) and faithful resume (H1) behave on a real run, and `tokens_per_sec` gives the wall-clock estimate that has been stale-bounded in `FINETUNE_GUIDE.md` §4. Optional: archive `readiness.json` + run metadata beside the pilot output dir. |
 | Optional: midpoint bracketing (`L=73728 81920 90112`) | Long-L probe ✅ | Completed padded long-L probe (`queued_smoke_20260426_185444`): `L=49152` pass at 59.44 GB, `L=65536` pass at 74.11 GB, `L=98304` OOM. Ceiling is bracketed between 65k and 98k. Only needed if we want a tighter upper bound **before** revisiting stretch `L`; **not** blocking the 32k pilot or a conservative production launch. |
 | Per-block activation checkpointing **(implemented + validated 2026-04-26)** | — | Implemented in `scripts/finetune_evo2_lora.py::enable_block_activation_checkpointing()` and now default-on (explicit opt-out via `--no-activation-checkpointing`). Validation sweep shows major memory reduction and successful `L=32768` smoke pass. Keep using `use_reentrant=False` because `--lora-dropout` is non-zero. Details and logs in `FINETUNE_GUIDE.md` §12.7. |
-| Fine-tune Evo2 7B                               | Combined splits ✅ + smoke decisions ✅ + production-like preflight ✅ | **`L=32768`** — conservative default with comfortable memory margin. **`L=65536`** — stretch: passed queued production-like preflight (~74 GB peak; see §13 **Completed milestones** and `FINETUNE_GUIDE.md` §12.7.1); choose vs 32k based on pilot quality + wall-clock. Keep **`--grad-accum 32`** on gputee to preserve the original 128-sequence effective batch from the 4× A40 defaults. |
+| Fine-tune Evo2 7B                               | Combined splits ✅ + smoke decisions ✅ + production-like preflight ✅ + L=32k pilot (in flight) | **`L=32768`** — conservative default with comfortable memory margin. **`L=65536`** — stretch: passed queued production-like preflight (~74 GB peak; see §13 **Completed milestones** and `FINETUNE_GUIDE.md` §12.7.1) but **at the now-infeasible `bs=4 ga=32` shape**; needs re-validation at `bs=1 ga=128` before commit. Choose vs 32k based on pilot quality + wall-clock. **Mandatory micro-batch shape on gputee: `--batch-size 1 --grad-accum 128`** (still 128 sequences/effective step; see `FINETUNE_GUIDE.md` §4). |
 | Generate BGC sequences                          | Fine-tuned model                 | Condition on target class + E. coli taxonomy tag                             |
 | Full 8-metric evaluation of generated sequences | Generated sequences + NPAtlas + UniRef50 (§4.1, §13.2) | All eight metrics are operational end-to-end on gputee once a checkpoint exists; main project deliverable. |
 | Test BiG-SCAPE metric (M6) end-to-end           | antiSMASH DBs installed          | Needs GenBank output from M1; structural novelty scoring                     |
@@ -1425,19 +1425,23 @@ comparable to earlier truncate-only smoke runs.
 
 ```bash
 # Template A (conservative): L=32768 + full-sequence chunking
+# bs=1 ga=128 is required to fit L=32k on the 80 GB H100 (audit 2026-05-14).
 deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
   --train data/processed/splits_combined/train.jsonl \
   --val data/processed/splits_combined/val.jsonl \
   --output-dir /data2/ds85/bgcmodel_runs/phase1_lora_prod_<TS>_L32768 \
-  --max-seq-len 32768 --grad-accum 32 \
+  --max-seq-len 32768 --batch-size 1 --grad-accum 128 \
   --long-seq-strategy chunk --chunk-overlap 2048
 
 # Template B (stretch): L=65536 + full-sequence chunking
+# bs=1 ga=128 is the only shape validated for L=32k; L=65k headroom at
+# bs=1 ga=128 has NOT been measured — the 74 GB peak from preflight was
+# at bs=4 ga=32 and cannot be used as a margin estimate at this shape.
 deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
   --train data/processed/splits_combined/train.jsonl \
   --val data/processed/splits_combined/val.jsonl \
   --output-dir /data2/ds85/bgcmodel_runs/phase1_lora_prod_<TS>_L65536 \
-  --max-seq-len 65536 --grad-accum 32 \
+  --max-seq-len 65536 --batch-size 1 --grad-accum 128 \
   --long-seq-strategy chunk --chunk-overlap 2048
 ```
 

@@ -1,8 +1,8 @@
 # Evo2 7B Fine-Tuning Guide (gputee)
 
-*Last updated: 2026-05-11 (env + memory characterisation complete on
-gputee; L=32k pilot is the gating next step before the multi-day full
-run).*
+*Last updated: 2026-05-14 (audit pass: H1 faithful resume, H3 prefix
+loss masking, H6 adaptive seq-budget slack; L=32k pilot **must** use
+`--batch-size 1 --grad-accum 128` to fit on the 80 GB H100).*
 
 Everything needed to fine-tune Evo2 7B on the combined BGC training dataset.
 Covers hardware constraints, hyperparameter rationale, what to log, what to
@@ -12,10 +12,18 @@ watch for, and how to resume from a checkpoint. Read this before starting a run.
 (1× NVIDIA H100 PCIe, 80 GB). The archived `docs/trojai/FINETUNE_GUIDE.md`
 documents the original 4× NVIDIA A40 analysis. Numbers marked
 **(trojai)** are from the A40 smoke tests and kept only as historical
-reference. The §4 "Memory at runtime" and §12.7 tables now contain
-measured gputee/H100 numbers under both smoke (batch=1) and
-production-like (batch=4, grad-accum=32) settings — those are the
-load-bearing values.
+reference.
+
+> **Update 2026-05-14 — micro-batch reality at L=32k.** The
+> production-like preflight in §4 / §12.7.1 used `--batch-size 4
+> --grad-accum 32`. The first real pilot at L=32,768 with those
+> settings OOM'd in the forward path, and `--batch-size 2` OOM'd on
+> backward. The only configuration that fits at L=32,768 on this 80 GB
+> H100 is **`--batch-size 1 --grad-accum 128`** — same effective batch
+> (128 sequences), one micro-batch at a time. The §4 throughput /
+> wall-clock table and §6 launch templates below have been updated
+> accordingly; the preflight numbers are kept as historical context
+> with an explicit note.
 
 ---
 
@@ -355,14 +363,15 @@ Override via CLI flags.
 | `--lr`                 | `5e-5`     | `1e-5`        | Higher LR for adapters is standard (adapters are randomly initialised) |
 | `--lr-min-ratio`       | `0.1`      | `0.1`         | Cosine decay floor = 10% of peak                   |
 | `--warmup-steps`       | `200`      | `200`         | ~1% of first epoch                                 |
-| `--batch-size`         | `4`        | `4`           | Sequences per GPU per step                         |
-| `--grad-accum`         | `8`        | `8`           | Effective batch = 128 sequences                    |
+| `--batch-size`         | `1` (gputee L=32k); `4` (script default) | `1`/`4` | Sequences per GPU per micro-step. **At L=32,768 on this 80 GB H100, only `1` fits** (audit 2026-05-14); `4` is the historical multi-GPU default kept for reproducibility. |
+| `--grad-accum`         | `128` (gputee L=32k); `8` (script default) | `128`/`8` | Effective batch = `batch_size × grad_accum × world_size`. Tuned for **128 sequences/step**. |
 | `--max-seq-len`        | `32768`    | `32768`       | Max tokens per example (prefix + sequence window); see §3 chunk vs truncate |
-| `--long-seq-strategy`  | `truncate` | `truncate`    | `truncate` = head clip; **`chunk`** = full nt coverage (production; see §3) |
+| `--long-seq-strategy`  | `chunk` (production); `truncate` (pilot) | same | `truncate` = head clip; **`chunk`** = full nt coverage. **Production must use `chunk`**; the L=32k pilot keeps `truncate` to stay comparable to earlier smoke metrics. See §3. |
 | `--chunk-overlap`      | `2048`     | `2048`        | Nucleotide overlap between windows (`chunk` mode only) |
-| `--auto-prefix-budget` | on         | on            | Scan split → store `max_prefix_tokens` in meta; chunk windows use `L - max_prefix_tokens` (`chunk` mode) |
+| `--auto-prefix-budget` | on         | on            | Scan split → store `max_prefix_tokens` + `prefix_slack_tokens` in meta; chunk windows use `L - max_prefix_tokens - slack` (`chunk` mode). Slack is 0 under Evo2's CharLevelTokenizer; the scan re-measures it on every fresh build. |
 | `--no-auto-prefix-budget` | —      | —             | Force fixed `--prefix-budget` for every row (`chunk` mode) |
 | `--prefix-budget`      | `256`      | `256`         | Fixed prefix token cap when `--no-auto-prefix-budget` (`chunk` mode) |
+| `--prefix-slack-tokens`| `0`        | `0`           | Floor for the tokenizer-overflow slack persisted in `<split>.lengths.meta.json`. With CharLevelTokenizer the measured slack is 0; raise only if a tokenizer change starts merging across the prefix↔sequence seam (audit H6). |
 | `--max-epochs`         | `2`        | `2`           | ~4,332 steps at one record per dataset index; chunk steps/epoch depend on scanned prefix cap (see §3) |
 | `--weight-decay`       | `0.01`     | `0.1`         | Lower for LoRA — heavy WD hurts tiny adapter params |
 | `--grad-clip`          | `1.0`      | `1.0`         | Max gradient norm                                  |
@@ -379,19 +388,36 @@ The script defaults (`batch_size=4`, `grad_accum=8`) were chosen for
 trojai (4× A40):   4 seq/GPU × 4 GPUs × 8 grad-accum = 128 sequences/effective step
 ```
 
-On gputee `world_size=1`, so the defaults give a much smaller effective
-batch:
+On gputee `world_size=1`. The original gputee migration plan was to
+keep `batch_size=4` and bump `grad_accum=32` so that
+`4 × 1 × 32 = 128` matched trojai. **That micro-batch shape does not
+fit at L=32,768 on the 80 GB H100** (audit 2026-05-14: `bs=4` OOM'd on
+forward, `bs=2` OOM'd on backward). The only configuration that fits
+the L=32,768 target is `--batch-size 1 --grad-accum 128`:
 
 ```
-gputee (1× H100), defaults as-is:    4 × 1 × 8  = 32 sequences/effective step
-gputee, with --grad-accum 32:        4 × 1 × 32 = 128 sequences/effective step  ← recommended
+gputee (1× H100), L=32k recommended:    1 × 1 × 128 = 128 sequences/effective step
 ```
 
-**Recommendation:** pass `--grad-accum 32` on gputee to preserve the original
-128-sequence effective batch. The LoRA defaults (lr, weight decay, betas,
-warmup) were tuned against 128, and shrinking the effective batch to 32
-without retuning would change the optimisation dynamics. The `DEFAULTS`
-dict in the scripts themselves is **not** being changed; use the CLI flag.
+The mathematical gradient is unchanged: an effective batch of 128 is
+128 regardless of how the 128 sequences are split between micro-batch
+and accumulation. The LoRA defaults (`--lr`, `--weight-decay`, betas,
+warmup) were tuned against 128 sequences and remain valid; no retune
+is needed for the bs=1 ga=128 split.
+
+**Cost trade-off.** The bs=1 ga=128 split processes 128 micro-batches
+sequentially rather than 32 batches of 4 in parallel. Per-token
+throughput drops because (a) GPU work is more launch-overhead-bound at
+batch=1, and (b) every checkpointed activation has to be recomputed
+once per micro-batch. The §4 wall-clock table is being re-derived from
+the current L=32k pilot's `tokens_per_sec`; until that pilot logs a
+real number, treat the previous 3,275 tok/s figure (which was measured
+at the no-longer-feasible bs=4 ga=32 settings) as an **upper bound,
+not a target**.
+
+The smaller-L preflight numbers in the next table reflect the historical
+bs=4 ga=32 setting and are kept for reference / for any future run at
+shorter context lengths that does fit at higher micro-batch.
 
 ### Memory at runtime
 
@@ -454,36 +480,44 @@ Decision-relevant facts:
 
 ### Steps and time estimate
 
-With `--grad-accum 32` (recommended gputee override):
+With `--batch-size 1 --grad-accum 128` (mandatory at L=32k on gputee):
 
 ```
-277,238 records / (4 seq × 1 GPU × 32 accum) = ~2,166 steps/epoch   ← same as trojai
+277,238 records / (1 seq × 1 GPU × 128 accum) = ~2,166 steps/epoch
 2 epochs = ~4,332 steps total
 ```
 
-Wall-clock, using the **measured** production-preflight throughput of
-~3,275 tok/s (AC on, batch=4, grad-accum=32, L=49,152–65,536, see §4
-"Memory at runtime" table 3):
+The step count is unchanged vs the historical 4×32 plan because the
+effective batch is still 128. **What changes is wall-clock per step.**
 
-```
-Tokens per optimizer step = 4 seq × 32 accum × L
-Step time                 ≈ tokens-per-step / 3,275 tok/s
-```
+> **Wall-clock is being re-measured.** The preflight 3,275 tok/s
+> figure was measured at `bs=4, ga=32`. At `bs=1, ga=128` the GPU
+> launches 128 sequential forward+backward+optimiser-recompute passes
+> per optimiser step, which is slower per token than 32 batches of 4
+> (smaller GEMMs, more launch overhead, more checkpoint recomputes).
+> The current L=32k pilot at `bs=1, ga=128` will give the
+> **load-bearing** wall-clock number — fill in this section from the
+> first ~50 steps of `train_log.jsonl` (its `tokens_per_sec` column)
+> once the pilot crosses the val/save boundary at step 10.
 
-| L target | Tokens/step | Step time | Total wall-clock (4,332 steps) |
-|----------|-----------:|----------:|--------------------------------|
-| 32,768   | 4.19 M     | ~21.4 min | **~64 hours (~2.7 days)**       |
-| 65,536   | 8.39 M     | ~42.7 min | **~128 hours (~5.3 days)**      |
+Until the pilot has logged real numbers, treat the below as a
+**stale-but-bounded** reference (the bs=4 ga=32 wall-clocks are an
+**optimistic lower bound** because we cannot actually run them at
+L=32k):
 
-These are direct extrapolations from the 20-step preflight; they
-ignore validation pauses, checkpoint write time, and any throughput
-drift over a multi-day run. Treat ±20% as the expected uncertainty
-band until a real pilot run measures end-to-end wall-clock at scale.
+| L target | Tokens/step | Lower-bound step time @ 3,275 tok/s | Lower-bound wall-clock (4,332 steps) |
+|----------|-----------:|------------------------------------:|--------------------------------------|
+| 32,768   | 4.19 M     | ~21.4 min                            | **≥ ~64 hours (~2.7 days)** — real number expected to be larger |
+| 65,536   | 8.39 M     | ~42.7 min                            | **≥ ~128 hours (~5.3 days)** — bs/ga shape still TBD at this L  |
 
-> **Activation checkpointing overhead is already baked in** to the
-> 3,275 tok/s figure (the preflight was run with AC on). The
-> "1F+1B → 2F+1B" ~1.33× factor is *already inside* the measured
-> throughput; do **not** apply it again on top.
+Once the pilot reports `tokens_per_sec` at `bs=1 ga=128 L=32k`,
+recompute as `step_time ≈ tokens_per_step / measured_tok_per_sec` and
+overwrite this table; the rest of the run-time estimate machinery
+(±20% drift, validation pauses, checkpoint writes) carries over.
+
+> **Activation checkpointing overhead is already baked in** to whatever
+> `tokens_per_sec` the trainer logs. The "1F+1B → 2F+1B" ~1.33× factor
+> is *inside* the measured throughput; do **not** apply it again on top.
 
 ---
 
@@ -600,7 +634,6 @@ python -c "import netrc, os; n=netrc.netrc(os.path.expanduser('~/.netrc')); prin
 
 ```bash
 export HF_HOME=/data2/ds85/hf_cache
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 deepspeed --num_gpus=1 \
   scripts/finetune_evo2_lora.py \
   --train data/processed/splits_combined/val.jsonl \
@@ -644,47 +677,63 @@ TS=$(date +%Y%m%d_%H%M%S)
 export HF_HOME=/data2/ds85/hf_cache
 deepspeed --num_gpus=1 \
   scripts/finetune_evo2_lora.py \
-  --train         data/processed/splits_combined/train.jsonl \
-  --val           data/processed/splits_combined/val.jsonl \
-  --output-dir    /data2/ds85/bgcmodel_runs/phase1_lora_prod_${TS}_L32768 \
-  --max-seq-len   32768 \
-  --batch-size    4 \
-  --grad-accum    32 \
-  --lr            5e-5 \
-  --lora-r        16 \
-  --lora-alpha    32 \
-  --warmup-steps  200 \
-  --max-epochs    2 \
-  --save-every    500 \
-  --val-every     250 \
-  --wandb-project bcg-evo2-phase1 \
-  --seed          42
+  --train               data/processed/splits_combined/train.jsonl \
+  --val                 data/processed/splits_combined/val.jsonl \
+  --output-dir          /data2/ds85/bgcmodel_runs/phase1_lora_prod_${TS}_L32768 \
+  --max-seq-len         32768 \
+  --batch-size          1 \
+  --grad-accum          128 \
+  --long-seq-strategy   chunk \
+  --chunk-overlap       2048 \
+  --lr                  5e-5 \
+  --lora-r              16 \
+  --lora-alpha          32 \
+  --warmup-steps        200 \
+  --max-epochs          2 \
+  --save-every          500 \
+  --val-every           250 \
+  --wandb-project       bcg-evo2-phase1 \
+  --seed                42
 ```
 
 **Template B — stretch (L=65,536):** identical to template A but with
-`--max-seq-len 65536` and output dir `..._L65536`. Only use this after a
-short L=65,536 pilot has confirmed val cadence + checkpoint behaviour at
-that length (see `PROJECT_GUIDE.md` §13.1 "decision gate").
+`--max-seq-len 65536` and output dir `..._L65536`. The
+`--batch-size 1 --grad-accum 128` micro-batch shape is mandatory at
+L=32k and almost certainly also at L=65k (the preflight at bs=4 ga=32
+ran at L≤65k in 20-step bursts but never crossed a save/val boundary;
+the next-step VRAM headroom at bs=1 ga=128 has not yet been measured
+at L=65k). Only use Template B after a short L=65,536 pilot has
+confirmed val cadence + checkpoint behaviour at that length (see
+`PROJECT_GUIDE.md` §13.1 "decision gate").
 
 Both templates produce identical step counts (~2,166/epoch, ~4,332 over
-2 epochs at the default 128-sequence effective batch). Wall-clock differs
-roughly 2× between them (see §4 "Steps and time estimate"):
+2 epochs at the 128-sequence effective batch). Wall-clock estimates
+are now placeholders pending the L=32k pilot's first `tokens_per_sec`
+log entry:
 
-| Template | Wall-clock | Peak GPU mem (production-like preflight, AC on) |
-|----------|-----------:|------------------------------------------------:|
-| A — L=32,768 | ~2.7 days | not directly measured at batch=4,ga=32 — extrapolated from L=49k–65k at ~52 GB |
-| B — L=65,536 | ~5.3 days | 74.17 GB (~6 GB headroom on 80 GB)             |
+| Template | Wall-clock (TBD; see §4) | Peak GPU mem |
+|----------|--------------------------|--------------|
+| A — L=32,768 | re-derive from pilot `tokens_per_sec` at bs=1 ga=128 | TBD at bs=1 ga=128 (≤ 74 GB at bs=4 ga=32 was historical) |
+| B — L=65,536 | re-derive after L=65k pilot | TBD at bs=1 ga=128 |
 
-> **Note on `--grad-accum`:** the script default is `8`, which was chosen
-> for trojai's 4-GPU setup and gives an effective batch of 32 at
-> `world_size=1`. Setting `--grad-accum 32` here restores the original
-> 128-sequence effective batch. See §4 "Effective batch size and throughput".
+> **Note on `--batch-size 1 --grad-accum 128`:** required to fit
+> L=32,768 on the 80 GB H100 (audit 2026-05-14). The script default
+> `--batch-size 4 --grad-accum 8` was tuned for a 4-GPU world and OOMs
+> at L=32k on a single H100. See §4 "Effective batch size and
+> throughput" for the math.
 >
 > **Note on `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`:** this
 > allocator hint is **not supported** on the gputee H100 (confirmed by
 > the 2026-04-25 no-AC OOM trace) — passing it is a harmless no-op. It
-> has been removed from the documented launch commands above to avoid
-> implying it's load-bearing.
+> has been removed from every launch command in this guide and from
+> `scripts/queue_h100_pilot.sh`. Do not re-add it.
+>
+> **Note on `--long-seq-strategy chunk`:** production runs must use
+> chunk mode so every nucleotide is supervised across deterministic
+> windows (see §3). The L=32k pilot stays on `truncate` only to keep
+> its metrics comparable to earlier truncate-mode smoke runs; once
+> chunk is locked in, val_loss / perplexity values are not directly
+> comparable to the pilot.
 >
 > **Note on `--no-activation-checkpointing`:** only relevant for the
 > no-AC baseline. Practically capped at `L≤4096` due to OOM beyond. The
@@ -694,7 +743,6 @@ roughly 2× between them (see §4 "Steps and time estimate"):
 
 ```bash
 export HF_HOME=/data2/ds85/hf_cache
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
 deepspeed --num_gpus=1 \
   scripts/finetune_evo2_lora.py \
   --train         data/processed/splits_combined/train.jsonl \
@@ -704,10 +752,39 @@ deepspeed --num_gpus=1 \
   [... same flags as original run ...]
 ```
 
-Resume reloads:
-1. LoRA adapter weights from `checkpoints/step_N/adapter/` via `PeftModel.from_pretrained`
-2. DeepSpeed optimizer + scheduler state from the ZeRO partition files
-3. Step counter and best val loss from `client_state`
+Resume reloads (post-H1, audit 2026-05-14):
+
+1. LoRA adapter weights from `checkpoints/step_N/adapter/` via
+   `PeftModel.from_pretrained`. **Hard fail** if `--resume-from` is set
+   but the directory or its `adapter/` subdir is missing (audit M7) —
+   the old behaviour silently fell back to a fresh adapter.
+2. DeepSpeed optimizer + scheduler state from the ZeRO partition files.
+3. From `client_state`:
+   - `step` (global optimizer step counter).
+   - `best_val_loss`.
+   - `epoch` + `micro_step_in_epoch` (data-stream resume position).
+   - `rng_state` (Python + NumPy + torch CPU + torch CUDA per-rank
+     RNG snapshots).
+
+The trainer then calls `train_sampler.set_epoch(epoch)` so the
+DistributedSampler yields the same shuffled order as the original run,
+and skips forward through `enumerate(train_loader)` by
+`micro_step_in_epoch` items before entering the training body. This
+makes resume **faithful**: the data stream and RNG-dependent ops
+(LoRA dropout, augmentation, etc.) reproduce exactly what an
+uninterrupted run would have produced from the same checkpoint.
+
+> **Constraint.** World size at resume must match world size at save
+> (each rank's `client_state` is reloaded by the same rank index).
+> Single-GPU on gputee means this is moot today, but it matters if we
+> ever go multi-GPU.
+>
+> **Legacy checkpoints (pre-H1)** that lack `epoch` /
+> `micro_step_in_epoch` / `rng_state` keys still resume: `epoch=0`,
+> `micro_step_in_epoch=0`, seed-only RNG. `step` and `best_val_loss`
+> are still respected, so the optimiser / LR schedule pick up where
+> they left off; only the data-stream-from-resume invariant is
+> weaker for legacy resumes.
 
 ### Monitoring (from any machine)
 
@@ -1117,7 +1194,6 @@ mkdir -p /data2/ds85/bgcmodel_runs
 for L in 1024 4096 8192 16384 32768; do
   echo "=== L=$L ==="
   OUT=/data2/ds85/bgcmodel_runs/smoke_L${L}
-  PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
   deepspeed --num_gpus=1 \
     scripts/finetune_evo2_lora.py \
     --train data/processed/splits_combined/val.jsonl \
@@ -1198,7 +1274,8 @@ Interpretation from the 2026-04-25 sweep:
 4. The OOM message appears together with
    `expandable_segments not supported on this platform`, so allocator
    tuning via `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is not a
-   viable fix on this host.
+   viable fix on this host. The hint has been stripped from every
+   launch command in this guide; do not re-add it.
 
 Project decision from these no-checkpoint results:
 - **If training without block-level activation checkpointing:** treat

@@ -7,6 +7,15 @@ set -euo pipefail
 #
 # This is the gating step before the full multi-day production training run.
 # See PROJECT_GUIDE.md §13 (⭐ NEXT) and FINETUNE_GUIDE.md §4.
+#
+# IMPORTANT (audit 2026-05-14): the historical defaults --batch-size 4 and
+# --grad-accum 32 OOM at L=32768 on the 80 GB H100 — bs=4 OOMs on forward,
+# bs=2 OOMs on backward. To actually run the pilot you MUST override:
+#     --batch-size 1 --grad-accum 128
+# (Effective batch is still 128 sequences; see FINETUNE_GUIDE.md §4
+# "Effective batch size and throughput".) The defaults are kept as-is here
+# only for reproducibility against the recorded smoke history; they are
+# expected to be overridden on every real invocation.
 
 usage() {
   cat <<'EOF'
@@ -22,8 +31,8 @@ Options:
   --val-every N           Validate every N steps (default: 10).
   --save-every N          Checkpoint every N steps (default: 10).
   --max-seq-len N         Sequence length (default: 32768).
-  --batch-size N          Micro-batch size (default: 4).
-  --grad-accum N          Gradient accumulation steps (default: 32).
+  --batch-size N          Micro-batch size (default: 4; OVERRIDE to 1 at L>=32768).
+  --grad-accum N          Gradient accumulation steps (default: 32; pair with 128 at L>=32768).
   --check-every-sec N     Poll interval while waiting for idle GPU (default: 20).
   --idle-hold-sec N       Continuous idle time required before launch (default: 60).
   --min-free-mib N        Minimum free MiB required (default: 78000).
@@ -182,6 +191,13 @@ log "  Val data:   ${VAL_JSONL}"
 log "  Steps:      ${MAX_STEPS}  (val-every=${VAL_EVERY}, save-every=${SAVE_EVERY})"
 log "  Batch:      ${BATCH_SIZE} × grad-accum ${GRAD_ACCUM} = effective batch $(( BATCH_SIZE * GRAD_ACCUM ))"
 log "  WandB:      ${WANDB_MODE}"
+
+# Audit-driven warning: bs > 1 at long L OOMs on this 80 GB H100.
+if (( MAX_SEQ_LEN >= 32768 && BATCH_SIZE > 1 )); then
+  log "  WARNING: bs=${BATCH_SIZE} at L=${MAX_SEQ_LEN} is expected to OOM on the 80 GB H100."
+  log "  WARNING: Use --batch-size 1 --grad-accum $(( BATCH_SIZE * GRAD_ACCUM )) instead."
+  log "  WARNING: Continuing anyway (the trainer will fail at the first forward/backward)."
+fi
 log "══════════════════════════════════════════════════════════════"
 
 # ── Wait + launch ─────────────────────────────────────────────────────────
