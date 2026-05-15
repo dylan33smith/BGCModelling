@@ -1,0 +1,227 @@
+{
+  "document": {
+    "title": "BCGModelling — project flow",
+    "version": "1.0",
+    "last_updated": "2026-05-14",
+    "repository_root": "BCGModelling",
+    "primary_docs": [
+      {
+        "path": "docs/gputee/PROJECT_GUIDE.md",
+        "role": "Pipeline, data, metrics, status, §13 launch gate"
+      },
+      {
+        "path": "docs/gputee/FINETUNE_GUIDE.md",
+        "role": "Evo2 LoRA training, memory, commands, checkpointing"
+      },
+      {
+        "path": "docs/gputee/MIGRATION_CHANGELOG.md",
+        "role": "trojai → gputee migration audit trail"
+      },
+      {
+        "path": "docs/gputee/BGC_Research_Plan.md",
+        "role": "Research goals and evaluation framing"
+      },
+      {
+        "path": "CLAUDE.md",
+        "role": "Agent / developer quick context"
+      }
+    ],
+    "summary": "MIBiG + antiSMASH-derived JSONL records are merged and stratified into train/val/test splits. Evo2 7B is fine-tuned with LoRA (DeepSpeed + PEFT) on class + taxonomy–conditioned BGC nucleotide text. Checkpoints and logs land under /data2/ds85/bgcmodel_runs/. An eight-metric suite (evaluate_bgc.py) scores real and generated sequences. Phase 1 uses COMPOUND_CLASS + Evo2 taxonomic tags only; later phases add compound conditioning."
+  },
+  "environment": {
+    "conda_env": "bgcmodel",
+    "manager": "micromamba",
+    "canonical_paths": {
+      "HF_HOME": "/data2/ds85/hf_cache",
+      "runs_root": "/data2/ds85/bgcmodel_runs",
+      "combined_splits": "data/processed/splits_combined/{train,val,test}.jsonl"
+    },
+    "pythonpath_note": "Use PYTHONPATH=src when running src-backed pipeline scripts (evaluate_bgc, etc.)."
+  },
+  "stages": [
+    {
+      "id": "sources",
+      "title": "1. Raw sources",
+      "description": "MIBiG records and large-scale antiSMASH GenBank tar; taxonomy from NCBI.",
+      "outputs": [
+        "data/processed/mibig_*_records.jsonl",
+        "data/processed/asdb5_*_records.jsonl (from antismash_db_to_jsonl)"
+      ],
+      "scripts": [
+        {
+          "path": "scripts/mibig_to_jsonl.py",
+          "purpose": "MIBiG → JSONL training rows"
+        },
+        {
+          "path": "scripts/antismash_db_to_jsonl.py",
+          "purpose": "Stream antiSMASH DB tar → JSONL"
+        },
+        {
+          "path": "scripts/annotate_contig_edge.py",
+          "purpose": "Annotate contig_edge on antiSMASH JSONL"
+        }
+      ]
+    },
+    {
+      "id": "merge_split",
+      "title": "2. Merge & stratified splits",
+      "description": "Combine MIBiG + antiSMASH JSONL; stratified train/val/test with documented class balance.",
+      "outputs": [
+        "data/processed/splits_combined/train.jsonl",
+        "data/processed/splits_combined/val.jsonl",
+        "data/processed/splits_combined/test.jsonl"
+      ],
+      "scripts": [
+        {
+          "path": "scripts/split_dataset.py",
+          "purpose": "Stratified split into output dir"
+        }
+      ]
+    },
+    {
+      "id": "chunk_index",
+      "title": "3. Chunk index (production long-seq)",
+      "description": "Optional but recommended before chunked training: per-line nt lengths and meta (max_prefix_tokens, prefix_slack_tokens) for deterministic windows.",
+      "outputs": [
+        "data/processed/splits_combined/<split>.lengths.npy",
+        "data/processed/splits_combined/<split>.lengths.meta.json"
+      ],
+      "scripts": [
+        {
+          "path": "scripts/build_chunk_index.py",
+          "purpose": "Pre-build / refresh length sidecars"
+        }
+      ]
+    },
+    {
+      "id": "readiness",
+      "title": "4. Readiness gate",
+      "description": "Verify data files and external tools (antiSMASH DBs, Pfam, UniRef50, …) before long runs.",
+      "scripts": [
+        {
+          "path": "scripts/check_data_eval_readiness.py",
+          "purpose": "Human or JSON report; archive per production launch"
+        }
+      ]
+    },
+    {
+      "id": "train_lora",
+      "title": "5. Fine-tune (LoRA on Evo2 7B)",
+      "description": "DeepSpeed ZeRO-2 wrapper, bf16, block activation checkpointing (default on), PEFT LoRA. Long sequences: truncate (legacy/pilot) or chunk (production) with prefix-aware tiling. CE loss masks prefix tokens (H3). Resume stores epoch, micro_step_in_epoch, RNG in client_state (H1).",
+      "entry_script": "scripts/finetune_evo2_lora.py",
+      "legacy_full_ft": "scripts/finetune_evo2.py (does not fit 80 GB H100 for long L)",
+      "key_flags": [
+        "--train / --val JSONL paths",
+        "--output-dir under runs_root",
+        "--max-seq-len (32768 conservative; 65536 stretch)",
+        "--batch-size 1 --grad-accum 128 at L=32k on 80 GB H100",
+        "--long-seq-strategy chunk|truncate",
+        "--chunk-overlap, --auto-prefix-budget / --no-auto-prefix-budget",
+        "--resume-from checkpoints/step_N",
+        "--wandb-mode online|offline|disabled"
+      ],
+      "artifacts_per_run": [
+        "config.json",
+        "deepspeed_config.json",
+        "data_fingerprint.json",
+        "env.txt",
+        "train_log.jsonl",
+        "val_log.jsonl",
+        "checkpoints/step_*/",
+        "final_adapter/"
+      ]
+    },
+    {
+      "id": "queued_ops",
+      "title": "6. Queued GPU operations (shared H100)",
+      "description": "Shell wrappers wait for GPU idle + free-memory hold, then launch deepspeed inside micromamba.",
+      "scripts": [
+        {
+          "path": "scripts/queue_h100_smoke.sh",
+          "purpose": "Multi-L smoke matrix; padded train collation by default"
+        },
+        {
+          "path": "scripts/queue_h100_preflight.sh",
+          "purpose": "Production-like batch/grad-accum memory sweep"
+        },
+        {
+          "path": "scripts/queue_h100_pilot.sh",
+          "purpose": "L=32k pilot on real combined splits + post-run verifier"
+        },
+        {
+          "path": "scripts/queue_h100_resume_test.sh",
+          "purpose": "Short L=1024 two-phase save/resume regression"
+        },
+        {
+          "path": "scripts/queue_resume_test_after_pilot.sh",
+          "purpose": "Wait for pilot dir processes to exit + success check → resume test"
+        }
+      ]
+    },
+    {
+      "id": "evaluate",
+      "title": "7. Evaluation & smoke",
+      "description": "Eight-metric suite on JSONL or FASTA; optional skips for fast dev.",
+      "scripts": [
+        {
+          "path": "scripts/evaluate_bgc.py",
+          "purpose": "M1–M8 metrics (antiSMASH class, Pfam domains, ESMFold, …)"
+        },
+        {
+          "path": "scripts/eval_smoke.py",
+          "purpose": "Lightweight eval smoke"
+        },
+        {
+          "path": "scripts/plot_data_stats.py",
+          "purpose": "Dataset statistics plots"
+        }
+      ]
+    },
+    {
+      "id": "inference_future",
+      "title": "8. Inference / generation (downstream)",
+      "description": "Use saved adapter from final_adapter/ or checkpoints/step_*/adapter with Evo2 loader; condition with same prefix format as training. Generation samples during training may be written under output_dir/samples/ per FINETUNE_GUIDE."
+    }
+  ],
+  "data_flow_edges": [
+    { "from": "sources", "to": "merge_split", "label": "JSONL merge" },
+    { "from": "merge_split", "to": "chunk_index", "label": "optional sidecars" },
+    { "from": "merge_split", "to": "readiness", "label": "paths fixed" },
+    { "from": "readiness", "to": "train_lora", "label": "gate" },
+    { "from": "chunk_index", "to": "train_lora", "label": "if --long-seq-strategy chunk" },
+    { "from": "train_lora", "to": "evaluate", "label": "generated FASTA or held-out JSONL" }
+  ],
+  "decision_log_highlights": [
+    {
+      "topic": "Micro-batch at L=32k",
+      "decision": "--batch-size 1 --grad-accum 128 (effective batch 128)",
+      "reference": "CLAUDE.md, FINETUNE_GUIDE.md §4"
+    },
+    {
+      "topic": "Production long sequences",
+      "decision": "--long-seq-strategy chunk --chunk-overlap 2048",
+      "reference": "PROJECT_GUIDE.md §13.1"
+    },
+    {
+      "topic": "Prefix in loss",
+      "decision": "Prefix tokens masked in CE (H3); loss not comparable to older runs",
+      "reference": "FINETUNE_GUIDE.md §5 audit fields"
+    },
+    {
+      "topic": "Resume fidelity",
+      "decision": "client_state: epoch, micro_step_in_epoch, rng_state + dataloader skip-ahead (H1)",
+      "reference": "FINETUNE_GUIDE.md §6 resume"
+    }
+  ],
+  "metrics": {
+    "suite": "M1–M8",
+    "examples": [
+      "M1: antiSMASH product class match",
+      "M2: Pfam domain recovery",
+      "M3: ESMFold / structure proxy",
+      "M5: NPAtlas-related",
+      "M8: UniRef50 MMseqs homology"
+    ],
+    "script": "scripts/evaluate_bgc.py"
+  }
+}

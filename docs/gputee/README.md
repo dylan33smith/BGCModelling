@@ -8,6 +8,9 @@ Active documentation for the current host: `gputee` (1× NVIDIA H100 PCIe, 80 GB
 - `MIGRATION_CHANGELOG.md` — every change made when porting from the previous
   `trojai` host (4× NVIDIA A40) to `gputee`, with rationale. Read this to
   understand the delta from the archived `docs/trojai/` copy.
+- `project_flow.json` + `project_flow.html` — machine-readable pipeline graph
+  and a small viewer (serve `docs/gputee` over HTTP or use the HTML file picker
+  to load the JSON; instructions are on the page).
 
 ## Environment Recreation
 

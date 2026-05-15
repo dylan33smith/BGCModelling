@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BCGModelling — project flow</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --border: #30363d;
+      --ok: #3fb950;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+    header {
+      padding: 2rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #161b22 0%, var(--bg) 100%);
+    }
+    h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .sub { color: var(--muted); font-size: 0.95rem; max-width: 72ch; }
+    main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+    h2 {
+      font-size: 1.1rem;
+      margin: 2rem 0 0.75rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .banner {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+    }
+    .banner code { background: #21262d; padding: 0.15em 0.4em; border-radius: 4px; }
+    .stage {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .stage h3 { margin: 0 0 0.35rem; font-size: 1rem; }
+    .stage p { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.92rem; }
+    ul { margin: 0.25rem 0 0 1.1rem; padding: 0; }
+    li { margin: 0.2rem 0; }
+    .path { font-family: ui-monospace, monospace; font-size: 0.82rem; color: #79c0ff; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 0.5rem 0 1rem;
+    }
+    th, td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; }
+    th { background: #21262d; color: var(--muted); font-weight: 500; }
+    .decision {
+      border-left: 3px solid var(--ok);
+      padding-left: 0.75rem;
+      margin: 0.75rem 0;
+    }
+    .decision strong { display: block; margin-bottom: 0.25rem; }
+    footer {
+      margin-top: 3rem;
+      padding: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    label.load {
+      display: inline-block;
+      margin-top: 0.5rem;
+      cursor: pointer;
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    input[type="file"] { display: none; }
+    .err { color: #f85149; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>BCGModelling — project flow</h1>
+    <p class="sub">End-to-end view: data sources → splits → (optional) chunk sidecars → readiness → LoRA fine-tune on Evo2 → checkpoints → evaluation. Companion data: <span class="path">project_flow.json</span> (same directory).</p>
+  </header>
+  <main>
+    <div class="banner" id="load-help">
+      <strong>How to load the JSON.</strong> Browsers often block <code>fetch()</code> for local <code>file://</code> pages.
+      <ul style="margin-top:0.5rem;">
+        <li><strong>Recommended:</strong> from repo root run
+          <code>python3 -m http.server 8765 --directory docs/gputee</code>
+          then open <code>http://localhost:8765/project_flow.html</code></li>
+        <li><strong>Offline:</strong> use “Choose project_flow.json…” below to load the file manually.</li>
+      </ul>
+      <label class="load" for="json-file">Choose project_flow.json…</label>
+      <input type="file" id="json-file" accept=".json,application/json" />
+      <p id="status" style="margin:0.5rem 0 0;"></p>
+    </div>
+
+    <section id="summary"></section>
+    <section id="env"></section>
+    <h2>Stage graph (logical dependencies)</h2>
+    <ul id="edges" style="margin:0; padding-left:1.2rem; color:var(--muted); font-size:0.92rem;"></ul>
+    <h2>Stages & scripts</h2>
+    <div id="stages"></div>
+    <h2>Primary documentation</h2>
+    <table id="docs-table"><thead><tr><th>Path</th><th>Role</th></tr></thead><tbody></tbody></table>
+    <h2>Decision highlights</h2>
+    <div id="decisions"></div>
+    <h2>Evaluation suite</h2>
+    <div id="metrics"></div>
+  </main>
+  <footer>
+    Static viewer — data driven from <code>project_flow.json</code>. Regenerate or edit JSON to update this page.
+  </footer>
+  <script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  function render(data) {
+    $("status").textContent = "Loaded: " + (data.document && data.document.title ? data.document.title : "project_flow.json");
+    $("status").classList.remove("err");
+
+    const doc = data.document || {};
+    $("summary").innerHTML =
+      "<h2>Summary</h2><p>" + escapeHtml(doc.summary || "") + "</p>" +
+      "<p style=\"color:var(--muted);font-size:0.9rem;\">Last updated: " + escapeHtml(doc.last_updated || "?") +
+      " · Repository: " + escapeHtml(doc.repository_root || "") + "</p>";
+
+    const env = data.environment || {};
+    let envHtml = "<h2>Environment</h2><p><strong>Env:</strong> " + escapeHtml(env.conda_env || "") +
+      " (" + escapeHtml(env.manager || "") + ")</p>";
+    if (env.canonical_paths) {
+      envHtml += "<ul>";
+      for (const [k, v] of Object.entries(env.canonical_paths)) {
+        envHtml += "<li><span class=\"path\">" + escapeHtml(k) + "</span> → " + escapeHtml(String(v)) + "</li>";
+      }
+      envHtml += "</ul>";
+    }
+    if (env.pythonpath_note) envHtml += "<p style=\"color:var(--muted);font-size:0.9rem;\">" + escapeHtml(env.pythonpath_note) + "</p>";
+    $("env").innerHTML = envHtml;
+
+    const edgeHost = $("edges");
+    edgeHost.innerHTML = "";
+    (data.data_flow_edges || []).forEach(function (e) {
+      const li = document.createElement("li");
+      li.innerHTML =
+        "<span class=\"path\">" + escapeHtml(e.from) + "</span>" +
+        " —<em>" + escapeHtml(e.label || "→") + "</em>→ " +
+        "<span class=\"path\">" + escapeHtml(e.to) + "</span>" +
+        " <span style=\"color:var(--muted);\">(" + escapeHtml(edgeLabel(data.stages, e.from)) + " → " + escapeHtml(edgeLabel(data.stages, e.to)) + ")</span>";
+      edgeHost.appendChild(li);
+    });
+
+    const st = $("stages");
+    st.innerHTML = "";
+    (data.stages || []).forEach(function (s) {
+      const div = document.createElement("div");
+      div.className = "stage";
+      let h = "<h3>" + escapeHtml(s.title || s.id) + "</h3>";
+      if (s.description) h += "<p>" + escapeHtml(s.description) + "</p>";
+      if (s.entry_script) h += "<p><strong>Entry:</strong> <span class=\"path\">" + escapeHtml(s.entry_script) + "</span></p>";
+      if (s.legacy_full_ft) h += "<p style=\"font-size:0.88rem;color:var(--muted);\">Legacy: <span class=\"path\">" + escapeHtml(s.legacy_full_ft) + "</span></p>";
+      if (s.outputs && s.outputs.length) {
+        h += "<p><strong>Outputs</strong></p><ul>";
+        s.outputs.forEach(function (o) { h += "<li><span class=\"path\">" + escapeHtml(o) + "</span></li>"; });
+        h += "</ul>";
+      }
+      if (s.key_flags && s.key_flags.length) {
+        h += "<p><strong>Key flags</strong></p><ul>";
+        s.key_flags.forEach(function (f) { h += "<li>" + escapeHtml(f) + "</li>"; });
+        h += "</ul>";
+      }
+      if (s.artifacts_per_run && s.artifacts_per_run.length) {
+        h += "<p><strong>Run artefacts</strong></p><ul>";
+        s.artifacts_per_run.forEach(function (a) { h += "<li><span class=\"path\">" + escapeHtml(a) + "</span></li>"; });
+        h += "</ul>";
+      }
+      if (s.scripts && s.scripts.length) {
+        h += "<p><strong>Scripts</strong></p><ul>";
+        s.scripts.forEach(function (sc) {
+          h += "<li><span class=\"path\">" + escapeHtml(sc.path) + "</span> — " + escapeHtml(sc.purpose || "") + "</li>";
+        });
+        h += "</ul>";
+      }
+      div.innerHTML = h;
+      st.appendChild(div);
+    });
+
+    const tb = $("docs-table").querySelector("tbody");
+    tb.innerHTML = "";
+    (doc.primary_docs || []).forEach(function (d) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td class=\"path\">" + escapeHtml(d.path) + "</td><td>" + escapeHtml(d.role || "") + "</td>";
+      tb.appendChild(tr);
+    });
+
+    const dec = $("decisions");
+    dec.innerHTML = "";
+    (data.decision_log_highlights || []).forEach(function (d) {
+      const div = document.createElement("div");
+      div.className = "decision";
+      div.innerHTML = "<strong>" + escapeHtml(d.topic) + "</strong>" +
+        escapeHtml(d.decision) + "<br/><span style=\"color:var(--muted);font-size:0.88rem;\">" + escapeHtml(d.reference || "") + "</span>";
+      dec.appendChild(div);
+    });
+
+    const m = data.metrics || {};
+    $("metrics").innerHTML =
+      "<p><strong>" + escapeHtml(m.suite || "Metrics") + "</strong> via <span class=\"path\">" + escapeHtml(m.script || "") + "</span></p>" +
+      "<ul>" + (m.examples || []).map(function (x) { return "<li>" + escapeHtml(x) + "</li>"; }).join("") + "</ul>";
+  }
+
+  function edgeLabel(stages, id) {
+    const s = (stages || []).find(function (x) { return x.id === id; });
+    return s ? (s.title || id) : id;
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function fail(msg) {
+    $("status").textContent = msg;
+    $("status").classList.add("err");
+  }
+
+  function applyJson(text) {
+    try {
+      render(JSON.parse(text));
+    } catch (e) {
+      fail("Invalid JSON: " + e.message);
+    }
+  }
+
+  fetch("project_flow.json")
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.text();
+    })
+    .then(applyJson)
+    .catch(function () {
+      fail("Could not fetch project_flow.json — use the file picker or a local web server (see above).");
+    });
+
+  $("json-file").addEventListener("change", function (ev) {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = function () { applyJson(reader.result); };
+    reader.readAsText(f, "UTF-8");
+  });
+})();
+  </script>
+</body>
+</html>
