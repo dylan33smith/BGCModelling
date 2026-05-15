@@ -148,5 +148,8 @@ if [[ "$VERIFY_RC" -ne 0 ]]; then
   exit 1
 fi
 
+REPO_ROOT="$(cd "${BASH_SOURCE%/*}/.." && pwd)"
 log "Launching queue_h100_resume_test.sh (inherits its own GPU-idle wait)..."
-exec micromamba run -n "$ENV_NAME" bash "${BASH_SOURCE%/*}/queue_h100_resume_test.sh" "${RESUME_EXTRA[@]}"
+log "  Repo root: ${REPO_ROOT}"
+cd "$REPO_ROOT"
+exec micromamba run -n "$ENV_NAME" bash "${REPO_ROOT}/scripts/queue_h100_resume_test.sh" "${RESUME_EXTRA[@]}"

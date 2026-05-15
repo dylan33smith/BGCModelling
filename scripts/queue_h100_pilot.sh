@@ -105,8 +105,8 @@ require_cmd python
 require_cmd micromamba
 
 # M1: deepspeed lives inside the conda env, not on the launcher's PATH.
-# Probe for it inside the env instead of failing the launcher itself.
-if ! micromamba run -n "$ENV_NAME" command -v deepspeed >/dev/null 2>&1; then
+# Use `which`, not `command -v` — micromamba cannot run the `command` builtin.
+if ! micromamba run -n "$ENV_NAME" which deepspeed >/dev/null 2>&1; then
   echo "deepspeed not installed in micromamba env '${ENV_NAME}'." >&2
   echo "Activate the env (or rebuild it) before running this script." >&2
   exit 2

@@ -69,8 +69,10 @@ require_cmd nvidia-smi
 require_cmd python
 require_cmd micromamba
 
-# deepspeed lives inside the conda env, not necessarily on the caller's PATH.
-if ! micromamba run -n "$ENV_NAME" command -v deepspeed >/dev/null 2>&1; then
+# deepspeed lives inside the conda env, not on the caller's PATH.
+# Use `which` (or `deepspeed --help`), not `command -v` — the latter is a shell
+# builtin and micromamba would try to exec a binary named "command" (fails).
+if ! micromamba run -n "$ENV_NAME" which deepspeed >/dev/null 2>&1; then
   echo "deepspeed not installed in micromamba env '${ENV_NAME}'." >&2
   exit 2
 fi
