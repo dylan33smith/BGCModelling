@@ -1461,6 +1461,7 @@ deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
      - production-like preflight: `scripts/queue_h100_preflight.sh`
      - **L=32k pilot (natural collation):** `scripts/queue_h100_pilot.sh`
      - resume regression: `scripts/queue_h100_resume_test.sh`
+     - **Pilot → resume chain (no idle gap):** `nohup micromamba run -n bgcmodel bash scripts/queue_resume_test_after_pilot.sh --pilot-dir /data2/ds85/bgcmodel_runs/<pilot_run>/ &` — waits until that pilot’s `finetune_evo2_lora.py` processes exit, checks `train_log.jsonl` reached `max_steps` from `config.json`, then runs the resume test (writes `chain_to_resume.log` under the pilot dir).
 
 ### 13.2  Data and evaluation readiness (start now; independent of final `L`)
 

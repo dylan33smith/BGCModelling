@@ -68,7 +68,12 @@ require_cmd() {
 require_cmd nvidia-smi
 require_cmd python
 require_cmd micromamba
-require_cmd deepspeed
+
+# deepspeed lives inside the conda env, not necessarily on the caller's PATH.
+if ! micromamba run -n "$ENV_NAME" command -v deepspeed >/dev/null 2>&1; then
+  echo "deepspeed not installed in micromamba env '${ENV_NAME}'." >&2
+  exit 2
+fi
 
 if [[ ! -f "$TRAIN_JSONL" ]]; then
   echo "Train JSONL not found: $TRAIN_JSONL" >&2
