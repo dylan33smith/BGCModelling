@@ -2,6 +2,24 @@
 
 ## Resolution Log
 
+- **2026-06-04 — C3 (no generation/inference script): IMPLEMENTED.**
+  `scripts/generate_bgc.py` loads base Evo2 + the trained LoRA adapter (merged
+  into the base weights via `load_evo2_wrapper_for_inference` in
+  `evo2_inference.py`), builds the Phase-1 `|COMPOUND_CLASS:{cls}|{tax}` prefix,
+  samples with Evo2's efficient cached generation, and trims at the trained
+  `|END|` marker (vortex hardcodes `stop_at_eos=False`, so we trim ourselves).
+  Supports explicit `--class/--taxon` prompts or sampling held-out prompts via
+  `--from-jsonl`; `--max-windows>1` enables chained long-seq generation using the
+  `|CONTINUATION:{cls}|{tax}` prefix + carried overlap (audit M11). With
+  `--adapter` omitted it generates from the base model — the **M5 generation
+  baseline**. Writes FASTA (for the eval suite) + JSONL metadata, with N-content
+  reporting (M8 generation side). Post-processing (EOS trim, nucleotide
+  sanitation, FASTA, prompt sampling) is unit-tested in `tests/test_generation.py`
+  and guards EOS/prefix consistency with training. End-to-end generation needs a
+  GPU + a trained checkpoint (still pending the first run). This unblocks the
+  generation-dependent evaluation (M4 memorization, M6 novelty, the eval suite,
+  and the generation-based validation tier).
+
 - **2026-06-04 — Operational/integrity hardening batch (Groups A + B): RESOLVED.**
   All in `scripts/finetune_evo2_lora.py`; backed by `tests/test_hardening.py` +
   a B1 negative test in `test_chunk_eos_windows.py`.

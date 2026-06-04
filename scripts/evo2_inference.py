@@ -97,6 +97,45 @@ def load_evo2_for_inference(
     return model, tokenizer
 
 
+def load_evo2_wrapper_for_inference(
+    adapter_dir: Optional[Path] = None,
+    device: str = "cuda",
+) -> Any:
+    """Load the Evo2 *wrapper* (for its efficient `.generate()`), with the LoRA
+    adapter MERGED into the base weights so generation uses the fine-tuned model.
+
+    Unlike `load_evo2_for_inference` (which returns a PeftModel for scoring), this
+    returns the `evo2.Evo2` wrapper whose `.model` is a plain StripedHyena with the
+    adapter baked in — so `wrapper.generate(...)` (cached/efficient vortex
+    generation) runs the fine-tuned model. If adapter_dir is None, the untouched
+    base model is returned (M5 generation baseline).
+    """
+    import evo2
+
+    wrapper = evo2.Evo2(EVO2_MODEL_NAME)
+    with torch.no_grad():
+        for p in wrapper.model.parameters():
+            if not p.is_contiguous():
+                p.data = p.data.clone().contiguous()
+
+    if adapter_dir is not None:
+        adapter_dir = Path(adapter_dir)
+        if not (adapter_dir / "adapter_config.json").exists() and (adapter_dir / "adapter").exists():
+            adapter_dir = adapter_dir / "adapter"
+        _install_peft_compat_shims(wrapper.model)
+        from peft import PeftModel
+        peft_model = PeftModel.from_pretrained(
+            wrapper.model, str(adapter_dir), is_trainable=False, autocast_adapter_dtype=False,
+        )
+        # Merge LoRA deltas into the base Linear weights and drop the peft wrapper,
+        # leaving a plain adapted StripedHyena that vortex generation can use.
+        wrapper.model = peft_model.merge_and_unload()
+
+    wrapper.model = wrapper.model.to(device)
+    wrapper.model.eval()
+    return wrapper
+
+
 def _to_id_list(tokens: Any) -> list[int]:
     if isinstance(tokens, (list, tuple)):
         return list(tokens)

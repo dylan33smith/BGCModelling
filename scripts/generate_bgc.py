@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""C3 — generate conditioned BGC sequences from the fine-tuned Evo2 model.
+
+Loads base Evo2 + the trained LoRA adapter (merged), builds the Phase-1
+conditioning prefix |COMPOUND_CLASS:{cls}|{tax}, samples a sequence with Evo2's
+efficient cached generation, stops at the trained |END| marker, and writes a
+FASTA (for the eval suite) + a JSONL of metadata.
+
+Generation runs the full --max-new-tokens (vortex hardcodes stop_at_eos=False),
+so we trim at |END| ourselves. For BGCs longer than one window, --max-windows>1
+enables chained generation via the |CONTINUATION:{cls}|{tax} prefix + carried
+overlap context (mirrors training; audit M11).
+
+Prompts come from --class/--taxon (one explicit prompt) or --from-jsonl (sample
+class+taxon prompts from a held-out split, e.g. for evaluation). With --adapter
+omitted, the untouched base model is used — the M5 generation baseline.
+
+NOTE: generation requires a GPU + evo2 weights + a trained checkpoint. The
+pure post-processing (prefix building, EOS trimming, nucleotide sanitation,
+FASTA) is unit-tested in tests/test_generation.py.
+
+Examples:
+  # generate from held-out val prompts (eval), 2 per class, with the best adapter
+  python scripts/generate_bgc.py \
+      --adapter /data2/ds85/bgcmodel_runs/<run>/checkpoints/best \
+      --from-jsonl /data2/ds85/bgcmodel_data/splits_curated/val.jsonl \
+      --per-class 2 --max-new-tokens 16384 \
+      --out-fasta gen.fasta --out-jsonl gen.jsonl
+
+  # one explicit prompt
+  python scripts/generate_bgc.py --adapter <ckpt> \
+      --class NRPS --taxon "|D__BACTERIA;P__ACTINOMYCETOTA;..." --n 4
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import re
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Optional
+
+# Must match scripts/finetune_evo2_lora.py (asserted in tests/test_generation.py).
+EOS_MARKER = "|END|"
+CLASS_PREFIX_FMT = "|COMPOUND_CLASS:{cls}|{tax}"
+CONT_PREFIX_FMT = "|CONTINUATION:{cls}|{tax}"
+_NUC_RE = re.compile(r"[ACGTN]*")
+
+
+# ── Pure-logic helpers (no torch; unit-tested) ──────────────────────────────
+
+def build_prefix(cls: str, tax: str) -> str:
+    return CLASS_PREFIX_FMT.format(cls=cls, tax=tax)
+
+
+def build_continuation_prefix(cls: str, tax: str) -> str:
+    return CONT_PREFIX_FMT.format(cls=cls, tax=tax)
+
+
+def extract_sequence(generated: str) -> dict:
+    """Turn a raw generated string into a clean nucleotide sequence.
+
+    - trims at the first |END| (EOS the model was trained to emit),
+    - keeps the leading run of valid nucleotides ACGTN,
+    - reports whether EOS was hit and whether trailing non-nucleotide junk was cut.
+    """
+    hit_eos = EOS_MARKER in generated
+    body = generated.split(EOS_MARKER, 1)[0] if hit_eos else generated
+    clean = _NUC_RE.match(body.upper()).group(0)
+    return {
+        "sequence": clean,
+        "hit_eos": hit_eos,
+        "len": len(clean),
+        "n_count": clean.count("N"),
+        "trailing_junk_trimmed": len(clean) < len(body),
+    }
+
+
+def n_fraction(seq: str) -> float:
+    return (seq.upper().count("N") / len(seq)) if seq else 0.0
+
+
+def to_fasta_record(seq_id: str, seq: str, **meta) -> str:
+    tags = " ".join(f"{k}={v}" for k, v in meta.items())
+    header = f">{seq_id} {tags}".rstrip()
+    lines = [seq[i:i + 80] for i in range(0, len(seq), 80)] or [""]
+    return header + "\n" + "\n".join(lines) + "\n"
+
+
+def sample_prompts(records: list[dict], per_class: int, rng: random.Random) -> list[dict]:
+    """Sample (compound_class, taxonomic_tag) prompts, up to per_class per class."""
+    by_class: dict[str, list[dict]] = defaultdict(list)
+    for r in records:
+        by_class[r.get("compound_class", "UNKNOWN")].append(r)
+    prompts = []
+    for cls in sorted(by_class):
+        pool = by_class[cls]
+        rng.shuffle(pool)
+        for r in pool[:per_class] if per_class > 0 else pool:
+            prompts.append({"compound_class": cls,
+                            "taxonomic_tag": r.get("taxonomic_tag", "")})
+    return prompts
+
+
+# ── Generation (GPU; lazy heavy imports) ────────────────────────────────────
+
+def _gen_sequences(out: Any) -> list[str]:
+    seqs = getattr(out, "sequences", None)
+    if seqs is None and isinstance(out, (tuple, list)):
+        seqs = out[0]
+    return list(seqs)
+
+
+def generate_one(wrapper: Any, cls: str, tax: str, args) -> dict:
+    """Generate one conditioned BGC (single window, optionally chained)."""
+    prefix = build_prefix(cls, tax)
+    out = wrapper.generate(
+        prompt_seqs=[prefix], n_tokens=args.max_new_tokens,
+        temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
+        cached_generation=True, verbose=0,
+    )
+    info = extract_sequence(_gen_sequences(out)[0])
+    full = info["sequence"]
+    hit_eos = info["hit_eos"]
+    windows = 1
+
+    # Chained long-sequence generation: continue from the carried overlap until
+    # the model emits EOS or we hit the window cap (audit M11 / long-seq).
+    while (not hit_eos) and windows < args.max_windows and len(full) >= args.chunk_overlap:
+        seed = full[-args.chunk_overlap:]
+        out = wrapper.generate(
+            prompt_seqs=[build_continuation_prefix(cls, tax) + seed],
+            n_tokens=args.max_new_tokens,
+            temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
+            cached_generation=True, verbose=0,
+        )
+        cont = extract_sequence(_gen_sequences(out)[0])
+        if cont["len"] == 0:
+            break
+        full += cont["sequence"]
+        hit_eos = cont["hit_eos"]
+        windows += 1
+
+    nfrac = n_fraction(full)
+    return {
+        "compound_class": cls,
+        "taxonomic_tag": tax,
+        "sequence": full,
+        "length": len(full),
+        "hit_eos": hit_eos,
+        "windows": windows,
+        "n_count": full.upper().count("N"),
+        "n_fraction": round(nfrac, 5),
+        "n_pass": nfrac <= args.max_n_frac,
+        "decoding": {"temperature": args.temperature, "top_k": args.top_k,
+                     "top_p": args.top_p, "max_new_tokens": args.max_new_tokens},
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--adapter", type=Path, default=None,
+                    help="LoRA checkpoint dir (with adapter/) or run dir (uses best/). "
+                         "Omit to generate from the BASE model (M5 baseline).")
+    # prompt source
+    ap.add_argument("--from-jsonl", type=Path, default=None,
+                    help="Sample class+taxon prompts from this split (e.g. val.jsonl).")
+    ap.add_argument("--per-class", type=int, default=2,
+                    help="Prompts sampled per class from --from-jsonl (0 = all).")
+    ap.add_argument("--class", dest="cls", default=None, help="Explicit compound class.")
+    ap.add_argument("--taxon", default=None, help="Explicit taxonomic_tag for --class.")
+    ap.add_argument("--n", type=int, default=1, help="Samples per prompt.")
+    # decoding
+    ap.add_argument("--temperature", type=float, default=1.0)
+    ap.add_argument("--top-k", type=int, default=4)
+    ap.add_argument("--top-p", type=float, default=1.0)
+    ap.add_argument("--max-new-tokens", type=int, default=16384,
+                    help="Nucleotides generated per window (vortex runs the full count).")
+    ap.add_argument("--max-windows", type=int, default=1,
+                    help=">1 enables chained generation for BGCs longer than one window.")
+    ap.add_argument("--chunk-overlap", type=int, default=2048,
+                    help="Overlap (nt) carried as context into each chained window.")
+    ap.add_argument("--max-n-frac", type=float, default=0.01,
+                    help="Max fraction of N for a sequence to be flagged n_pass=true.")
+    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--out-fasta", type=Path, default=Path("generated_bgcs.fasta"))
+    ap.add_argument("--out-jsonl", type=Path, default=Path("generated_bgcs.jsonl"))
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Print the prompt/decoding plan without loading the model.")
+    args = ap.parse_args()
+
+    # Resolve prompts.
+    rng = random.Random(args.seed)
+    if args.from_jsonl is not None:
+        records = [json.loads(l) for l in args.from_jsonl.open()]
+        prompts = sample_prompts(records, args.per_class, rng)
+    elif args.cls is not None and args.taxon is not None:
+        prompts = [{"compound_class": args.cls, "taxonomic_tag": args.taxon}]
+    else:
+        ap.error("provide --from-jsonl, or both --class and --taxon")
+
+    total = len(prompts) * args.n
+    print(f"Prompts: {len(prompts)}  x  {args.n} sample(s) = {total} sequences",
+          file=sys.stderr)
+    print(f"Decoding: temp={args.temperature} top_k={args.top_k} top_p={args.top_p} "
+          f"max_new={args.max_new_tokens} max_windows={args.max_windows}", file=sys.stderr)
+    print(f"Model: {'base Evo2 (baseline)' if args.adapter is None else args.adapter}",
+          file=sys.stderr)
+    if args.dry_run:
+        for p in prompts[:10]:
+            print(f"  prompt: class={p['compound_class']} tax={p['taxonomic_tag'][:50]}...",
+                  file=sys.stderr)
+        print("[dry-run] model not loaded.", file=sys.stderr)
+        return
+
+    from evo2_inference import load_evo2_wrapper_for_inference
+    print("Loading Evo2 + adapter (merging)...", file=sys.stderr, flush=True)
+    wrapper = load_evo2_wrapper_for_inference(args.adapter, device=args.device)
+
+    args.out_fasta.parent.mkdir(parents=True, exist_ok=True)
+    n_done = n_eos = 0
+    with args.out_fasta.open("w") as fa, args.out_jsonl.open("w") as jl:
+        for pi, p in enumerate(prompts):
+            for si in range(args.n):
+                rec = generate_one(wrapper, p["compound_class"], p["taxonomic_tag"], args)
+                sid = f"gen_{pi:04d}_{si}"
+                rec["id"] = sid
+                jl.write(json.dumps(rec) + "\n")
+                fa.write(to_fasta_record(
+                    sid, rec["sequence"], compound_class=rec["compound_class"],
+                    length=rec["length"], eos=rec["hit_eos"], windows=rec["windows"]))
+                n_done += 1
+                n_eos += int(rec["hit_eos"])
+                if n_done % 10 == 0:
+                    print(f"  {n_done}/{total} generated ({n_eos} hit EOS)",
+                          file=sys.stderr, flush=True)
+
+    print(f"\nDone: {n_done} sequences ({n_eos} terminated with EOS).", file=sys.stderr)
+    print(f"  FASTA: {args.out_fasta}\n  JSONL: {args.out_jsonl}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
