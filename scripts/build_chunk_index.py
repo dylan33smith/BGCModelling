@@ -139,9 +139,9 @@ def main() -> None:
         type=Path,
         nargs="*",
         default=[
-            ROOT / "data/processed/splits_combined/train.jsonl",
-            ROOT / "data/processed/splits_combined/val.jsonl",
-            ROOT / "data/processed/splits_combined/test.jsonl",
+            Path("/data2/ds85/bgcmodel_data/splits_curated/train.jsonl"),
+            Path("/data2/ds85/bgcmodel_data/splits_curated/val.jsonl"),
+            Path("/data2/ds85/bgcmodel_data/splits_curated/test.jsonl"),
         ],
         help="JSONL files to index.",
     )

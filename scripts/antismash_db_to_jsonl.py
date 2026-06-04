@@ -486,7 +486,8 @@ def main() -> None:
     parser.add_argument(
         "--output", "-o",
         type=Path,
-        default=ROOT / "data" / "processed" / "asdb5_train_records.jsonl",
+        # Source data lives on /data2 (off the full /home disk) as of 2026-06-04.
+        default=Path("/data2/ds85/bgcmodel_data/asdb5_train_records.jsonl"),
     )
     parser.add_argument(
         "--max-length",

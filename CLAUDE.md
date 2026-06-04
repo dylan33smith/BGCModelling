@@ -16,8 +16,12 @@ correctly without repeated setup explanations.
 - Current production host focus: `gputee` (single H100 80 GB).
 - Training strategy: LoRA adapters on Evo2 (not full-parameter FT).
 - Orchestration stack: DeepSpeed + PEFT + PyTorch (bf16).
-- Data split path currently used for smoke runs:
-  `data/processed/splits_combined/{train,val}.jsonl`.
+- Datasets (on `/data2`, see Current Decisions for why):
+  - ACTIVE training/eval: `/data2/ds85/bgcmodel_data/splits_curated/{train,val,test}.jsonl`
+    (curated, leakage-free; train ~18K).
+  - Leakage-free full split: `/data2/ds85/bgcmodel_data/splits_combined_grouped/`.
+  - DEPRECATED (leaky — do not use): `data/processed/splits_combined/`
+    had 94.6% genome overlap across splits.
 
 ## Source of Truth
 
@@ -67,6 +71,25 @@ correctly without repeated setup explanations.
   which matches the project's "generate sequences conditioned on a
   fixed prefix" intent. Absolute train/val loss values are *not*
   comparable to pre-H3 runs.
+
+### Data & validation decisions (2026-06-02, post-audit — see AUDIT_FINDINGS.md)
+
+- The original `splits_combined/` split was record-level and leaked badly
+  (94.6% genome overlap, 453 byte-identical seqs across splits). Fixed with
+  group-aware (genome-keyed) splitting: `scripts/split_dataset_grouped.py`.
+- Training set curated down to ~18K via `scripts/curate_dataset.py`:
+  quality-filtered (no N / no contig-edge), per-class capped at 1000,
+  diversity-stratified (phylum × length, distinct genomes); val/test kept full.
+  Rationale: Evo2 is pretrained; Phase-1 mostly teaches the conditioning
+  interface (LIMA-style), and the full set was prohibitively large (~20 d/epoch).
+- Validation uses first-window-only (prefix-aligned) loss, length-stratified
+  (`val_by_length`), with early stopping (`--early-stopping-patience`). The old
+  interior-window val loss did not reflect generation. Generation-based eval is
+  offline (depends on the not-yet-built generation script).
+- Metric 7 (organism compatibility) no longer hardcodes E. coli: it grades
+  faithfulness vs the conditioned taxon (`scripts/build_taxon_profiles.py`,
+  `data/processed/taxon_profiles.json`) and reports E. coli expressibility
+  separately.
 - **Adaptive seq-budget slack (H6, audit 2026-05-14):** chunk windows
   reserve `prefix_token_cap + prefix_slack_tokens` tokens before
   filling with nucleotides. Slack is empirically scanned by rank 0 and

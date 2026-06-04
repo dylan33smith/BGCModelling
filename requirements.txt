@@ -1,6 +1,10 @@
 # =============================================================================
 # BCGModelling — Pinned Requirements
-# Last updated: 2026-04-07
+# Last updated: 2026-06-02
+#
+# For a fully frozen environment (all transitive deps), use the lockfile:
+#   pip install -r requirements.lock.txt
+# This file is the human-curated set of direct, version-critical pins.
 #
 # IMPORTANT: All scripts must be run inside the bgcmodel conda environment:
 #   conda activate bgcmodel
@@ -60,6 +64,20 @@ huggingface-hub==0.36.2   # Model weight downloads
 evo2==0.5.5               # Metric 5: sequence perplexity (loads evo2_7b_262k)
 vtx==1.0.8                # Vortex / StripedHyena2 runtime (installed by evo2)
 einops==0.8.1             # Required by vtx
+
+# -----------------------------------------------------------------------------
+# Training stack — REQUIRED by scripts/finetune_evo2_lora.py (audit C5)
+#
+# These were previously unpinned/absent; a clean rebuild resolved arbitrary
+# versions and could silently change LoRA/DeepSpeed behaviour or fail to import.
+# peft 0.19.0 in particular carries three manual compatibility shims in
+# finetune_evo2_lora.py — do NOT bump without re-validating those.
+# Exact-pin; for a fully frozen environment use requirements.lock.txt.
+# -----------------------------------------------------------------------------
+peft==0.19.0              # LoRA adapters (apply_lora); has 3 manual compat fixes
+deepspeed==0.18.9         # ZeRO-2 single-GPU training engine
+wandb==0.26.0             # Training dashboard / run logging
+numpy==2.2.5              # Pinned: length sidecars, curation, eval all depend on it
 
 # Supporting GPU libs (installed automatically as torch dependencies)
 # nvidia-cuda-runtime-cu12==12.4.127

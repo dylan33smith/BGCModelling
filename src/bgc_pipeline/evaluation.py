@@ -31,7 +31,7 @@ import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -81,6 +81,109 @@ _ECOLI_CODON_FREQ: dict[str, float] = {
     "AGT": 8.8,  "AGC": 16.0, "AGA": 2.1,  "AGG": 1.2,
     "GGT": 24.6, "GGC": 29.4, "GGA": 8.0,  "GGG": 11.1,
 }
+
+# ---------------------------------------------------------------------------
+# Reference organism profiles for Metric 7 (organism compatibility)
+# ---------------------------------------------------------------------------
+#
+# Metric 7 answers two DIFFERENT questions that must not be conflated:
+#   (a) Faithfulness  — does the generated sequence match the codon/GC/dinucleotide
+#       signature of the ORGANISM IT WAS CONDITIONED ON? (graded vs that taxon)
+#   (b) Expressibility — would it express in the wet-lab synthesis chassis (E. coli)?
+# The model is conditioned on the source taxon (97.6% bacteria; Actinomycetota
+# GC ~0.71), so a *correct* model reproduces high-GC, non-E.coli statistics.
+# Grading faithfulness against E. coli therefore auto-fails a good model. We keep
+# E. coli as an explicit CHASSIS reference for (b), reported separately, and grade
+# the verdict on (a) against the conditioned taxon's profile when one is supplied.
+
+@dataclass
+class ReferenceProfile:
+    """Codon/GC/dinucleotide reference for one organism or synthesis chassis."""
+
+    name: str
+    target_gc: float
+    codon_freq: dict[str, float]          # per-1000 codon usage (for CAI)
+    dinuc_ratios: dict[str, float]        # observed/expected dinucleotide ratios
+    gc_tol: float = 0.10
+    cai_threshold: float = 0.7
+    dinuc_threshold: float = 0.15
+
+
+# E. coli K-12 dinucleotide observed/expected ratios (synthesis chassis reference)
+_ECOLI_DINUC_RATIOS: dict[str, float] = {
+    "AA": 1.024, "AC": 0.867, "AG": 1.013, "AT": 1.098,
+    "CA": 1.094, "CC": 0.934, "CG": 1.066, "CT": 1.013,
+    "GA": 1.069, "GC": 1.098, "GG": 0.934, "GT": 0.867,
+    "TA": 0.811, "TC": 1.069, "TG": 1.094, "TT": 1.024,
+}
+
+# Default synthesis chassis (the wet-lab expression host).
+ECOLI_PROFILE = ReferenceProfile(
+    name="ecoli_k12",
+    target_gc=0.508,
+    codon_freq=_ECOLI_CODON_FREQ,
+    dinuc_ratios=_ECOLI_DINUC_RATIOS,
+)
+
+
+def build_profile_from_sequences(
+    name: str,
+    sequences: Iterable[str],
+    gc_tol: float = 0.10,
+    cai_threshold: float = 0.7,
+    dinuc_threshold: float = 0.15,
+) -> ReferenceProfile:
+    """Derive a ReferenceProfile empirically from reference DNA sequences.
+
+    Aggregates GC content, codon usage (per-1000), and observed/expected
+    dinucleotide ratios across all provided sequences. Run this over the training
+    BGCs of a given taxon so Metric 7 can grade faithfulness to the organism the
+    model was actually conditioned on. See scripts/build_taxon_profiles.py.
+    """
+    gc_count = 0
+    base_total = 0
+    codon_counts: Counter = Counter()
+    mono: Counter = Counter()
+    di: Counter = Counter()
+    di_total = 0
+    for seq in sequences:
+        s = seq.upper()
+        if not s:
+            continue
+        gc_count += s.count("G") + s.count("C")
+        base_total += len(s)
+        mono.update(s)
+        for i in range(len(s) - 1):
+            di[s[i:i + 2]] += 1
+        di_total += max(len(s) - 1, 0)
+        for i in range(0, len(s) - 2, 3):
+            codon = s[i:i + 3]
+            if codon in _CODON_TABLE:
+                codon_counts[codon] += 1
+
+    target_gc = gc_count / base_total if base_total else 0.0
+    total_codons = sum(codon_counts.values())
+    codon_freq = {
+        c: (codon_counts.get(c, 0) / total_codons * 1000.0) if total_codons else 0.0
+        for c in _CODON_TABLE
+    }
+    dinuc_ratios: dict[str, float] = {}
+    for d, n in di.items():
+        if len(d) == 2 and mono[d[0]] and mono[d[1]] and base_total:
+            expected = (mono[d[0]] / base_total) * (mono[d[1]] / base_total) * di_total
+            if expected > 0:
+                dinuc_ratios[d] = n / expected
+
+    return ReferenceProfile(
+        name=name,
+        target_gc=round(target_gc, 4),
+        codon_freq=codon_freq,
+        dinuc_ratios=dinuc_ratios,
+        gc_tol=gc_tol,
+        cai_threshold=cai_threshold,
+        dinuc_threshold=dinuc_threshold,
+    )
+
 
 # Obligate Pfam domains per COMPOUND_CLASS (accession-based for pyhmmer)
 # These are the minimum domains expected in a valid BGC of each class.
@@ -620,64 +723,96 @@ def metric_6_bigscape(
 # Metric 7: Organism Compatibility (CAI + GC + dinucleotide stats)
 # ---------------------------------------------------------------------------
 
+def _score_against_profile(seq: str, profile: ReferenceProfile) -> dict[str, Any]:
+    """Score GC / CAI / dinucleotide agreement of a sequence against one profile."""
+    block: dict[str, Any] = {"reference": profile.name}
+
+    # GC content
+    gc = (seq.count("G") + seq.count("C")) / len(seq) if seq else 0.0
+    gc_dev = abs(gc - profile.target_gc)
+    block["gc_content"] = round(gc, 4)
+    block["gc_target"] = profile.target_gc
+    block["gc_deviation"] = round(gc_dev, 4)
+    block["gc_pass"] = gc_dev < profile.gc_tol
+
+    # Codon Adaptation Index vs this reference's codon usage
+    cai = _compute_cai(seq, profile.codon_freq)
+    block["cai"] = round(cai, 4) if cai is not None else None
+    block["cai_pass"] = cai is not None and cai > profile.cai_threshold
+
+    # Dinucleotide RMSD vs this reference's observed/expected ratios
+    obs = _dinucleotide_frequencies(seq)
+    sq, n = 0.0, 0
+    for d, ref in profile.dinuc_ratios.items():
+        if d in obs:
+            sq += (obs[d] - ref) ** 2
+            n += 1
+    rmsd = math.sqrt(sq / n) if n > 0 else float("inf")
+    block["dinucleotide_rmsd"] = round(rmsd, 4)
+    block["dinucleotide_pass"] = rmsd < profile.dinuc_threshold
+
+    passes = [block["gc_pass"], block["cai_pass"], block["dinucleotide_pass"]]
+    block["composite_pass"] = sum(1 for p in passes if p is True) >= 2  # >=2 of 3
+    return block
+
+
 def metric_7_organism_compatibility(
     sequence: str,
-    target_gc: float = 0.508,  # E. coli K-12 genome average
+    taxon_profile: Optional[ReferenceProfile] = None,
+    chassis_profile: Optional[ReferenceProfile] = ECOLI_PROFILE,
 ) -> dict[str, Any]:
-    """Composite organism compatibility: CAI, GC content, dinucleotide frequencies."""
+    """Organism compatibility via CAI + GC + dinucleotide statistics.
+
+    Two distinct sub-scores are reported and never conflated:
+
+    - ``faithfulness`` — agreement with ``taxon_profile``, the organism the
+      sequence was conditioned on. This is what the metric's PASS verdict
+      reflects. If no ``taxon_profile`` is supplied the verdict is ``None``
+      (``no_verdict``) — a correctly-trained, non-E.coli model must NOT be
+      auto-failed merely because we lack a taxon reference.
+    - ``chassis_expressibility`` — agreement with ``chassis_profile`` (E. coli by
+      default), the wet-lab expression host. Reported for information only; it
+      never gates the verdict, because the Phase-1 objective is faithful
+      generation, not E. coli codon-optimisation (that is a separate recoding
+      step). See AUDIT_FINDINGS.md C4.
+    """
     result: dict[str, Any] = {"metric": 7, "name": "organism_compatibility", "tier": 2}
     seq = sequence.upper()
 
-    # --- GC content ---
-    gc = (seq.count("G") + seq.count("C")) / len(seq) if seq else 0.0
-    gc_deviation = abs(gc - target_gc)
-    result["gc_content"] = round(gc, 4)
-    result["gc_target"] = target_gc
-    result["gc_deviation"] = round(gc_deviation, 4)
-    result["gc_pass"] = gc_deviation < 0.10  # Within 10% of E. coli
+    # (a) Faithfulness to the conditioned taxon — drives the verdict.
+    if taxon_profile is not None:
+        faith = _score_against_profile(seq, taxon_profile)
+        result["faithfulness"] = faith
+        result["pass"] = faith["composite_pass"]
+    else:
+        # No taxon reference available: report raw stats but withhold a verdict
+        # rather than grade against the wrong organism.
+        result["faithfulness"] = None
+        result["pass"] = None
+        result["verdict_note"] = (
+            "no taxon_profile supplied; faithfulness ungraded "
+            "(supply the conditioned taxon's profile for a PASS/FAIL verdict)"
+        )
 
-    # --- Codon Adaptation Index (CAI) ---
-    # Compute CAI relative to E. coli K-12 highly expressed genes
-    cai = _compute_cai(seq)
-    result["cai"] = round(cai, 4) if cai is not None else None
-    result["cai_pass"] = cai is not None and cai > 0.7
-
-    # --- Dinucleotide frequencies ---
-    # E. coli K-12 reference dinucleotide frequencies (observed/expected ratios)
-    # CpG suppression is the key signature
-    obs_dinuc = _dinucleotide_frequencies(seq)
-    result["dinucleotide_freqs"] = {k: round(v, 4) for k, v in obs_dinuc.items()}
-
-    # E. coli expected ratios (from K-12 genome)
-    ecoli_dinuc = {
-        "AA": 1.024, "AC": 0.867, "AG": 1.013, "AT": 1.098,
-        "CA": 1.094, "CC": 0.934, "CG": 1.066, "CT": 1.013,
-        "GA": 1.069, "GC": 1.098, "GG": 0.934, "GT": 0.867,
-        "TA": 0.811, "TC": 1.069, "TG": 1.094, "TT": 1.024,
-    }
-
-    # Compute deviation from E. coli dinucleotide signature
-    dinuc_deviation = 0.0
-    n_dinuc = 0
-    for dinuc in ecoli_dinuc:
-        if dinuc in obs_dinuc:
-            dinuc_deviation += (obs_dinuc[dinuc] - ecoli_dinuc[dinuc]) ** 2
-            n_dinuc += 1
-    rmsd = math.sqrt(dinuc_deviation / n_dinuc) if n_dinuc > 0 else float("inf")
-    result["dinucleotide_rmsd_vs_ecoli"] = round(rmsd, 4)
-    result["dinucleotide_pass"] = rmsd < 0.15
-
-    # --- Composite ---
-    passes = [result.get("gc_pass"), result.get("cai_pass"), result.get("dinucleotide_pass")]
-    n_pass = sum(1 for p in passes if p is True)
-    result["composite_pass"] = n_pass >= 2  # At least 2 of 3
-    result["pass"] = result["composite_pass"]
+    # (b) Chassis expressibility — informational only, never gates the verdict.
+    if chassis_profile is not None:
+        result["chassis_expressibility"] = _score_against_profile(seq, chassis_profile)
 
     return result
 
 
-def _compute_cai(sequence: str) -> Optional[float]:
-    """Compute Codon Adaptation Index relative to E. coli K-12."""
+def _compute_cai(
+    sequence: str,
+    codon_freq: Optional[dict[str, float]] = None,
+) -> Optional[float]:
+    """Compute Codon Adaptation Index relative to a reference codon-usage table.
+
+    Defaults to E. coli K-12 for backward compatibility; pass a taxon's
+    ``codon_freq`` (e.g. from a ReferenceProfile) to score faithfulness to the
+    conditioned organism instead.
+    """
+    if codon_freq is None:
+        codon_freq = _ECOLI_CODON_FREQ
     seq = sequence.upper()
     # Group codons by amino acid to find max frequency per AA
     aa_to_codons: dict[str, list[str]] = {}
@@ -688,11 +823,11 @@ def _compute_cai(sequence: str) -> Optional[float]:
     # Compute relative adaptiveness (w) for each codon
     w: dict[str, float] = {}
     for aa, codons in aa_to_codons.items():
-        max_freq = max(_ECOLI_CODON_FREQ.get(c, 0.0) for c in codons)
+        max_freq = max(codon_freq.get(c, 0.0) for c in codons)
         if max_freq == 0:
             continue
         for c in codons:
-            freq = _ECOLI_CODON_FREQ.get(c, 0.0)
+            freq = codon_freq.get(c, 0.0)
             w[c] = freq / max_freq if max_freq > 0 else 0.0
 
     # Score the sequence
@@ -826,6 +961,59 @@ class EvalConfig:
     class_map: Optional[dict[str, str]] = None
     antismash_timeout: int = 600
     skip_metrics: list[int] = field(default_factory=list)
+    # Metric 7: organism-compatibility references (see AUDIT_FINDINGS.md C4).
+    # `chassis_profile` is the wet-lab host (E. coli) used for the informational
+    # expressibility sub-score. `taxon_profiles` maps a taxon key (e.g. a phylum
+    # token like "P__ACTINOMYCETOTA") to the empirical profile used to grade
+    # faithfulness. Populate via load_taxon_profiles(); empty disables the M7
+    # verdict (reported as no_verdict rather than a wrong-organism FAIL).
+    chassis_profile: Optional["ReferenceProfile"] = field(default_factory=lambda: ECOLI_PROFILE)
+    taxon_profiles: dict[str, "ReferenceProfile"] = field(default_factory=dict)
+
+
+def phylum_token(taxonomic_tag: str) -> Optional[str]:
+    """Extract the phylum token (e.g. 'P__ACTINOMYCETOTA') from a taxonomic tag."""
+    for part in (taxonomic_tag or "").replace("|", ";").split(";"):
+        part = part.strip()
+        if part.startswith("P__") and len(part) > 3:
+            return part
+    return None
+
+
+def resolve_taxon_profile(
+    expected_taxon: str,
+    taxon_profiles: dict[str, ReferenceProfile],
+) -> Optional[ReferenceProfile]:
+    """Resolve the faithfulness reference for a sequence's conditioned taxon.
+
+    Tries an exact key match first, then falls back to the phylum token, so a
+    caller may pass a full taxonomic_tag or a bare phylum key.
+    """
+    if not expected_taxon or not taxon_profiles:
+        return None
+    if expected_taxon in taxon_profiles:
+        return taxon_profiles[expected_taxon]
+    phy = phylum_token(expected_taxon)
+    if phy and phy in taxon_profiles:
+        return taxon_profiles[phy]
+    return None
+
+
+def load_taxon_profiles(path: Path) -> dict[str, ReferenceProfile]:
+    """Load taxon ReferenceProfiles from a JSON file written by build_taxon_profiles.py."""
+    data = json.loads(Path(path).read_text())
+    profiles: dict[str, ReferenceProfile] = {}
+    for key, p in data.items():
+        profiles[key] = ReferenceProfile(
+            name=p.get("name", key),
+            target_gc=p["target_gc"],
+            codon_freq=p["codon_freq"],
+            dinuc_ratios=p["dinuc_ratios"],
+            gc_tol=p.get("gc_tol", 0.10),
+            cai_threshold=p.get("cai_threshold", 0.7),
+            dinuc_threshold=p.get("dinuc_threshold", 0.15),
+        )
+    return profiles
 
 
 def evaluate_bgc(
@@ -833,8 +1021,13 @@ def evaluate_bgc(
     accession: str = "query",
     expected_class: str = "",
     config: Optional[EvalConfig] = None,
+    expected_taxon: str = "",
 ) -> dict[str, Any]:
     """Run all 8 evaluation metrics on a BGC sequence.
+
+    ``expected_taxon`` is the taxon the sequence was conditioned on (a full
+    taxonomic_tag or a phylum token); it selects the Metric 7 faithfulness
+    reference from ``config.taxon_profiles``.
 
     Returns a dict with top-level keys for each metric and a summary.
     """
@@ -845,6 +1038,7 @@ def evaluate_bgc(
     results: dict[str, Any] = {
         "accession": accession,
         "expected_class": expected_class,
+        "expected_taxon": expected_taxon,
         "sequence_length": len(sequence),
     }
 
@@ -870,7 +1064,11 @@ def evaluate_bgc(
             sequence, accession, config.mibig_gbk_dir,
         )
     if 7 not in skip:
-        results["metric_7"] = metric_7_organism_compatibility(sequence)
+        results["metric_7"] = metric_7_organism_compatibility(
+            sequence,
+            taxon_profile=resolve_taxon_profile(expected_taxon, config.taxon_profiles),
+            chassis_profile=config.chassis_profile,
+        )
 
     # Tier 3
     if 8 not in skip:

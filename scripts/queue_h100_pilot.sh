@@ -31,8 +31,8 @@ Options:
   --val-every N           Validate every N steps (default: 10).
   --save-every N          Checkpoint every N steps (default: 10).
   --max-seq-len N         Sequence length (default: 32768).
-  --batch-size N          Micro-batch size (default: 4; OVERRIDE to 1 at L>=32768).
-  --grad-accum N          Gradient accumulation steps (default: 32; pair with 128 at L>=32768).
+  --batch-size N          Micro-batch size (default: 1).
+  --grad-accum N          Gradient accumulation steps (default: 128).
   --check-every-sec N     Poll interval while waiting for idle GPU (default: 20).
   --idle-hold-sec N       Continuous idle time required before launch (default: 60).
   --min-free-mib N        Minimum free MiB required (default: 78000).
@@ -53,8 +53,8 @@ MAX_STEPS=20
 VAL_EVERY=10
 SAVE_EVERY=10
 MAX_SEQ_LEN=32768
-BATCH_SIZE=4
-GRAD_ACCUM=32
+BATCH_SIZE=1
+GRAD_ACCUM=128
 CHECK_EVERY_SEC=20
 IDLE_HOLD_SEC=60
 MIN_FREE_MIB=78000

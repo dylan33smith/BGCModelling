@@ -200,12 +200,13 @@ def main() -> None:
     parser.add_argument(
         "--input", "-i",
         type=Path,
-        default=ROOT / "data" / "processed" / "asdb5_train_records.jsonl",
+        # asdb5 source moved off the full /home disk to /data2 (2026-06-04 cleanup).
+        default=Path("/data2/ds85/bgcmodel_data/asdb5_train_records.jsonl"),
     )
     parser.add_argument(
         "--output", "-o",
         type=Path,
-        default=ROOT / "data" / "processed" / "asdb5_train_records.annotated.jsonl",
+        default=Path("/data2/ds85/bgcmodel_data/asdb5_train_records.annotated.jsonl"),
     )
     args = parser.parse_args()
 

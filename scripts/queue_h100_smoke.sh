@@ -20,8 +20,8 @@ Options:
   --output-root PATH                        Root output dir (default: /data2/ds85/bgcmodel_runs).
   --hf-home PATH                            HF cache path (default: /data2/ds85/hf_cache).
   --env-name NAME                           micromamba env name (default: bgcmodel).
-  --train PATH                              Train JSONL (default: data/processed/splits_combined/val.jsonl).
-  --val PATH                                Val JSONL (default: data/processed/splits_combined/val.jsonl).
+  --train PATH                              Train JSONL (default: curated val set on /data2).
+  --val PATH                                Val JSONL (default: curated val set on /data2).
   --activation-checkpointing                Pass --activation-checkpointing to finetune_evo2_lora.py.
                                             Tags the run root with _ac so results are distinguishable
                                             from no-AC baselines. See FINETUNE_GUIDE §12.7.
@@ -44,8 +44,10 @@ GPU_INDEX=0
 OUTPUT_ROOT="/data2/ds85/bgcmodel_runs"
 HF_HOME_PATH="/data2/ds85/hf_cache"
 ENV_NAME="bgcmodel"
-TRAIN_JSONL="data/processed/splits_combined/val.jsonl"
-VAL_JSONL="data/processed/splits_combined/val.jsonl"
+# Curated leakage-free val set (the old data/processed/splits_combined was the
+# leaky split and has been removed — see AUDIT_FINDINGS.md C1/C2).
+TRAIN_JSONL="/data2/ds85/bgcmodel_data/splits_curated/val.jsonl"
+VAL_JSONL="/data2/ds85/bgcmodel_data/splits_curated/val.jsonl"
 DRY_RUN=0
 USE_DEFAULT_LENGTHS=1
 DEFAULT_LENGTHS=(1024 4096 8192 16384 32768)

@@ -107,6 +107,12 @@ EVO2_MODEL_NAME = "evo2_7b_262k"
 PAD_TOKEN_ID    = 0
 IGNORE_INDEX    = -100
 
+# End-of-BGC sentinel (audit M11 / long-sequence support). Appended — supervised,
+# NOT loss-masked — to the *final* window of a BGC so the model learns where a
+# cluster ends and can terminate generation. "END" contains non-nucleotide chars,
+# so "|END|" can never occur inside an ACGTN sequence (unambiguous stop string).
+EOS_MARKER = "|END|"
+
 # Base hyperparameters — same schedule as full fine-tune
 DEFAULTS = dict(
     max_seq_len       = 32768,
@@ -126,7 +132,21 @@ DEFAULTS = dict(
     save_every        = 500,
     val_max_batches   = 500,
     keep_last_ckpts   = 5,
+    # audit m3: also rotate emergency checkpoints (step_N_oom/_interrupted/_final).
+    # With C6 auto-resume these can be written on every preemption; without a cap
+    # they accumulate unbounded and refill the disk. Keep the newest few.
+    keep_special_ckpts = 2,
+    # Early stopping on validation loss (audit M7). 0 disables; otherwise stop
+    # after this many consecutive validations with no improvement >= min_delta.
+    early_stopping_patience  = 0,
+    early_stopping_min_delta = 0.0,
 )
+
+# Validation length-bucket boundaries (nt) for stratified val-loss reporting
+# (audit M2). First-window validation makes the loss comparable to inference;
+# stratifying by full BGC length separates "whole short BGC" from "prefix of a
+# long BGC" so a length-correlated regression is visible.
+VAL_LENGTH_BOUNDS = [16384, 32768, 65536, 131072]
 
 # LoRA-specific defaults
 LORA_DEFAULTS = dict(
@@ -179,6 +199,24 @@ def parse_args() -> argparse.Namespace:
                     action="store_false",
                     help="Disable block-level activation checkpointing.")
     p.set_defaults(activation_checkpointing=True)
+    # EOS / continuation conditioning (audit M11 + long-sequence support).
+    eg = p.add_mutually_exclusive_group()
+    eg.add_argument("--eos-token", dest="eos_token", action="store_true",
+                    help="Append a supervised |END| token to the final window of "
+                         "each BGC so the model learns to terminate (default: on).")
+    eg.add_argument("--no-eos-token", dest="eos_token", action="store_false",
+                    help="Do not append an end-of-BGC token.")
+    p.set_defaults(eos_token=True)
+    cg = p.add_mutually_exclusive_group()
+    cg.add_argument("--continuation-prefix", dest="continuation_prefix",
+                    action="store_true",
+                    help="Label interior chunk windows with a distinct "
+                         "|CONTINUATION:…| prefix instead of the class-start "
+                         "prefix (default: on; resolves audit M11).")
+    cg.add_argument("--no-continuation-prefix", dest="continuation_prefix",
+                    action="store_false",
+                    help="Use the class prefix on all windows (legacy M11 behaviour).")
+    p.set_defaults(continuation_prefix=True)
     p.add_argument("--smoke-pad-to-max-seq-len", action="store_true",
                    help="For train batches only: pad every micro-batch to a fixed "
                         "length of --max-seq-len (pad token + ignored labels on "
@@ -276,6 +314,37 @@ def seed_everything(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    # audit m2: use deterministic kernels where available; warn_only=True so the
+    # StripedHyena FFT long-convs / flash-attention (which have no deterministic
+    # CUDA kernel) emit a one-time warning instead of crashing. Resume reproduces
+    # the data stream + optimizer state exactly, but loss values are NOT bit-exact.
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except Exception:
+        pass
+
+
+def _seed_dataloader_worker(worker_id: int) -> None:
+    """Deterministically seed each DataLoader worker's RNG (audit: worker seeding).
+
+    Without this, the two workers' numpy/python RNGs are seeded from entropy, so
+    any future in-worker randomness (augmentation, sampling) would not be
+    reproducible across a resume. The data ORDER is already deterministic via the
+    DistributedSampler; this hardens everything else in the worker.
+    """
+    base = torch.initial_seed() % (2 ** 32)
+    np.random.seed((base + worker_id) % (2 ** 32))
+    random.seed(base + worker_id)
+
+
+def wandb_log_safe(run: Any, data: dict, step: int) -> None:
+    """Log to WandB without ever letting a logging error stall/kill training."""
+    if run is None:
+        return
+    try:
+        run.log(data, step=step)
+    except Exception as e:
+        rank0_print(f"  (wandb.log failed, continuing: {e})")
 
 
 def git_commit_hash() -> str:
@@ -305,18 +374,46 @@ def save_config(args: argparse.Namespace, output_dir: Path) -> None:
     (output_dir / "config.json").write_text(json.dumps(cfg, indent=2))
 
 
+def _file_fingerprint(path: Path) -> dict:
+    """Full-file sha256 + size + line count (audit m1 — was first-100-lines only)."""
+    st = path.stat()
+    n, hasher = 0, hashlib.sha256()
+    with path.open("rb") as f:
+        for line in f:
+            n += 1
+            hasher.update(line)
+    return {"path": str(path), "size_bytes": st.st_size, "lines": n,
+            "sha256_full": hasher.hexdigest()}
+
+
 def save_data_fingerprint(args: argparse.Namespace, output_dir: Path) -> None:
-    def fp(path: Path) -> dict:
-        n, hasher = 0, hashlib.sha256()
-        with path.open("rb") as f:
-            for i, line in enumerate(f):
-                n += 1
-                if i < 100:
-                    hasher.update(line)
-        return {"path": str(path), "lines": n,
-                "sha256_first_100": hasher.hexdigest()}
-    (output_dir / "data_fingerprint.json").write_text(
-        json.dumps({"train": fp(args.train), "val": fp(args.val)}, indent=2))
+    """Fingerprint train/val on first run; on resume (file exists), COMPARE and
+    warn loudly if the data changed since the checkpoint started training on it.
+
+    The old version hashed only the first 100 lines and never compared on resume,
+    so a regenerated split would pass silently (audit m1).
+    """
+    path = output_dir / "data_fingerprint.json"
+    current = {"train": _file_fingerprint(args.train), "val": _file_fingerprint(args.val)}
+    if path.exists():
+        try:
+            saved = json.loads(path.read_text())
+        except Exception:
+            saved = {}
+        for split in ("train", "val"):
+            old = saved.get(split, {})
+            new = current[split]
+            if old.get("sha256_full") and old["sha256_full"] != new["sha256_full"]:
+                rank0_print(
+                    f"  ⚠️  DATA FINGERPRINT MISMATCH ({split}): the data CHANGED since "
+                    f"this run started (sha {old['sha256_full'][:12]} → "
+                    f"{new['sha256_full'][:12]}, lines {old.get('lines')} → {new['lines']}). "
+                    f"Resuming on different data than the checkpoint trained on corrupts "
+                    f"the run — verify {new['path']} before continuing."
+                )
+        # Do NOT overwrite the original fingerprint on resume.
+    else:
+        path.write_text(json.dumps(current, indent=2))
 
 
 def save_env(output_dir: Path) -> None:
@@ -384,10 +481,28 @@ def load_or_build_lengths_sidecar(jsonl_path: Path, cache_dir: Path) -> np.ndarr
 
 
 def canonical_phase1_prefix(rec: dict[str, Any]) -> str:
-    """Rebuild Phase 1 conditioning prefix from JSON fields (merge pipeline format)."""
+    """Rebuild Phase 1 conditioning prefix from JSON fields (merge pipeline format).
+
+    This is the FIRST-window prefix: it marks the start of a real cluster.
+    """
     cc = str(rec.get("compound_class", ""))
     tax = str(rec.get("taxonomic_tag", ""))
     return f"|COMPOUND_CLASS:{cc}|{tax}"
+
+
+def continuation_phase1_prefix(rec: dict[str, Any]) -> str:
+    """Interior-window (continuation) prefix (audit M11 + chained generation).
+
+    Distinct from the first-window prefix so the model can tell "start of an
+    NRPS cluster" from "continue an NRPS cluster mid-way". This keeps the
+    `|COMPOUND_CLASS:…|` token meaning crisp (it only ever marks a real start)
+    and gives chained long-sequence generation a clean continuation mode. It is
+    strictly shorter than the first-window prefix (CONTINUATION < COMPOUND_CLASS),
+    so the prefix-token budget computed from the first-window form bounds it.
+    """
+    cc = str(rec.get("compound_class", ""))
+    tax = str(rec.get("taxonomic_tag", ""))
+    return f"|CONTINUATION:{cc}|{tax}"
 
 
 def training_prefix_for_chunking(rec: dict[str, Any]) -> str:
@@ -603,6 +718,7 @@ def build_nt_chunk_spans(
     prefix_token_cap: int,
     chunk_overlap_nt: int,
     slack_tokens: int = 0,
+    eos_reserve: int = 0,
 ) -> list[tuple[int, int]]:
     """Return [(nt_start, nt_end), ...] covering [0, seq_len_nt) in nucleotide space.
 
@@ -610,8 +726,13 @@ def build_nt_chunk_spans(
     ``len(tokenize(prefix + sub))`` is guaranteed to fit in ``max_seq_len``
     even if the tokenizer ever introduces a seam token (audit item H6).
     For Evo2's CharLevelTokenizer the empirical slack is 0.
+
+    ``eos_reserve`` reserves tokens for the ``EOS_MARKER`` appended to the final
+    window (audit M11 / long-seq support), so ``prefix + sub + EOS`` still fits in
+    ``max_seq_len``. Reserved for every window (only the last actually uses it),
+    which is conservative but negligible (~5 tokens out of 32k).
     """
-    seq_budget = max_seq_len - prefix_token_cap - slack_tokens
+    seq_budget = max_seq_len - prefix_token_cap - slack_tokens - eos_reserve
     if seq_budget <= 0:
         raise ValueError(
             f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap "
@@ -647,12 +768,14 @@ def build_all_chunk_indices(
     prefix_token_cap: int,
     chunk_overlap_nt: int,
     slack_tokens: int = 0,
+    eos_reserve: int = 0,
 ) -> list[tuple[int, int, int]]:
     """Flat index: (record_idx, nt_start, nt_end)."""
     chunks: list[tuple[int, int, int]] = []
     for rec_idx, slen in enumerate(lengths.astype(int).tolist()):
         for nt0, nt1 in build_nt_chunk_spans(
             slen, max_seq_len, prefix_token_cap, chunk_overlap_nt, slack_tokens,
+            eos_reserve,
         ):
             chunks.append((rec_idx, nt0, nt1))
     return chunks
@@ -670,6 +793,9 @@ class BGCTextDataset(Dataset):
         prefix_token_cap: int = 256,
         slack_tokens: int = 0,
         lengths_cache_dir: Path | None = None,
+        first_window_only: bool = False,
+        append_eos: bool = False,
+        continuation_prefix: bool = False,
     ) -> None:
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
@@ -679,6 +805,12 @@ class BGCTextDataset(Dataset):
         self.prefix_token_cap = prefix_token_cap
         self.slack_tokens = slack_tokens
         self.lengths_cache_dir = lengths_cache_dir
+        self.first_window_only = first_window_only
+        self.append_eos = append_eos
+        self.continuation_prefix = continuation_prefix
+        # Tokens reserved for the EOS_MARKER on the final window (M11). Computed
+        # from the tokenizer so the chunk budget below leaves room for it.
+        self.eos_reserve = count_prefix_tokens(tokenizer, EOS_MARKER) if append_eos else 0
 
         self.offsets: list[int] = []
         with jsonl_path.open("rb") as f:
@@ -704,11 +836,20 @@ class BGCTextDataset(Dataset):
                 )
             self.chunks = build_all_chunk_indices(
                 lengths, max_seq_len, prefix_token_cap, chunk_overlap, slack_tokens,
+                self.eos_reserve,
             )
+            if first_window_only:
+                # Validation (audit M2): keep only the prefix-aligned first
+                # window (nt_start == 0) of each record — exactly one per BGC,
+                # matching the inference regime (prefix → start of cluster).
+                # Interior windows (nt_start > 0) carry a class/taxon prefix the
+                # local sequence does not justify and never occur at inference.
+                self.chunks = [c for c in self.chunks if c[1] == 0]
             rank0_print(
                 f"  {jsonl_path.name}: chunk mode → {len(self.chunks):,} windows "
                 f"(overlap_nt={chunk_overlap}, prefix_token_cap={prefix_token_cap}, "
-                f"slack={slack_tokens})"
+                f"slack={slack_tokens}"
+                f"{', first-window-only' if first_window_only else ''})"
             )
             # H7: the legacy `_assert_prefix_token_cap_on_sample` only
             # checked record 0; the broader `prefix_mask_sanity_check`
@@ -761,27 +902,56 @@ class BGCTextDataset(Dataset):
         # raises if neither canonical assembly nor `training_text[:-len(seq)]`
         # is consistent, which gives the truncate (legacy) path the same
         # integrity check as chunk mode.
-        prefix = training_prefix_for_chunking(rec)
+        # First-window (class) prefix; also integrity-checks training_text == prefix+seq.
+        first_prefix = training_prefix_for_chunking(rec)
         if self.chunks is None:
+            # Truncate (legacy): single window = whole record, token-clipped below.
+            # EOS is appended; if the record is actually truncated the clip removes
+            # it (and the tail), correctly signalling "not the real end".
             nt_start, nt_end = 0, len(seq)
-            text = training_text
+            win_prefix = first_prefix
+            text = training_text + (EOS_MARKER if self.append_eos else "")
         else:
             if not training_text.endswith(seq):
                 raise ValueError(
                     f"Record {record_idx}: training_text does not end with sequence"
                 )
+            is_first = (nt_start == 0)
+            is_last = (nt_end >= len(seq))  # final window covers the BGC end
+            # Interior windows get the distinct continuation prefix (M11) so the
+            # class-start token (`|COMPOUND_CLASS:…|`) stays unambiguous.
+            if is_first or not self.continuation_prefix:
+                win_prefix = first_prefix
+            else:
+                win_prefix = continuation_phase1_prefix(rec)
             sub = seq[nt_start:nt_end]
-            text = prefix + sub
+            # EOS_MARKER is appended (supervised, after the prefix) only on the
+            # window that contains the true end of the BGC (M11 / termination).
+            tail = EOS_MARKER if (self.append_eos and is_last) else ""
+            text = win_prefix + sub + tail
 
         tokens = self.tokenizer.tokenize(text)
         ids = list(tokens) if isinstance(tokens, (list, tuple)) else [int(t) for t in tokens]
 
-        # Count prefix tokens once for label-masking. Relies on Evo2's
-        # CharLevelTokenizer where `tokenize(prefix + sub)` is the
-        # concatenation of `tokenize(prefix)` and `tokenize(sub)`; any
-        # tokenizer that merges across the seam would break this invariant
-        # and require a different masking strategy.
-        prefix_token_count = count_prefix_tokens(self.tokenizer, prefix)
+        # Count prefix tokens for label-masking. Relies on Evo2's
+        # CharLevelTokenizer where `tokenize(prefix + sub)` is the concatenation
+        # of `tokenize(prefix)` and `tokenize(sub)`. `win_prefix` (class on the
+        # first window, continuation on interior windows) is what gets masked;
+        # the appended EOS is AFTER the prefix, so it stays supervised.
+        ptoks = self.tokenizer.tokenize(win_prefix)
+        prefix_ids = list(ptoks) if isinstance(ptoks, (list, tuple)) else [int(t) for t in ptoks]
+        prefix_token_count = len(prefix_ids)
+        # audit B1 (seam guard): the masking is only correct if the full
+        # tokenisation starts with exactly the prefix tokens. If the tokenizer
+        # ever merges across the prefix↔sequence seam, fail loudly rather than
+        # silently mask the wrong span.
+        if ids[:prefix_token_count] != prefix_ids:
+            raise ValueError(
+                f"Record {record_idx} (chunk_idx={idx}): tokenizer merged across the "
+                f"prefix↔sequence seam — prefix masking would be wrong "
+                f"(prefix_token_count={prefix_token_count}). The label-mask invariant "
+                f"is violated; a different masking strategy is required."
+            )
 
         # H6: chunk-mode tiling chooses nt windows so that
         #     len(prefix) + (nt_end - nt_start) + slack <= max_seq_len
@@ -818,6 +988,7 @@ class BGCTextDataset(Dataset):
             "chunk_idx": idx,
             "nt_start": nt_start if self.chunks is not None else 0,
             "nt_end": nt_end if self.chunks is not None else len(seq),
+            "full_seq_len": len(seq),  # full BGC length (for val length-stratification)
         }
         return out
 
@@ -851,6 +1022,7 @@ def collate_pad(batch: list[dict[str, Any]],
         "first_nt_start": int(first["nt_start"]),
         "first_nt_end": int(first["nt_end"]),
         "first_prefix_token_count": int(first["prefix_token_count"]),
+        "full_seq_lens": [int(b["full_seq_len"]) for b in batch],
     }
 
 
@@ -888,6 +1060,7 @@ def collate_pad_to_max(batch: list[dict[str, Any]], max_seq_len: int,
         "first_nt_start": int(first["nt_start"]),
         "first_nt_end": int(first["nt_end"]),
         "first_prefix_token_count": int(first["prefix_token_count"]),
+        "full_seq_lens": [int(b["full_seq_len"]) for b in batch],
     }
 
 
@@ -910,12 +1083,31 @@ def causal_lm_loss(logits: torch.Tensor,
 # Validation
 # ────────────────────────────────────────────────────────────────────────
 
+def _length_bucket_label(n: int, bounds: list[int]) -> str:
+    prev = 0
+    for b in bounds:
+        if n <= b:
+            return f"<={b // 1000}k"
+        prev = b
+    return f">{prev // 1000}k"
+
+
 @torch.no_grad()
 def run_validation(engine, val_loader,
-                   local_rank: int, max_batches: int) -> float:
+                   local_rank: int, max_batches: int,
+                   length_bounds: list[int] | None = None) -> dict[str, Any]:
+    """Token-weighted validation loss.
+
+    With a first-window val dataset (audit M2) the loss is computed on the
+    prefix-aligned start of each held-out BGC — the same regime as inference —
+    instead of mislabelled interior chunk windows. Returns the overall loss plus
+    a per-length-bucket breakdown (bucket stats are rank-local; the overall loss
+    is all-reduced across ranks for the early-stopping signal).
+    """
     engine.eval()
     total_loss = 0.0
     n_tokens   = 0
+    buckets: dict[str, list[float]] = {}  # label -> [loss_sum, n_tokens]
     for i, batch in enumerate(val_loader):
         if i >= max_batches:
             break
@@ -926,13 +1118,25 @@ def run_validation(engine, val_loader,
         n = (labels[..., 1:] != IGNORE_INDEX).sum().item()
         total_loss += loss.item() * n
         n_tokens   += n
+        if length_bounds is not None and n > 0:
+            fsl = batch.get("full_seq_lens")
+            rep = max(fsl) if fsl else int(input_ids.shape[1])
+            slot = buckets.setdefault(_length_bucket_label(rep, length_bounds), [0.0, 0])
+            slot[0] += loss.item() * n
+            slot[1] += n
     if torch.distributed.is_initialized():
         t = torch.tensor([total_loss, n_tokens], dtype=torch.float64,
                          device=f"cuda:{local_rank}")
         torch.distributed.all_reduce(t, op=torch.distributed.ReduceOp.SUM)
         total_loss, n_tokens = t.tolist()
     engine.train()
-    return total_loss / max(n_tokens, 1)
+    return {
+        "overall": total_loss / max(n_tokens, 1),
+        "by_length": {
+            lab: {"loss": round(s / max(nt, 1), 6), "n_tokens": int(nt)}
+            for lab, (s, nt) in sorted(buckets.items())
+        },
+    }
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1188,6 +1392,7 @@ def make_client_state(
     best_val_loss: float,
     epoch: int,
     micro_step_in_epoch: int,
+    grad_accum: int = 1,
     device: torch.device | None = None,
 ) -> dict[str, Any]:
     """Build the dict persisted as ``client_state`` by DeepSpeed.
@@ -1196,12 +1401,23 @@ def make_client_state(
     (audit H1). Capture is wrapped in try/except so a transient RNG-gather
     failure never blocks a checkpoint write (e.g. during the OOM
     emergency-save path).
+
+    audit M1: ``micro_step_in_epoch`` is snapped DOWN to the last completed
+    grad-accumulation boundary. ``step`` (DeepSpeed ``global_steps``) only
+    advances at accumulation boundaries, so a checkpoint written mid-accumulation
+    (OOM / interrupted / final saves) would otherwise persist a micro_step that
+    is inconsistent with ``step`` — on resume the partially-accumulated
+    micro-batches (whose gradients were never applied) would be skipped entirely.
+    Aligning makes resume re-process them. Periodic checkpoints already land on a
+    boundary, so this is a no-op for them.
     """
+    ga = max(int(grad_accum), 1)
+    aligned_micro = (int(micro_step_in_epoch) // ga) * ga
     cs: dict[str, Any] = {
         "step": int(step),
         "best_val_loss": float(best_val_loss),
         "epoch": int(epoch),
-        "micro_step_in_epoch": int(micro_step_in_epoch),
+        "micro_step_in_epoch": aligned_micro,
     }
     try:
         cs["rng_state"] = gather_rng_state(device)
@@ -1381,14 +1597,19 @@ def gpu_memory_gb() -> list[float]:
 # cleanup. Special-purpose checkpoints — `best/`, `step_N_interrupted/`,
 # `step_N_oom/`, `step_N_final/` — are deliberately preserved (audit C5).
 _STEP_CKPT_RE = re.compile(r"^step_(\d+)$")
+_SPECIAL_CKPT_RE = re.compile(r"^step_(\d+)_(oom|interrupted|final)$")
 
 
-def cleanup_old_checkpoints(ckpt_root: Path, keep_last: int) -> None:
-    """Delete the oldest pure-step checkpoints, keeping the newest N.
+def cleanup_old_checkpoints(ckpt_root: Path, keep_last: int,
+                            keep_special: int = 2) -> None:
+    """Rotate old checkpoints.
 
-    Non-numeric or suffixed checkpoint dirs (``best/``, ``*_interrupted``,
-    ``*_oom``, ``*_final``) are NEVER deleted by this function — they
-    encode events worth preserving across the run lifetime.
+    - Pure ``step_N`` checkpoints: keep the newest ``keep_last`` (by step).
+    - Emergency ``step_N_{oom,interrupted,final}`` checkpoints: keep the newest
+      ``keep_special`` (by step) and delete older ones (audit m3 — these are
+      written on every preemption under C6 auto-resume and otherwise accumulate
+      unbounded). ``keep_special <= 0`` disables their rotation (keep all).
+    - ``best/`` is ALWAYS preserved.
     """
     if not ckpt_root.exists():
         return
@@ -1398,24 +1619,30 @@ def cleanup_old_checkpoints(ckpt_root: Path, keep_last: int) -> None:
             f"refusing to delete (would wipe every periodic checkpoint)."
         )
         return
-    matched: list[tuple[int, Path]] = []
-    skipped: list[str] = []
+    numeric: list[tuple[int, Path]] = []
+    special: list[tuple[int, Path]] = []
     for p in ckpt_root.iterdir():
         if not p.is_dir():
             continue
-        m = _STEP_CKPT_RE.match(p.name)
-        if m:
-            matched.append((int(m.group(1)), p))
-        elif p.name.startswith("step_") or p.name == "best":
-            skipped.append(p.name)
-    matched.sort(key=lambda t: t[0])
-    if skipped:
-        rank0_print(f"  cleanup: preserving special checkpoints: {sorted(skipped)}")
-    for _, stale in matched[:-keep_last]:
+        if _STEP_CKPT_RE.match(p.name):
+            numeric.append((int(_STEP_CKPT_RE.match(p.name).group(1)), p))
+        elif _SPECIAL_CKPT_RE.match(p.name):
+            special.append((int(_SPECIAL_CKPT_RE.match(p.name).group(1)), p))
+        # `best/` and anything unrecognised are left untouched.
+    numeric.sort(key=lambda t: t[0])
+    special.sort(key=lambda t: t[0])
+
+    stale: list[Path] = list(p for _, p in numeric[:-keep_last])
+    if keep_special > 0 and len(special) > keep_special:
+        stale += [p for _, p in special[:-keep_special]]
+    for path in stale:
         try:
-            shutil.rmtree(stale, ignore_errors=True)
+            shutil.rmtree(path, ignore_errors=True)
         except Exception as e:
-            rank0_print(f"  cleanup: failed to remove {stale}: {e}")
+            rank0_print(f"  cleanup: failed to remove {path}: {e}")
+    if stale:
+        rank0_print(f"  cleanup: removed {len(stale)} old checkpoint(s); "
+                    f"kept newest {keep_last} step_N + {keep_special} emergency + best/")
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1473,20 +1700,31 @@ def main() -> None:
     # WandB
     wandb_run = None
     if is_main() and args.wandb_project:
-        try:
-            import wandb
-            wandb_run = wandb.init(
-                project=args.wandb_project,
-                name=args.run_name,
-                config=vars(args),
-                mode=args.wandb_mode,
-                resume="allow",
-                dir=str(args.output_dir),
-                tags=["lora", f"r{args.lora_r}"],
-            )
-            rank0_print(f"WandB: {wandb_run.url}")
-        except Exception as e:
-            rank0_print(f"WandB init failed ({e}); continuing without it")
+        import wandb
+        # Try the requested mode; if online init fails (no network/login on a
+        # long shared-GPU run), fall back to offline so logs are still captured
+        # locally rather than lost. Never let WandB block training.
+        modes = [args.wandb_mode]
+        if args.wandb_mode == "online":
+            modes.append("offline")
+        for mode in modes:
+            try:
+                wandb_run = wandb.init(
+                    project=args.wandb_project,
+                    name=args.run_name,
+                    config=vars(args),
+                    mode=mode,
+                    resume="allow",
+                    dir=str(args.output_dir),
+                    tags=["lora", f"r{args.lora_r}"],
+                )
+                if mode != args.wandb_mode:
+                    rank0_print(f"WandB: '{args.wandb_mode}' init failed; fell back to '{mode}'")
+                rank0_print(f"WandB: {wandb_run.url}")
+                break
+            except Exception as e:
+                rank0_print(f"WandB init ({mode}) failed: {e}")
+                wandb_run = None
 
     signal.signal(signal.SIGTERM, _set_stop_flag)
     signal.signal(signal.SIGINT,  _set_stop_flag)
@@ -1653,6 +1891,8 @@ def main() -> None:
         "long_seq_strategy": args.long_seq_strategy,
         "chunk_overlap": args.chunk_overlap,
         "lengths_cache_dir": cache_dir if args.long_seq_strategy == "chunk" else None,
+        "append_eos": args.eos_token,
+        "continuation_prefix": args.continuation_prefix,
     }
     train_ds = BGCTextDataset(
         args.train,
@@ -1668,6 +1908,7 @@ def main() -> None:
         args.max_seq_len,
         prefix_token_cap=val_cap,
         slack_tokens=val_slack,
+        first_window_only=True,  # audit M2: validate on prefix-aligned starts only
         **ds_common,
     )
 
@@ -1698,13 +1939,17 @@ def main() -> None:
     else:
         train_collate = collate_pad
 
+    _loader_gen = torch.Generator()
+    _loader_gen.manual_seed(args.seed)
     train_loader = DataLoader(
         train_ds, batch_size=args.batch_size, sampler=train_sampler,
         collate_fn=train_collate, num_workers=2, pin_memory=True, drop_last=True,
+        worker_init_fn=_seed_dataloader_worker, generator=_loader_gen,
     )
     val_loader = DataLoader(
         val_ds, batch_size=args.batch_size, sampler=val_sampler,
         collate_fn=collate_pad, num_workers=2, pin_memory=True, drop_last=False,
+        worker_init_fn=_seed_dataloader_worker, generator=_loader_gen,
     )
 
     steps_per_epoch = len(train_loader) // args.grad_accum
@@ -1712,6 +1957,32 @@ def main() -> None:
     rank0_print(f"Train batches/rank: {len(train_loader):,}")
     rank0_print(f"Steps per epoch:    {steps_per_epoch:,}  (grad_accum={args.grad_accum})")
     rank0_print(f"Total steps:        {total_steps:,}  (epochs={args.max_epochs})")
+
+    # audit A4: the cosine LR horizon is `total_steps`. The restored optimizer
+    # advances along the schedule originally created with the run's total_steps;
+    # if a resume recomputes a DIFFERENT total_steps (e.g. different data,
+    # --max-epochs, or grad-accum), the schedule won't line up. Persist it on the
+    # first run and warn loudly on a resume mismatch.
+    if is_main():
+        sched_path = args.output_dir / "schedule.json"
+        sched_now = {"total_steps": total_steps, "warmup_steps": args.warmup_steps,
+                     "steps_per_epoch": steps_per_epoch, "max_epochs": args.max_epochs,
+                     "grad_accum": args.grad_accum}
+        if args.resume_from is not None and sched_path.exists():
+            try:
+                prev = json.loads(sched_path.read_text())
+            except Exception:
+                prev = {}
+            if prev.get("total_steps") not in (None, total_steps):
+                rank0_print(
+                    f"  ⚠️  LR-SCHEDULE HORIZON CHANGED on resume: total_num_steps "
+                    f"{prev.get('total_steps')} → {total_steps} (steps/epoch "
+                    f"{prev.get('steps_per_epoch')} → {steps_per_epoch}). The restored "
+                    f"cosine schedule will not align with this horizon; LR will be wrong. "
+                    f"Resume with the SAME data / --max-epochs / --grad-accum as run start."
+                )
+        else:
+            sched_path.write_text(json.dumps(sched_now, indent=2))
 
     # ── DeepSpeed init ────────────────────────────────────────────────
     # Only trainable (adapter) parameters are passed — frozen base params
@@ -1768,6 +2039,8 @@ def main() -> None:
     log_buffer_count = 0
     last_log_time    = time.time()
     last_log_tokens  = 0
+    evals_no_improve  = 0       # consecutive validations with no improvement (M7)
+    should_early_stop = False
 
     train_log_path = args.output_dir / "train_log.jsonl"
     val_log_path   = args.output_dir / "val_log.jsonl"
@@ -1873,10 +2146,10 @@ def main() -> None:
                                 "first_prefix_token_count": first_prefix_token_count,
                             }
                             append_jsonl(train_log_path, entry)
-                            if wandb_run:
-                                wandb_run.log(
-                                    {k: v for k, v in entry.items()
-                                     if not isinstance(v, list)}, step=step)
+                            wandb_log_safe(
+                                wandb_run,
+                                {k: v for k, v in entry.items()
+                                 if not isinstance(v, list)}, step)
                             if step % (args.log_every * 10) == 0:
                                 rank0_print(
                                     f"step {step:5d} | ep {entry['epoch']:.2f} | "
@@ -1889,23 +2162,32 @@ def main() -> None:
                         last_log_time    = time.time()
                         last_log_tokens  = 0
 
-                    # ── Validation
+                    # ── Validation (audit M2: first-window, length-stratified)
                     if step % args.val_every == 0:
-                        val_loss = run_validation(
-                            model_engine, val_loader, local_rank, args.val_max_batches)
+                        prev_best = best_val_loss
+                        val_stats = run_validation(
+                            model_engine, val_loader, local_rank,
+                            args.val_max_batches, VAL_LENGTH_BOUNDS)
+                        val_loss = val_stats["overall"]
                         if is_main():
                             ventry = {
                                 "step":     step,
                                 "val_loss": round(val_loss, 6),
                                 "val_ppl":  round(math.exp(min(val_loss, 20)), 4),
+                                "val_by_length": val_stats["by_length"],
                             }
                             append_jsonl(val_log_path, ventry)
-                            if wandb_run:
-                                wandb_run.log(ventry, step=step)
+                            wandb_log_safe(
+                                wandb_run,
+                                {"val_loss": ventry["val_loss"],
+                                 "val_ppl": ventry["val_ppl"]}, step)
+                            bucket_str = "  ".join(
+                                f"{lab}:{d['loss']:.3f}"
+                                for lab, d in val_stats["by_length"].items())
                             rank0_print(
                                 f"  VAL @ step {step}: loss {val_loss:.4f}  "
                                 f"ppl {math.exp(min(val_loss,20)):.3f}  "
-                                f"(best: {best_val_loss:.4f})"
+                                f"(best: {best_val_loss:.4f})  [{bucket_str}]"
                             )
                             if val_loss < best_val_loss:
                                 best_val_loss = val_loss
@@ -1927,10 +2209,33 @@ def main() -> None:
                                 model_engine, args, ckpt_root, "best",
                                 make_client_state(
                                     step=step, best_val_loss=best_val_loss,
-                                    epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                                    epoch=epoch, micro_step_in_epoch=micro_step + 1, grad_accum=args.grad_accum,
                                     device=cuda_device,
                                 ),
                             )
+
+                        # ── Early stopping (audit M7): stop when val stops
+                        # improving. `best/` already holds the best checkpoint,
+                        # and the `finally` block exports the final adapter.
+                        if args.early_stopping_patience > 0:
+                            if current_val < prev_best - args.early_stopping_min_delta:
+                                evals_no_improve = 0
+                            else:
+                                evals_no_improve += 1
+                                rank0_print(
+                                    f"  No val improvement "
+                                    f"({evals_no_improve}/{args.early_stopping_patience}; "
+                                    f"need Δ>{args.early_stopping_min_delta:g} vs "
+                                    f"best {best_val_loss:.4f})"
+                                )
+                            if evals_no_improve >= args.early_stopping_patience:
+                                rank0_print(
+                                    f"  EARLY STOP at step {step}: no improvement in "
+                                    f"{evals_no_improve} validations "
+                                    f"(patience={args.early_stopping_patience}); "
+                                    f"best val_loss={best_val_loss:.4f}."
+                                )
+                                should_early_stop = True
 
                     # ── Periodic checkpoint
                     if step % args.save_every == 0:
@@ -1940,12 +2245,13 @@ def main() -> None:
                             model_engine, args, ckpt_root, f"step_{step}",
                             make_client_state(
                                 step=step, best_val_loss=best_val_loss,
-                                epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                                epoch=epoch, micro_step_in_epoch=micro_step + 1, grad_accum=args.grad_accum,
                                 device=cuda_device,
                             ),
                         )
                         if is_main():
-                            cleanup_old_checkpoints(ckpt_root, keep_last=args.keep_last_ckpts)
+                            cleanup_old_checkpoints(ckpt_root, keep_last=args.keep_last_ckpts,
+                                                    keep_special=args.keep_special_ckpts)
                             generate_plots(args.output_dir)
                             rank0_print("  Checkpoint saved; plots refreshed")
 
@@ -1963,7 +2269,7 @@ def main() -> None:
                             model_engine, args, ckpt_root, f"step_{step}_interrupted",
                             make_client_state(
                                 step=step, best_val_loss=best_val_loss,
-                                epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                                epoch=epoch, micro_step_in_epoch=micro_step + 1, grad_accum=args.grad_accum,
                                 device=cuda_device,
                             ),
                         )
@@ -1971,9 +2277,9 @@ def main() -> None:
                             generate_plots(args.output_dir)
                         return
 
-                    if step >= total_steps:
+                    if should_early_stop or step >= total_steps:
                         break
-            if step >= total_steps:
+            if should_early_stop or step >= total_steps:
                 break
 
     except torch.cuda.OutOfMemoryError as e:
@@ -1993,7 +2299,7 @@ def main() -> None:
                 model_engine, args, ckpt_root, f"step_{step}_oom",
                 make_client_state(
                     step=step, best_val_loss=best_val_loss,
-                    epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                    epoch=epoch, micro_step_in_epoch=micro_step + 1, grad_accum=args.grad_accum,
                     device=cuda_device,
                 ),
             )
@@ -2022,7 +2328,7 @@ def main() -> None:
                     model_engine, args, ckpt_root, f"step_{step}_final",
                     make_client_state(
                         step=step, best_val_loss=best_val_loss,
-                        epoch=epoch, micro_step_in_epoch=micro_step + 1,
+                        epoch=epoch, micro_step_in_epoch=micro_step + 1, grad_accum=args.grad_accum,
                         device=cuda_device,
                     ),
                 )
