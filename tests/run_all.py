@@ -17,6 +17,7 @@ TESTS = [
     "test_eval_metrics.py",      # M9 / M2 / M1 / M7 pure-logic
     "test_hardening.py",         # m3 checkpoint rotation, m1 fingerprint, A2 wandb safe-log
     "test_generation.py",        # C3 generation post-processing (EOS trim, FASTA, prompts)
+    "test_memorization.py",      # nucleotide memorization/novelty similarity core
 ]
 
 

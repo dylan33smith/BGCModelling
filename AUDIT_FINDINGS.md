@@ -2,6 +2,23 @@
 
 ## Resolution Log
 
+- **2026-06-08 — Memorization/novelty check + real-BGC positive control: IMPLEMENTED.**
+  - `scripts/memorization_check.py` (audit M4/M6): for each query sequence
+    (generated, or the positive control) finds its nearest training BGC by
+    **canonical-k-mer MinHash** (strand-agnostic) and reports `max_containment` —
+    the exact fraction of the query's k-mers present in that training BGC (the
+    interpretable "memorization %"). Training index (per-record sketch + offset)
+    is built once and cached. Pure stdlib, no GPU. Core similarity functions
+    unit-tested in `tests/test_memorization.py`; demoed end-to-end on the
+    positive control (correctly flagged one held-out MiBIG with a near-twin in
+    training at 0.955 containment).
+  - `scripts/make_positive_control.py`: selects 20 real MiBIG BGCs from the TEST
+    split (4/class × NRPS/PKS/RIPP/OTHER/SACCHARIDE, 4–80 kb, diverse phyla),
+    verified **0 exact-sequence overlap with train/val**, written to the tracked
+    `eval/positive_control_mibig.{fasta,jsonl}`. This calibrates the eval metrics
+    ("what real held-out BGCs score") and the memorization baseline. Partially
+    addresses audit M5 (a real positive control alongside the base-model baseline).
+
 - **2026-06-04 — C3 (no generation/inference script): IMPLEMENTED.**
   `scripts/generate_bgc.py` loads base Evo2 + the trained LoRA adapter (merged
   into the base weights via `load_evo2_wrapper_for_inference` in
