@@ -95,12 +95,29 @@ def test_m7_early_stop():
     print("PASS M7: early-stopping state machine")
 
 
+def test_novelty_gate_wired():
+    """audit C6/M13: the novelty gate is a first-class metric that FAILS memorized
+    sequences in the scored evaluate_bgc summary."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+    from bgc_pipeline.evaluation import metric_9_novelty, evaluate_bgc, EvalConfig
+    assert metric_9_novelty({"max_containment": 0.99})["pass"] is False   # FAIL_memorized
+    assert metric_9_novelty({"max_containment": 0.30})["pass"] is True    # PASS_novel
+    assert metric_9_novelty({"max_containment": 0.85})["pass"] is None    # WARN
+    assert metric_9_novelty(None)["skipped"] is True                      # unverified, not pass
+    cfg = EvalConfig(skip_metrics=[1, 2, 3, 4, 5, 6, 7, 8])
+    s = evaluate_bgc("ACGT" * 100, config=cfg, novelty={"max_containment": 0.99})["summary"]
+    assert s["metric_9"] == "FAIL", s
+    assert evaluate_bgc("ACGT" * 100, config=cfg)["summary"]["metric_9"] == "skipped"
+    print("PASS: novelty gate (metric_9) wired into evaluate_bgc — memorized => FAIL")
+
+
 def main():
     test_m9_adherence()
     test_m9_balanced_sample()
     test_m2_length_buckets_and_first_window()
     test_m1_resume_alignment()
     test_m7_early_stop()
+    test_novelty_gate_wired()
     print("\nALL EVAL-METRIC TESTS PASSED")
 
 

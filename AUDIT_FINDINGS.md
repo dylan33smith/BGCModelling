@@ -2,6 +2,30 @@
 
 ## Resolution Log
 
+- **2026-06-08 — FABLE5 audit Priority-1 (the novelty gate): C1/M11 + C6/M13 RESOLVED; C3/M8 PARTIAL.**
+  (See FABLE5_AUDIT.md for the findings.)
+  - **C1/M11** (memorization check missed memorized fragments — ranked by Jaccard,
+    reported containment): rewrote `scripts/memorization_check.py` to rank candidates
+    by a **containment** estimate (each query's MinHash sketch vs every reference's
+    FULL k-mer-hash set, in one streaming pass) and exact-verify the top-m. A
+    generated sequence that is a fragment of a longer training BGC now scores
+    containment ~1.0 instead of being dropped. Regression test in
+    `tests/test_memorization.py` (memorized fragment of a long ref WITH higher-Jaccard
+    distractors at top_m=3 → 1.0).
+  - **C6/M13** (novelty absent from the scored suite): added `metric_9_novelty` to
+    `evaluation.py` and wired it into `evaluate_bgc`'s summary (loop now 1..9) — a
+    memorized sequence now **FAILS** the scored suite; a missing scan is `skipped`
+    (novelty UNVERIFIED, never a pass). `metric_6` (BiG-SCAPE) marked explicitly as a
+    non-functional stub so it cannot masquerade as a novelty metric.
+  - **M8** (reference too small): the scan now defaults to the **full grouped corpus**
+    (`splits_combined_grouped/train.jsonl`), not the 18K curated subset. Evo2's
+    pretraining corpus remains inaccessible — a documented limitation.
+  - **C3** (threshold uncalibrated): added `--positive-control` calibration reporting +
+    FAIL/WARN/PASS tiers; final threshold calibration still depends on de-leaking the
+    splits (C2/C7).
+  - Remaining FABLE5 Criticals **C2/C7** (near-duplicate leakage) and **C4/C5** (E. coli
+    chassis) are separate priorities, not yet addressed.
+
 - **2026-06-08 — Memorization/novelty check + real-BGC positive control: IMPLEMENTED.**
   - `scripts/memorization_check.py` (audit M4/M6): for each query sequence
     (generated, or the positive control) finds its nearest training BGC by

@@ -669,8 +669,15 @@ def metric_6_bigscape(
     mibig_gbk_dir: Optional[Path] = None,
     timeout: int = 1200,
 ) -> dict[str, Any]:
-    """Run BiG-SCAPE to assess novelty and coherence vs MIBiG."""
-    result: dict[str, Any] = {"metric": 6, "name": "bigscape_novelty", "tier": 2}
+    """Run BiG-SCAPE to assess cluster coherence vs MIBiG.
+
+    AUDIT C6: this is a STUB — BiG-SCAPE distance parsing is not implemented, so it
+    never produces a verdict and must NOT be relied on for novelty. Nucleotide
+    novelty / anti-memorization is gated by ``metric_9_novelty`` instead. This
+    function is kept only to run BiG-SCAPE for future coherence analysis.
+    """
+    result: dict[str, Any] = {"metric": 6, "name": "bigscape_coherence",
+                              "tier": 2, "stub_not_implemented": True, "pass": None}
 
     # Check bigscape is installed
     try:
@@ -713,9 +720,45 @@ def metric_6_bigscape(
             return result
 
         # Parse distance matrix if available
-        # BiG-SCAPE output format varies by version; this is a stub
-        result["note"] = "BiG-SCAPE ran; distance parsing requires version-specific logic"
+        # BiG-SCAPE output format varies by version; this is a STUB (pass stays None).
+        result["note"] = ("STUB: BiG-SCAPE ran but distance parsing is not implemented; "
+                          "this metric does NOT assess novelty — see metric_9_novelty.")
 
+    return result
+
+
+def metric_9_novelty(
+    novelty: Optional[dict[str, Any]],
+    fail_threshold: float = 0.95,
+    warn_threshold: float = 0.80,
+) -> dict[str, Any]:
+    """Nucleotide novelty / anti-memorization GATE (audit C6/M13).
+
+    Novelty is a query-vs-corpus operation, so it is computed in BATCH by the eval
+    driver (one streaming pass over the reference corpus via
+    ``scripts/memorization_check.scan_corpus``) and the per-sequence result passed
+    in here. Gates on max canonical-k-mer containment to the nearest reference BGC:
+      - FAIL_memorized if containment >= fail_threshold,
+      - WARN          if >= warn_threshold,
+      - PASS_novel    otherwise.
+    If no novelty scan is supplied the metric is SKIPPED — and a skipped novelty
+    gate means novelty is UNVERIFIED; it must never be read as a pass.
+    """
+    result: dict[str, Any] = {"metric": 9, "name": "nucleotide_novelty", "tier": 1}
+    if not novelty:
+        result["skipped"] = True
+        result["reason"] = ("no novelty scan supplied; run memorization_check.scan_corpus "
+                            "over the full reference corpus and pass the per-sequence result")
+        return result
+    cont = float(novelty.get("max_containment", 0.0))
+    result["max_containment"] = round(cont, 4)
+    result["nearest_accession"] = novelty.get("nearest_accession")
+    if cont >= fail_threshold:
+        result["verdict"], result["pass"] = "FAIL_memorized", False
+    elif cont >= warn_threshold:
+        result["verdict"], result["pass"] = "WARN", None
+    else:
+        result["verdict"], result["pass"] = "PASS_novel", True
     return result
 
 
@@ -969,6 +1012,12 @@ class EvalConfig:
     # verdict (reported as no_verdict rather than a wrong-organism FAIL).
     chassis_profile: Optional["ReferenceProfile"] = field(default_factory=lambda: ECOLI_PROFILE)
     taxon_profiles: dict[str, "ReferenceProfile"] = field(default_factory=dict)
+    # Metric 9: nucleotide novelty / anti-memorization gate (audit C6/M13). A
+    # generated sequence whose max k-mer containment to the nearest reference BGC
+    # is >= fail is treated as memorized (FAIL); >= warn is WARN. Calibrate these
+    # from the (de-leaked) positive-control distribution — see memorization_check.py.
+    novelty_fail_threshold: float = 0.95
+    novelty_warn_threshold: float = 0.80
 
 
 def phylum_token(taxonomic_tag: str) -> Optional[str]:
@@ -1022,12 +1071,17 @@ def evaluate_bgc(
     expected_class: str = "",
     config: Optional[EvalConfig] = None,
     expected_taxon: str = "",
+    novelty: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Run all 8 evaluation metrics on a BGC sequence.
+    """Run the evaluation metrics on a BGC sequence.
 
     ``expected_taxon`` is the taxon the sequence was conditioned on (a full
     taxonomic_tag or a phylum token); it selects the Metric 7 faithfulness
     reference from ``config.taxon_profiles``.
+
+    ``novelty`` is the precomputed memorization-scan result for THIS sequence
+    (from memorization_check.scan_corpus, computed in batch by the driver); it
+    drives Metric 9, the nucleotide novelty / anti-memorization gate (audit C6).
 
     Returns a dict with top-level keys for each metric and a summary.
     """
@@ -1076,9 +1130,16 @@ def evaluate_bgc(
             sequence, accession, config.mmseqs2_db,
         )
 
+    # Novelty / anti-memorization gate (audit C6/M13) — a first-class, gating
+    # metric in the scored summary so a memorized sequence FAILS the suite.
+    if 9 not in skip:
+        results["metric_9"] = metric_9_novelty(
+            novelty, config.novelty_fail_threshold, config.novelty_warn_threshold,
+        )
+
     # Summary
     summary: dict[str, Any] = {}
-    for i in range(1, 9):
+    for i in range(1, 10):
         key = f"metric_{i}"
         if i in skip:
             summary[key] = "skipped"
