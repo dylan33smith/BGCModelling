@@ -111,6 +111,23 @@ def test_novelty_gate_wired():
     print("PASS: novelty gate (metric_9) wired into evaluate_bgc — memorized => FAIL")
 
 
+def test_eval_suite_aggregation():
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import eval_suite_driver as D
+    results = [
+        {"expected_class": "NRPS", "summary": {"metric_4": "PASS", "metric_7": "FAIL", "metric_9": "PASS"}},
+        {"expected_class": "NRPS", "summary": {"metric_4": "PASS", "metric_7": "PASS", "metric_9": "FAIL"}},
+        {"expected_class": "PKS", "summary": {"metric_4": "skipped", "metric_7": "PASS", "metric_9": "no_verdict"}},
+    ]
+    s = D.summarize_group(results)
+    assert s["n"] == 3
+    assert s["per_metric"]["metric_4"]["PASS"] == 2 and s["per_metric"]["metric_4"]["skipped"] == 1
+    assert s["per_metric"]["metric_4"]["pass_rate"] == 1.0          # 2 PASS / 2 scored
+    assert s["per_metric"]["metric_7"]["pass_rate"] == round(2 / 3, 3)
+    assert s["per_metric"]["metric_9"]["FAIL"] == 1 and s["per_metric"]["metric_9"]["pass_rate"] == 0.5
+    print("PASS: eval-suite driver aggregation (per-metric pass rates incl. skipped)")
+
+
 def main():
     test_m9_adherence()
     test_m9_balanced_sample()
@@ -118,6 +135,7 @@ def main():
     test_m1_resume_alignment()
     test_m7_early_stop()
     test_novelty_gate_wired()
+    test_eval_suite_aggregation()
     print("\nALL EVAL-METRIC TESTS PASSED")
 
 
