@@ -1,5 +1,33 @@
 # BCGModelling Evo2 Fine-Tuning — Adversarial Deep-Dive Audit
 
+## Deferred / Future Work (decisions)
+
+- **2026-06-08 — DEFERRED: near-duplicate leakage (FABLE5 C2/C7).** Splits are
+  genome- and exact-md5-disjoint but NOT near-duplicate-disjoint (a val record
+  with first-2048nt containment = 1.0 to a train record; ~31% species overlap).
+  **Decision:** do NOT block the current first production run on this. It does not
+  corrupt *training* — only makes the first-window val loss slightly optimistic and
+  makes rigorous generalization/novelty CLAIMS unsupportable. We want a directional
+  full-epoch first pass. **Must fix before any rigorous evaluation or published
+  claim**, and it also unblocks the novelty-threshold calibration (C3). Fix:
+  identity-cluster all records (MIBiG + antiSMASH) at ~90–95% over the BGC interval
+  (mmseqs2 / minimap2 / CD-HIT-EST), assign whole clusters to one split; rebuild the
+  positive control with a containment-based disjointness guard; add a pre-train
+  assertion failing on any cross-split pair > 0.9 containment; then re-validate any
+  checkpoint decisions.
+- **2026-06-08 — DEFERRED: `find_latest_checkpoint` sorts by mtime not step (FABLE5
+  m1).** Low impact (checkpoints are written in step order, so newest-mtime ≈
+  highest-step) and only fires on resume. Editing `queue_h100_production.sh` while
+  its bash loop is running risks corrupting the auto-resume wrapper, so fix AFTER
+  the current run's bash loop exits (or bundle with the C2/C7 de-leak work).
+- **2026-06-08 — TO TEST (not assume): E. coli chassis generalization (FABLE5
+  C4/C5).** Whether conditioning on an E. coli tag steers output toward E. coli
+  statistics for the unseen (E.coli, NRPS/OTHER) cells is an empirical question, not
+  a certain failure — Evo2's pretraining knows E. coli. Test via a taxon-swap
+  controlled generation experiment (generate class C under E.coli vs source tag,
+  compare M7 GC/CAI). Keep a deterministic E. coli recoding step (DNA Chisel) as the
+  fallback if conditioning does not generalize.
+
 ## Resolution Log
 
 - **2026-06-08 — FABLE5 audit Priority-1 (the novelty gate): C1/M11 + C6/M13 RESOLVED; C3/M8 PARTIAL.**
