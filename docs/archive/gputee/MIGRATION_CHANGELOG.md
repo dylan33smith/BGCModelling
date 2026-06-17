@@ -947,6 +947,43 @@ launching does not repeat the OOM.
 
 ---
 
+### 39. Eval suite rewrite → named checks/questions + antiSMASH gate (2026-06-17)
+
+**What.** Rebuilt the acceptance suite from first principles. The old flat
+`metric_1..metric_11` numbering is gone; the suite is now two named layers —
+**CHECKS** (`coding_sanity`, `antismash`, `class_markers`, `kmer_novelty`,
+`protein_homology`, `module_architecture`, `taxon_faithfulness`; optional
+`protein_foldability`) combined into **QUESTIONS** (`is_bgc`, `correct_class`,
+`novel` = gates; `proteins_plausible`, `complete`, `conditioning_faithful` =
+diagnostics) via `derive_questions()`.
+
+**Why.** The suite had accreted metrics of mixed value. Scoped it to what we
+actually need to know (is-it-a-BGC, correct-class, plausible proteins, novel,
+complete) and pruned the wet-lab axes.
+
+- **antiSMASH is now the gold-standard `is_bgc`/`correct_class` gate** (it is the
+  real BGC detector; sequence-quality alone is not). Recalibrated 0.15 → **0.97**
+  on real held-out cores by completing the product→class map
+  (`scripts/build_class_map.py` regenerates `config/compound_class_map.yaml`,
+  covering all 103 antiSMASH 8 products). `class_markers` (Pfam) is the fast proxy
+  when antiSMASH is skipped (quick-eval).
+- **Gene caller: pyrodigal (Prodigal)** replaces the six-frame ORF finder
+  everywhere (it fragmented megasynthases); `pyrodigal>=3` added to
+  `requirements.txt`.
+- **Retired:** synthesis feasibility, Evo2 perplexity, BiG-SCAPE; E. coli
+  expressibility pruned from gating.
+- **Data:** the active split is `splits_core` (strict antiSMASH cores, native GTDB
+  tags, MiBIG held out); earlier `splits_combined*` / `splits_dedup` deprecated.
+
+**Files.** `src/bgc_pipeline/evaluation.py`, `scripts/eval_suite_driver.py`,
+`scripts/quick_eval.sh`, `scripts/run_eval.sh`, `scripts/evaluate_bgc.py`,
+`scripts/diagnose_conditioning*.sh`, `scripts/conditioning_experiment.py`,
+`config/compound_class_map.yaml`, `tests/test_eval_metrics.py`, plus new
+`scripts/{build_class_map,calibrate_antismash,validate_antismash_calibration}.py`.
+Full record: `REDESIGN_PLAN.md` / `EVAL_RUNBOOK.md`.
+
+---
+
 ## Summary of what was intentionally left unchanged
 
 - **All code logic in `scripts/finetune_evo2*.py`** apart from the top

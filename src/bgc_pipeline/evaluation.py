@@ -1,23 +1,30 @@
-"""Eight-metric evaluation suite for generated BGC sequences.
+"""Acceptance suite for generated BGC sequences — named CHECKS → QUESTIONS.
 
-Implements the evaluation framework from Section 5 of the research plan:
+First-principles structure (2026-06-17, see docs/archive/REDESIGN_PLAN.md). Two layers, not a
+flat numbered list:
 
-Tier 1 (Primary):
-  1. AntiSMASH BGC class identification
-  2. Functional domain recovery (pyhmmer + Pfam 37.0)
-  3. Protein foldability + structural homology (ESMFold + Foldseek)
-  4. Synthesis feasibility (DNA Chisel)
+CHECKS (compute units; one consistent gene caller, Prodigal/pyrodigal):
+  coding_sanity        gene-rich, complete coding DNA (vs degenerate junk)
+  antismash            antiSMASH detection + classification (detected, class_match)
+  class_markers        per-class Pfam markers (fast proxy for antiSMASH class)
+  kmer_novelty         anti-memorization k-mer containment vs training
+  protein_homology     MMseqs2 homology of predicted proteins to known enzymes
+  module_architecture  ordered assembly-line modules (from class_markers positions)
+  taxon_faithfulness   codon/GC faithfulness to the conditioned taxon
+  protein_foldability  ESMFold pLDDT — OPTIONAL, opt-in (GPU-expensive)
 
-Tier 2 (Secondary):
-  5. Sequence naturalness (Evo2 perplexity)
-  6. Structural novelty + coherence (BiG-SCAPE 2.0)
-  7. Organism compatibility (CAI + GC + dinucleotide stats)
+QUESTIONS (what we actually want to know; derived by combining checks):
+  is_bgc                coding_sanity ∧ antismash.detected (markers proxy)   [GATE]
+  correct_class         antismash.class_match (class_markers proxy)          [GATE]
+  novel                 kmer_novelty                                         [GATE]
+  proteins_plausible    protein_homology                                     [diag]
+  complete              module_architecture                                  [diag]
+  conditioning_faithful taxon_faithfulness                                   [diag]
 
-Tier 3 (Descriptive):
-  8. Protein sequence homology (MMseqs2 vs UniRef50)
-
-Each metric function accepts a sequence (and metadata) and returns a dict of results.
-External tools that are not installed are gracefully skipped.
+antiSMASH is the gold-standard BGC detector/classifier; class_markers is the fast
+Pfam proxy for quick-eval. RETIRED: synthesis feasibility, Evo2 perplexity,
+BiG-SCAPE (all removed in the rewrite). Each check returns a dict; external tools
+that are not installed are gracefully skipped.
 """
 
 from __future__ import annotations
@@ -83,10 +90,10 @@ _ECOLI_CODON_FREQ: dict[str, float] = {
 }
 
 # ---------------------------------------------------------------------------
-# Reference organism profiles for Metric 7 (organism compatibility)
+# Reference organism profiles for the taxon_faithfulness check
 # ---------------------------------------------------------------------------
 #
-# Metric 7 answers two DIFFERENT questions that must not be conflated:
+# taxon_faithfulness answers two DIFFERENT questions that must not be conflated:
 #   (a) Faithfulness  — does the generated sequence match the codon/GC/dinucleotide
 #       signature of the ORGANISM IT WAS CONDITIONED ON? (graded vs that taxon)
 #   (b) Expressibility — would it express in the wet-lab synthesis chassis (E. coli)?
@@ -137,7 +144,7 @@ def build_profile_from_sequences(
 
     Aggregates GC content, codon usage (per-1000), and observed/expected
     dinucleotide ratios across all provided sequences. Run this over the training
-    BGCs of a given taxon so Metric 7 can grade faithfulness to the organism the
+    BGCs of a given taxon so taxon_faithfulness can grade faithfulness to the organism the
     model was actually conditioned on. See scripts/build_taxon_profiles.py.
     """
     gc_count = 0
@@ -185,20 +192,86 @@ def build_profile_from_sequences(
     )
 
 
-# Obligate Pfam domains per COMPOUND_CLASS (accession-based for pyhmmer)
-# These are the minimum domains expected in a valid BGC of each class.
+# Class-characteristic Pfam markers per COMPOUND_CLASS — DATA-DRIVEN (2026-06-17):
+# derived by scanning splits_core cores per class for Pfams that are frequent
+# (>=30% of the class's cores) AND enriched (>=4x vs background), via
+# scripts/derive_class_markers.py (-> data/.../class_markers.json). This replaces
+# the old textbook-only list, which missed real subtype diversity (e.g. carotenoid
+# "terpene" clusters use SQS_PSY/polyprenyl_synt, not the classic terpene cyclases).
+# M2 passes if a generation contains ANY of its class's markers ("has class-defining
+# machinery"); module COMPLETENESS/ordering is M11 (MODULE_PATTERNS), not M2.
 OBLIGATE_DOMAINS: dict[str, list[str]] = {
-    "PKS": ["PF00109", "PF00698", "PF00550"],       # KS (ketosynthase), AT (acyltransferase), ACP (acyl carrier)
-    "NRPS": ["PF00668", "PF00501", "PF00550"],      # C (condensation), A (adenylation/AMP-binding), T/PCP (carrier)
-    "TERPENE": ["PF03936", "PF19086", "PF01397"],     # Terpene_synth_C, Terpene_syn_C_2, or Terpene_synth (any one suffices)
-    "RIPP": [],                                       # RiPPs are diverse; no universal obligate domain
-    "SACCHARIDE": ["PF00534"],                        # Glycos_transf_1 (glycosyltransferase)
-    "OTHER": [],                                      # Too diverse for obligate domain list
-    "PKS_NRPS_HYBRID": ["PF00109", "PF00668"],       # KS + C domains
-    "SIDEROPHORE": ["PF04183"],                       # IucA_IucC
-    "ALKALOID": [],
-    "BETALACTONE": [],
+    # rule: keep Pfams (freq>=0.3 & enr>=4) OR (freq>=0.08 & enr>=8) — the latter
+    # adds rare-but-highly-specific SUBTYPE markers (e.g. type-III PKS chalcone
+    # synthase, lanthipeptide RiPP), so the gate passes valid subtypes too.
+    "ALKALOID": ["PF11991", "PF12902"],
+    "ARYLPOLYENE": ["PF22817", "PF00109", "PF02801", "PF13561"],
+    "BETALACTAM": ["PF00733", "PF13537", "PF02668", "PF00491", "PF13522", "PF09147"],
+    "BETALACTONE": ["PF00682", "PF00501", "PF08502", "PF16177", "PF22617", "PF13193", "PF00126", "PF03466"],
+    "BUTYROLACTONE": ["PF03756"],
+    "CDPS": ["PF16715"],
+    "ECTOINE": ["PF06339"],
+    "FURAN": ["PF05655", "PF12710"],
+    "HSERLACTONE": ["PF00765", "PF13444"],
+    "MELANIN": ["PF06236", "PF00264"],
+    "NRPS": ["PF00501", "PF00668", "PF00975"],                       # A, C, TE
+    "NUCLEOSIDE": ["PF04055", "PF01142", "PF00275", "PF13640", "PF00591", "PF07831"],
+    "PHENAZINE": ["PF03284", "PF12680", "PF03472"],
+    "PHOSPHONATE": ["PF13714", "PF02775", "PF00266", "PF12804", "PF00155", "PF02776", "PF00171", "PF01066"],
+    "PKS": ["PF00698", "PF02801", "PF00109", "PF21089", "PF14765", "PF16197", "PF00195", "PF08392"],  # +type-III
+    "PKS_NRPS_HYBRID": ["PF00668", "PF00698", "PF16197", "PF22621", "PF00550", "PF00109", "PF02801", "PF00501"],
+    "PUFA": ["PF07977", "PF00698", "PF16197", "PF08659", "PF02801", "PF00109", "PF00550"],
+    "RESORCINOL": ["PF14399", "PF16169", "PF01061", "PF12698", "PF08541", "PF13304", "PF22818", "PF13279"],
+    "RIPP": ["PF02624", "PF04055", "PF05402", "PF00881", "PF03070", "PF13353", "PF14028", "PF05114"],  # lanthi/radSAM/etc
+    "SACCHARIDE": ["PF24621", "PF01761", "PF06722", "PF00201", "PF00534", "PF21036", "PF13692", "PF01041"],
+    "SIDEROPHORE": ["PF00668", "PF00425", "PF00857", "PF00550", "PF13193", "PF00501", "PF00975", "PF01497"],
+    "TERPENE": ["PF00348", "PF00494", "PF19086", "PF13243", "PF13249", "PF01593", "PF13450"],  # carotenoid+classic
+    "OTHER": [],                                                      # catch-all; no marker
 }
+
+
+# ── Acceptance suite: named CHECKS → QUESTIONS ──────────────────────────────
+# First-principles structure (2026-06-17, see docs/archive/REDESIGN_PLAN.md). Two layers, NOT a
+# flat numbered list (the old metric_1..metric_11 numbering is gone):
+#   CHECKS    = the compute units. One consistent gene caller (Prodigal/pyrodigal)
+#               feeds the protein-based ones. Each returns a result dict that may
+#               carry several signals (e.g. `antismash` reports both `detected` and
+#               `class_match`).
+#   QUESTIONS = what we actually want to know, each DERIVED by combining checks.
+#               GATE questions decide accept/reject; DIAGNOSTIC ones are informative.
+#
+#   QUESTION               derived from                                       role
+#   is_bgc                 coding_sanity ∧ antismash.detected (markers proxy)  GATE
+#   correct_class          antismash.class_match (class_markers proxy)         GATE
+#   novel                  kmer_novelty                                        GATE
+#   proteins_plausible     protein_homology                                    diag
+#   complete               module_architecture                                 diag
+#   conditioning_faithful  taxon_faithfulness                                  diag
+#
+# antiSMASH is the GOLD-STANDARD BGC detector/classifier (owns is_bgc +
+# correct_class). class_markers (Pfam) is the fast PROXY used when antiSMASH is
+# skipped (quick-eval). RETIRED: synthesis feasibility, Evo2 perplexity, BiG-SCAPE.
+CHECKS = ("coding_sanity", "antismash", "class_markers", "kmer_novelty",
+          "protein_homology", "module_architecture", "taxon_faithfulness")
+OPTIONAL_CHECKS = ("protein_foldability",)   # ESMFold: GPU-expensive, opt-in only
+
+QUESTIONS = {
+    "is_bgc":                {"gate": True},   # real coding DNA + a biosynthetic cluster
+    "correct_class":         {"gate": True},   # cluster type matches the conditioned class
+    "novel":                 {"gate": True},   # not memorized from training
+    "proteins_plausible":    {"gate": False},  # proteins resemble known enzymes
+    "complete":              {"gate": False},  # complete, correctly-ordered modules
+    "conditioning_faithful": {"gate": False},  # codon/GC faithful to conditioned taxon
+}
+GATE_QUESTIONS = tuple(q for q, m in QUESTIONS.items() if m["gate"])
+DIAGNOSTIC_QUESTIONS = tuple(q for q, m in QUESTIONS.items() if not m["gate"])
+
+# M11 module patterns: the ordered obligate domains that form one assembly-line
+# MODULE (collinearity). M11 counts modules + whether they appear IN ORDER —
+# upgrading M2's binary "domains present?" to "complete, correctly-ordered modules?".
+MODULE_PATTERNS = {"NRPS": ["PF00668", "PF00501", "PF00550"],   # C - A - T
+                   "PKS":  ["PF00109", "PF00698", "PF00550"]}   # KS - AT - ACP
+STOP_CODONS = {"TAA", "TAG", "TGA"}
 
 
 @dataclass
@@ -209,10 +282,49 @@ class ORF:
     strand: int  # +1 or -1
     nt_seq: str
     aa_seq: str
+    partial: bool = False  # Prodigal-flagged edge-truncated gene (incomplete)
+
+
+# Gene caller: Prodigal (pyrodigal) — the standard prokaryotic gene caller, and the
+# one antiSMASH itself uses, so every protein-based metric (M2/M8/M10/M11) shares one
+# accurate, consistent caller. It models real gene structure (proper starts; no
+# ATG-only / six-frame fragmentation that split megasynthases) and flags partial
+# (edge-truncated) genes — a free completeness signal for M10. meta=True avoids
+# per-sequence training so it works on a single BGC of any length.
+try:  # pragma: no cover - import guard
+    import pyrodigal as _pyrodigal
+    _GENE_FINDER = _pyrodigal.GeneFinder(meta=True)
+except Exception:  # pyrodigal absent -> fall back to legacy six-frame
+    _pyrodigal = None
+    _GENE_FINDER = None
 
 
 def find_orfs(sequence: str, min_aa: int = 50) -> list[ORF]:
-    """Simple six-frame ORF finder. Returns ORFs >= min_aa amino acids."""
+    """Predict genes with Prodigal (pyrodigal); return ORFs >= ``min_aa`` residues.
+
+    Proper Prodigal gene calls (real starts, strand, no six-frame fragmentation).
+    ``ORF.partial`` is True when Prodigal flags the gene as edge-truncated. Falls
+    back to the legacy six-frame scanner only if pyrodigal is unavailable.
+    """
+    seq = sequence.upper()
+    if _GENE_FINDER is None:
+        return _find_orfs_sixframe(seq, min_aa)
+    orfs: list[ORF] = []
+    for gene in _GENE_FINDER.find_genes(seq.encode()):
+        aa = gene.translate().rstrip("*")
+        if len(aa) < min_aa:
+            continue
+        start, end = gene.begin - 1, gene.end  # pyrodigal coords are 1-based inclusive
+        nt = seq[start:end]
+        if gene.strand == -1:
+            nt = str(Seq(nt).reverse_complement())
+        partial = bool(gene.partial_begin or gene.partial_end)
+        orfs.append(ORF(start, end, gene.strand, nt, aa, partial))
+    return orfs
+
+
+def _find_orfs_sixframe(sequence: str, min_aa: int = 50) -> list[ORF]:
+    """Legacy six-frame ATG->stop scanner. Fallback only when pyrodigal is absent."""
     seq = sequence.upper()
     orfs: list[ORF] = []
     for strand, nuc in [(+1, seq), (-1, str(Seq(seq).reverse_complement()))]:
@@ -255,18 +367,24 @@ def find_orfs(sequence: str, min_aa: int = 50) -> list[ORF]:
 
 
 # ---------------------------------------------------------------------------
-# Metric 1: AntiSMASH BGC Class Identification
+# Check: antismash — BGC detection + class (is_bgc / correct_class)
 # ---------------------------------------------------------------------------
 
-def metric_1_antismash(
+def check_antismash(
     sequence: str,
     accession: str = "query",
     expected_class: str = "",
     class_map: Optional[dict[str, str]] = None,
     timeout: int = 600,
+    databases_dir: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Run antiSMASH on a sequence and check predicted BGC class."""
-    result: dict[str, Any] = {"metric": 1, "name": "antismash_bgc_class", "tier": 1}
+    """Run antiSMASH on a sequence and check predicted BGC class.
+
+    ``databases_dir`` points antiSMASH at a databases root installed outside the
+    package default (we keep them on /data2; see scripts/run_eval.sh). When None,
+    antiSMASH uses its built-in default path.
+    """
+    result: dict[str, Any] = {"check": "antismash"}
 
     with tempfile.TemporaryDirectory() as tmp:
         fasta = Path(tmp) / f"{accession}.fasta"
@@ -280,6 +398,8 @@ def metric_1_antismash(
             "--genefinding-tool", "prodigal",
             "--minimal",
         ]
+        if databases_dir:
+            cmd += ["--databases", str(databases_dir)]
         try:
             proc = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout, check=False,
@@ -306,53 +426,80 @@ def metric_1_antismash(
         if results_json.exists():
             try:
                 as_data = json.loads(results_json.read_text())
-                regions = []
+                all_products: list[str] = []
                 for record in as_data.get("records", []):
                     for region in record.get("areas", record.get("regions", [])):
                         products = region.get("products", region.get("product", []))
                         if isinstance(products, str):
                             products = [products]
-                        regions.append({"products": products})
-                result["regions"] = regions
-                all_products = []
-                for r in regions:
-                    all_products.extend(r["products"])
+                        all_products.extend(products)
                 result["predicted_products"] = all_products
+                # is_bgc signal: antiSMASH detected at least one biosynthetic cluster.
+                result["detected"] = len(all_products) > 0
 
-                # Check class match
-                if expected_class and class_map:
-                    mapped = [class_map.get(p.lower(), "OTHER") for p in all_products]
-                    result["mapped_classes"] = mapped
-                    result["pass"] = expected_class in mapped
-                elif expected_class:
-                    result["pass"] = expected_class.lower() in [
-                        p.lower() for p in all_products
-                    ]
+                # map antiSMASH products -> our class vocabulary (keys are lowercased
+                # in load_class_map; ANY mapped product matching = right class).
+                if class_map:
+                    mapped = {class_map.get(p.lower(), "OTHER") for p in all_products}
+                else:
+                    mapped = {p.upper() for p in all_products}
+                result["mapped_classes"] = sorted(mapped)
+
+                # correct_class signal: does the cluster type match the conditioned class?
+                if expected_class:
+                    exp = expected_class.upper()
+                    if exp in ("PKS_NRPS_HYBRID", "HYBRID"):
+                        # a hybrid = both PKS and NRPS machinery present in the region(s)
+                        result["class_match"] = ("PKS_NRPS_HYBRID" in mapped
+                                                 or {"PKS", "NRPS"} <= mapped)
+                    else:
+                        result["class_match"] = exp in mapped
+                    result["pass"] = result["class_match"]   # back-compat alias
             except (json.JSONDecodeError, KeyError) as e:
+                # Malformed/unexpected antiSMASH JSON: the tool gave no usable verdict.
+                # SKIP (not FAIL) so derive_questions falls back to the class_markers
+                # proxy CONSISTENTLY for both is_bgc and correct_class — never a
+                # half-state where detected=False but class_match is left unset.
                 result["parse_error"] = str(e)
+                result["skipped"] = True
         else:
             result["no_results_json"] = True
-            result["pass"] = False
+            # Distinguish "antismash ran but found nothing" (rc==0 → genuinely NOT a
+            # BGC: detected=False) from "antismash could not run" (rc!=0, no JSON —
+            # almost always missing DBs). The latter taught us nothing → SKIP.
+            if proc.returncode != 0:
+                result["skipped"] = True
+                result["reason"] = (
+                    f"antismash exited {proc.returncode} without results "
+                    "(prerequisite DBs not downloaded? run download-antismash-databases)"
+                )
+                if proc.stderr:
+                    result["stderr_tail"] = proc.stderr.strip()[-500:]
+            else:
+                result["detected"] = False
+                result["class_match"] = False
+                result["pass"] = False
 
-    # Default: if no pass verdict was set but we ran, set to False
-    if "pass" not in result and not result.get("skipped"):
-        result["pass"] = False
+    # Default: ran but no verdict set → not detected / not matching.
+    if not result.get("skipped"):
+        result.setdefault("detected", False)
+        result.setdefault("pass", False)
 
     return result
 
 
 # ---------------------------------------------------------------------------
-# Metric 2: Functional Domain Recovery (pyhmmer + Pfam)
+# Check: class_markers — functional domain recovery (pyhmmer + Pfam)
 # ---------------------------------------------------------------------------
 
-def metric_2_domain_recovery(
+def check_class_markers(
     sequence: str,
     expected_class: str = "",
     pfam_hmm_path: Optional[Path] = None,
     evalue_threshold: float = 1e-10,
 ) -> dict[str, Any]:
     """Scan predicted ORFs against Pfam using pyhmmer."""
-    result: dict[str, Any] = {"metric": 2, "name": "domain_recovery", "tier": 1}
+    result: dict[str, Any] = {"check": "class_markers"}
 
     try:
         import pyhmmer
@@ -410,32 +557,35 @@ def metric_2_domain_recovery(
                                 "target": hit_name,
                                 "evalue": float(domain.i_evalue),
                                 "score": float(domain.score),
+                                "env_from": int(getattr(domain, "env_from", 0) or 0),  # within-ORF aa pos (for M11 ordering)
                             })
                             domain_accessions.add(acc_base)
 
     result["domains_found"] = domains_found
     result["unique_domain_accessions"] = sorted(domain_accessions)
     result["domain_count"] = len(domains_found)
+    # ORF coordinates (for M11 module-architecture ordering across ORFs)
+    result["orfs_meta"] = [{"i": i, "start": o.start, "end": o.end, "aa_len": len(o.aa_seq)}
+                           for i, o in enumerate(orfs)]
 
-    # Check obligate domains
-    # For most classes: ALL obligate domains must be present.
-    # For TERPENE: ANY ONE of the listed domains suffices (they're alternative families).
-    _ANY_ONE_CLASSES = {"TERPENE"}
-
+    # Check class markers (data-derived, see OBLIGATE_DOMAINS). ANY-of semantics for
+    # ALL classes: a valid member has at least one class-characteristic enzyme. Module
+    # COMPLETENESS + ordering is M11's job (MODULE_PATTERNS), not this gate. The
+    # graded "fraction of markers present" (obligate_domains − missing_obligate) is
+    # the climb signal surfaced by quick_eval.
     if expected_class:
-        obligate = OBLIGATE_DOMAINS.get(expected_class, [])
-        if obligate:
-            missing = [d for d in obligate if d not in domain_accessions]
-            result["obligate_domains"] = obligate
+        markers = OBLIGATE_DOMAINS.get(expected_class, [])
+        if markers:
+            present = [d for d in markers if d in domain_accessions]
+            missing = [d for d in markers if d not in domain_accessions]
+            result["obligate_domains"] = markers          # = class markers
             result["missing_obligate"] = missing
-            if expected_class in _ANY_ONE_CLASSES:
-                result["pass"] = any(d in domain_accessions for d in obligate)
-            else:
-                result["pass"] = len(missing) == 0
+            result["markers_present"] = present
+            result["pass"] = len(present) >= 1            # ANY class marker present
         else:
             result["obligate_domains"] = []
-            result["pass"] = None  # No obligate domains defined for this class
-            result["note"] = f"No obligate domain set defined for class {expected_class}"
+            result["pass"] = None  # No markers defined for this class (e.g. OTHER)
+            result["note"] = f"No class markers defined for class {expected_class}"
     else:
         result["pass"] = None
 
@@ -443,10 +593,10 @@ def metric_2_domain_recovery(
 
 
 # ---------------------------------------------------------------------------
-# Metric 3: Protein Foldability (ESMFold + Foldseek)
+# Check: protein_foldability — ESMFold (OPTIONAL, opt-in)
 # ---------------------------------------------------------------------------
 
-def metric_3_esmfold(
+def check_protein_foldability(
     sequence: str,
     max_orfs: int = 5,
     foldseek_db: Optional[str] = None,
@@ -457,7 +607,7 @@ def metric_3_esmfold(
     (transformers==4.46.3), which does not require OpenFold as a dependency.
     Requires: pip install transformers==4.46.3 accelerate torch==2.5.1+cu124
     """
-    result: dict[str, Any] = {"metric": 3, "name": "protein_foldability", "tier": 1}
+    result: dict[str, Any] = {"check": "protein_foldability"}
 
     try:
         import torch
@@ -518,216 +668,15 @@ def metric_3_esmfold(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Metric 4: Synthesis Feasibility (DNA Chisel)
-# ---------------------------------------------------------------------------
-
-def metric_4_synthesis_feasibility(
-    sequence: str,
-    window_size: int = 50,
-) -> dict[str, Any]:
-    """Check synthesis constraints per Twist Bioscience guidelines."""
-    result: dict[str, Any] = {"metric": 4, "name": "synthesis_feasibility", "tier": 1}
-    seq = sequence.upper()
-
-    if not re.fullmatch(r"[ACGT]+", seq):
-        result["pass"] = False
-        result["reason"] = "non-ACGT characters present"
-        return result
-
-    checks: dict[str, Any] = {}
-
-    # Global GC content: 25-65%
-    gc = (seq.count("G") + seq.count("C")) / len(seq)
-    checks["global_gc"] = {"value": round(gc, 4), "pass": 0.25 <= gc <= 0.65}
-
-    # Local GC in 50 bp windows: 35-65%  (warn but don't hard-fail)
-    violations_local = 0
-    for i in range(0, len(seq) - window_size + 1, window_size):
-        w = seq[i : i + window_size]
-        wgc = (w.count("G") + w.count("C")) / len(w)
-        if not (0.35 <= wgc <= 0.65):
-            violations_local += 1
-    total_windows = max(1, (len(seq) - window_size + 1) // window_size)
-    checks["local_gc_violations"] = {
-        "count": violations_local,
-        "total_windows": total_windows,
-        "fraction": round(violations_local / total_windows, 4),
-    }
-
-    # Homopolymer runs >= 10 bp
-    max_homo = 0
-    if seq:
-        cur = 1
-        for j in range(1, len(seq)):
-            if seq[j] == seq[j - 1]:
-                cur += 1
-                max_homo = max(max_homo, cur)
-            else:
-                cur = 1
-        max_homo = max(max_homo, cur)
-    checks["max_homopolymer"] = {"value": max_homo, "pass": max_homo < 10}
-
-    # Direct repeats > 20 bp (sample check — full check is O(n^2))
-    has_long_repeat = False
-    if len(seq) <= 200_000:  # Only check shorter sequences
-        for k in range(21, 31):
-            kmers: set[str] = set()
-            for i in range(len(seq) - k + 1):
-                kmer = seq[i : i + k]
-                if kmer in kmers:
-                    has_long_repeat = True
-                    break
-                kmers.add(kmer)
-            if has_long_repeat:
-                break
-    checks["direct_repeat_gt20"] = {"detected": has_long_repeat}
-
-    # DNA Chisel full check (if installed)
-    try:
-        from dnachisel import DnaOptimizationProblem
-        from dnachisel.builtin_specifications import (
-            EnforceGCContent,
-            AvoidPattern,
-        )
-
-        problem = DnaOptimizationProblem(
-            sequence=seq[:50000] if len(seq) > 50000 else seq,  # Limit for speed
-            constraints=[
-                EnforceGCContent(mini=0.25, maxi=0.65),
-                AvoidPattern("10xN"),  # No homopolymer >= 10
-            ],
-        )
-        checks["dnachisel_all_pass"] = problem.all_constraints_pass()
-        checks["dnachisel_summary"] = problem.constraints_text_summary()
-    except ImportError:
-        checks["dnachisel"] = "not installed"
-
-    all_pass = (
-        checks["global_gc"]["pass"]
-        and checks["max_homopolymer"]["pass"]
-    )
-    result["checks"] = checks
-    result["pass"] = all_pass
-
-    return result
+# Metrics 4 (synthesis feasibility), 5 (Evo2 base perplexity) and 6 (BiG-SCAPE)
+# were RETIRED in the first-principles eval rewrite (2026-06-17):
+#   M4 = a wet-lab MANUFACTURING axis (out of scope here);
+#   M5 = base-model perplexity of fine-tune output was near-circular / uninformative;
+#   M6 = an unimplemented stub that never produced a verdict.
+# Novelty is owned by M9; protein plausibility by M8. See docs/archive/REDESIGN_PLAN.md.
 
 
-# ---------------------------------------------------------------------------
-# Metric 5: Sequence Naturalness (Evo2 Perplexity)
-# ---------------------------------------------------------------------------
-
-def metric_5_evo2_perplexity(
-    sequence: str,
-    model_name: str = "evo2_7b_262k",
-) -> dict[str, Any]:
-    """Compute per-nucleotide perplexity under the pretrained Evo2 base model.
-
-    Uses the evo2 PyPI package (evo2==0.5.5) with the arcinstitute/evo2_7b_262k
-    checkpoint. score_sequences() returns mean log-likelihood (higher = more
-    probable); we negate it to get mean NLL and exponentiate for perplexity.
-
-    Requires: pip install evo2==0.5.5 flash-attn==2.7.4.post1 torch==2.5.1+cu124
-    GPU strongly recommended (loads ~14 GB of weights).
-    """
-    result: dict[str, Any] = {"metric": 5, "name": "evo2_perplexity", "tier": 2}
-
-    try:
-        from evo2 import Evo2
-    except ImportError:
-        result["skipped"] = True
-        result["reason"] = "evo2 not installed (pip install evo2==0.5.5)"
-        return result
-
-    try:
-        model = Evo2(model_name)
-        # score_sequences returns mean log-likelihood per sequence (higher = more probable)
-        scores = model.score_sequences([sequence], batch_size=1)
-        mean_log_likelihood = float(scores[0])
-        mean_nll = -mean_log_likelihood
-        perplexity = math.exp(mean_nll) if mean_nll < 700 else float("inf")
-        result["mean_log_likelihood"] = round(mean_log_likelihood, 4)
-        result["perplexity"] = round(perplexity, 4)
-        result["nucleotides_scored"] = len(sequence)
-        # Reference: MIBiG BGCs typically score between -0.3 and -0.8 log-likelihood
-        # Shuffled sequences score much lower (more negative, higher perplexity)
-        result["pass"] = mean_log_likelihood > -2.0
-    except Exception as e:
-        result["skipped"] = True
-        result["reason"] = f"Evo2 inference failed: {e}"
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Metric 6: Structural Novelty + Coherence (BiG-SCAPE 2.0)
-# ---------------------------------------------------------------------------
-
-def metric_6_bigscape(
-    sequence: str,
-    accession: str = "query",
-    mibig_gbk_dir: Optional[Path] = None,
-    timeout: int = 1200,
-) -> dict[str, Any]:
-    """Run BiG-SCAPE to assess cluster coherence vs MIBiG.
-
-    AUDIT C6: this is a STUB — BiG-SCAPE distance parsing is not implemented, so it
-    never produces a verdict and must NOT be relied on for novelty. Nucleotide
-    novelty / anti-memorization is gated by ``metric_9_novelty`` instead. This
-    function is kept only to run BiG-SCAPE for future coherence analysis.
-    """
-    result: dict[str, Any] = {"metric": 6, "name": "bigscape_coherence",
-                              "tier": 2, "stub_not_implemented": True, "pass": None}
-
-    # Check bigscape is installed
-    try:
-        subprocess.run(["bigscape", "--version"], capture_output=True, timeout=10, check=False)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        result["skipped"] = True
-        result["reason"] = "bigscape not installed"
-        return result
-
-    if mibig_gbk_dir is None or not mibig_gbk_dir.is_dir():
-        result["skipped"] = True
-        result["reason"] = "MIBiG GBK directory not provided"
-        return result
-
-    with tempfile.TemporaryDirectory() as tmp:
-        # Write query as a minimal GenBank file
-        query_gbk = Path(tmp) / "query" / f"{accession}.gbk"
-        query_gbk.parent.mkdir()
-        rec = SeqRecord(Seq(sequence), id=accession, description="generated BGC")
-        with query_gbk.open("w") as f:
-            SeqIO.write(rec, f, "genbank")
-
-        outdir = Path(tmp) / "bigscape_out"
-        cmd = [
-            "bigscape", "cluster",
-            "--input-dir", str(query_gbk.parent),
-            "--mibig-dir", str(mibig_gbk_dir),
-            "--output-dir", str(outdir),
-        ]
-        try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout, check=False,
-            )
-            result["returncode"] = proc.returncode
-            if proc.returncode != 0:
-                result["stderr_tail"] = proc.stderr[-1000:] if proc.stderr else ""
-        except subprocess.TimeoutExpired:
-            result["skipped"] = True
-            result["reason"] = f"bigscape timeout after {timeout}s"
-            return result
-
-        # Parse distance matrix if available
-        # BiG-SCAPE output format varies by version; this is a STUB (pass stays None).
-        result["note"] = ("STUB: BiG-SCAPE ran but distance parsing is not implemented; "
-                          "this metric does NOT assess novelty — see metric_9_novelty.")
-
-    return result
-
-
-def metric_9_novelty(
+def check_kmer_novelty(
     novelty: Optional[dict[str, Any]],
     fail_threshold: float = 0.95,
     warn_threshold: float = 0.80,
@@ -744,7 +693,7 @@ def metric_9_novelty(
     If no novelty scan is supplied the metric is SKIPPED — and a skipped novelty
     gate means novelty is UNVERIFIED; it must never be read as a pass.
     """
-    result: dict[str, Any] = {"metric": 9, "name": "nucleotide_novelty", "tier": 1}
+    result: dict[str, Any] = {"check": "kmer_novelty"}
     if not novelty:
         result["skipped"] = True
         result["reason"] = ("no novelty scan supplied; run memorization_check.scan_corpus "
@@ -763,7 +712,7 @@ def metric_9_novelty(
 
 
 # ---------------------------------------------------------------------------
-# Metric 7: Organism Compatibility (CAI + GC + dinucleotide stats)
+# Check: taxon_faithfulness — organism compatibility (CAI + GC + dinucleotide stats)
 # ---------------------------------------------------------------------------
 
 def _score_against_profile(seq: str, profile: ReferenceProfile) -> dict[str, Any]:
@@ -799,7 +748,7 @@ def _score_against_profile(seq: str, profile: ReferenceProfile) -> dict[str, Any
     return block
 
 
-def metric_7_organism_compatibility(
+def check_taxon_faithfulness(
     sequence: str,
     taxon_profile: Optional[ReferenceProfile] = None,
     chassis_profile: Optional[ReferenceProfile] = ECOLI_PROFILE,
@@ -817,9 +766,9 @@ def metric_7_organism_compatibility(
       default), the wet-lab expression host. Reported for information only; it
       never gates the verdict, because the Phase-1 objective is faithful
       generation, not E. coli codon-optimisation (that is a separate recoding
-      step). See AUDIT_FINDINGS.md C4.
+      step). See docs/archive/AUDIT_FINDINGS.md C4.
     """
-    result: dict[str, Any] = {"metric": 7, "name": "organism_compatibility", "tier": 2}
+    result: dict[str, Any] = {"check": "taxon_faithfulness"}
     seq = sequence.upper()
 
     # (a) Faithfulness to the conditioned taxon — drives the verdict.
@@ -910,17 +859,17 @@ def _dinucleotide_frequencies(seq: str) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# Metric 8: Protein Sequence Homology (MMseqs2)
+# Check: protein_homology — protein sequence homology (MMseqs2)
 # ---------------------------------------------------------------------------
 
-def metric_8_mmseqs2(
+def check_protein_homology(
     sequence: str,
     accession: str = "query",
     db_path: Optional[str] = None,
     timeout: int = 600,
 ) -> dict[str, Any]:
     """Search predicted ORFs against a protein database using MMseqs2."""
-    result: dict[str, Any] = {"metric": 8, "name": "mmseqs2_homology", "tier": 3}
+    result: dict[str, Any] = {"check": "protein_homology"}
 
     try:
         subprocess.run(["mmseqs", "version"], capture_output=True, timeout=10, check=False)
@@ -983,7 +932,19 @@ def metric_8_mmseqs2(
                 pidents = [h["pident"] for h in hits]
                 result["max_pident"] = max(pidents)
                 result["mean_pident"] = round(sum(pidents) / len(pidents), 2)
-                result["memorisation_flag"] = max(pidents) > 95.0
+                # NOTE: this is a PLAUSIBILITY signal (do the ORFs resemble known
+                # enzymes?), NOT a novelty/memorization signal. High identity to a
+                # *reference protein DB* is EXPECTED for a plausible novel BGC, since
+                # biosynthetic enzyme families are conserved. Anti-memorization is
+                # owned solely by kmer_novelty (k-mer containment vs the TRAINING set).
+                result["high_identity_to_known"] = max(pidents) > 95.0
+                n_queried = min(len(orfs), 20)  # only the first 20 ORFs are searched
+                hit_orfs = {h["query"] for h in hits}
+                result["homology_fraction"] = (
+                    round(len(hit_orfs) / n_queried, 3) if n_queried else 0.0
+                )
+                # Diagnostic (non-gating) verdict: do most ORFs look like real proteins?
+                result["pass"] = result["homology_fraction"] >= 0.5
         else:
             result["hits"] = []
 
@@ -1001,10 +962,12 @@ class EvalConfig:
     pfam_hmm_path: Optional[Path] = None
     mibig_gbk_dir: Optional[Path] = None
     mmseqs2_db: Optional[str] = None
+    antismash_db_dir: Optional[str] = None
     class_map: Optional[dict[str, str]] = None
     antismash_timeout: int = 600
-    skip_metrics: list[int] = field(default_factory=list)
-    # Metric 7: organism-compatibility references (see AUDIT_FINDINGS.md C4).
+    skip_checks: list[str] = field(default_factory=list)   # check NAMES to skip (see CHECKS)
+    run_protein_foldability: bool = False  # ESMFold: GPU-expensive, off by default (opt-in spot-check)
+    # taxon_faithfulness: organism-compatibility references (see docs/archive/AUDIT_FINDINGS.md C4).
     # `chassis_profile` is the wet-lab host (E. coli) used for the informational
     # expressibility sub-score. `taxon_profiles` maps a taxon key (e.g. a phylum
     # token like "P__ACTINOMYCETOTA") to the empirical profile used to grade
@@ -1012,7 +975,7 @@ class EvalConfig:
     # verdict (reported as no_verdict rather than a wrong-organism FAIL).
     chassis_profile: Optional["ReferenceProfile"] = field(default_factory=lambda: ECOLI_PROFILE)
     taxon_profiles: dict[str, "ReferenceProfile"] = field(default_factory=dict)
-    # Metric 9: nucleotide novelty / anti-memorization gate (audit C6/M13). A
+    # kmer_novelty: nucleotide novelty / anti-memorization gate (audit C6/M13). A
     # generated sequence whose max k-mer containment to the nearest reference BGC
     # is >= fail is treated as memorized (FAIL); >= warn is WARN. Calibrate these
     # from the (de-leaked) positive-control distribution — see memorization_check.py.
@@ -1065,6 +1028,181 @@ def load_taxon_profiles(path: Path) -> dict[str, ReferenceProfile]:
     return profiles
 
 
+def _dinuc_entropy(seq: str) -> float:
+    """Shannon entropy (bits) of the dinucleotide distribution. Real coding DNA is
+    near-maximal (~3.7-4.0); degenerate output (e.g. the greedy all-GC collapse
+    'GCGCGC...' or a homopolymer) collapses toward ~0-1 bit. Robust, length-stable
+    junk detector — unlike gene-completeness, it does NOT penalise a legitimate core
+    that is one big edge-truncated megasynthase gene."""
+    s = (seq or "").upper()
+    if len(s) < 2:
+        return 0.0
+    counts: Counter = Counter(s[i:i + 2] for i in range(len(s) - 1))
+    total = sum(counts.values())
+    ent = 0.0
+    for v in counts.values():
+        p = v / total
+        ent -= p * math.log2(p)
+    return ent
+
+
+def check_coding_sanity(sequence: str, min_aa: int = 50) -> dict[str, Any]:
+    """is_bgc FLOOR: is this real, gene-rich coding DNA (vs the degenerate collapse)?
+    From the Prodigal gene calls: coding density (union gene coverage), gene count,
+    sizes, complete-gene fraction; plus a dinucleotide-entropy COMPLEXITY guard. This
+    is a sanity floor — the authoritative "is it a BGC" verdict is antiSMASH detection
+    (see derive_questions); coding_sanity is the proxy floor when antiSMASH is skipped
+    (quick-eval / diagnostics) and catches the greedy all-GC / homopolymer collapse.
+
+    NOTE: it deliberately does NOT require a COMPLETE gene — a legitimate strict core
+    is often one big edge-truncated megasynthase (Prodigal flags it partial); the
+    complexity guard, not gene-completeness, is what rejects degenerate junk."""
+    res: dict[str, Any] = {"check": "coding_sanity"}
+    L = len(sequence or "")
+    if L == 0:
+        res.update({"pass": False, "coding_density": 0.0, "n_orfs": 0, "reason": "empty"})
+        return res
+    orfs = find_orfs(sequence, min_aa)
+    covered, ce = 0, -1                       # union of gene spans (avoid double-counting overlaps)
+    for s, e in sorted((o.start, o.end) for o in orfs):
+        if s > ce:
+            covered += e - s; ce = e
+        elif e > ce:
+            covered += e - ce; ce = e
+    aa = [len(o.aa_seq) for o in orfs]
+    complete = sum(1 for o in orfs if not o.partial)   # full genes (not edge-truncated)
+    coding_density = round(covered / L, 4)
+    max_aa = max(aa) if aa else 0
+    dinuc_entropy = round(_dinuc_entropy(sequence), 3)
+    res.update({
+        "coding_density": coding_density, "n_orfs": len(orfs),
+        "mean_orf_aa": round(sum(aa) / len(aa), 1) if aa else 0, "max_orf_aa": max_aa,
+        "complete_gene_fraction": round(complete / len(orfs), 3) if orfs else 0.0,
+        "dinuc_entropy": dinuc_entropy,
+        # gene-rich + a substantial gene + non-degenerate sequence complexity.
+        "pass": coding_density >= 0.5 and len(orfs) >= 1 and max_aa >= 100 and dinuc_entropy >= 2.5,
+    })
+    return res
+
+
+def _count_ordered_modules(types: list[str], pattern: list[str]) -> int:
+    """Greedy count of non-overlapping in-order occurrences of `pattern` within the
+    position-ordered `types` stream (other domains already filtered out)."""
+    count, pi = 0, 0
+    for t in types:
+        if t == pattern[pi]:
+            pi += 1
+            if pi == len(pattern):
+                count += 1; pi = 0
+    return count
+
+
+def check_module_architecture(m2: Optional[dict[str, Any]], expected_class: str) -> dict[str, Any]:
+    """DIAGNOSTIC (M11): from M2's positioned domain hits, order the obligate domains
+    along the sequence and count assembly-line MODULES + whether they are IN ORDER
+    (collinearity). Upgrades M2's binary presence check. Only applicable to module
+    classes (NRPS, PKS, PKS_NRPS_HYBRID); else no_verdict."""
+    res: dict[str, Any] = {"check": "module_architecture"}
+    if expected_class == "PKS_NRPS_HYBRID":
+        patterns = [("NRPS", MODULE_PATTERNS["NRPS"]), ("PKS", MODULE_PATTERNS["PKS"])]
+    elif expected_class in MODULE_PATTERNS:
+        patterns = [(expected_class, MODULE_PATTERNS[expected_class])]
+    else:
+        patterns = []
+    if not m2 or m2.get("skipped") or not patterns:
+        res.update({"applicable": False, "pass": None, "module_count": 0, "ordered_module_count": 0})
+        return res
+    orfs_meta = {o["i"]: o for o in (m2.get("orfs_meta") or [])}
+    relevant = {p for _, pat in patterns for p in pat}
+    stream = []
+    for d in (m2.get("domains_found") or []):
+        acc = d.get("pfam_accession")
+        if acc not in relevant:
+            continue
+        try:
+            oi = int(str(d.get("target", "")).split("_")[1])
+        except (IndexError, ValueError):
+            continue
+        om = orfs_meta.get(oi)
+        if not om:
+            continue
+        gpos = om["start"] + int(d.get("env_from", 0)) * 3   # approx nt position of the domain
+        stream.append((gpos, acc))
+    types = [acc for _, acc in sorted(stream)]
+    counts = Counter(types)
+    per, total_mod, total_ord = {}, 0, 0
+    for pname, pat in patterns:
+        module_count = min(counts.get(p, 0) for p in pat)    # modules' worth of each domain
+        ordered = _count_ordered_modules(types, pat)
+        per[pname] = {"module_count": module_count, "ordered_module_count": ordered}
+        total_mod += module_count; total_ord += ordered
+    res.update({
+        "applicable": True, "patterns": [p for p, _ in patterns], "per_pattern": per,
+        "module_count": total_mod, "ordered_module_count": total_ord,
+        "in_order_fraction": round(total_ord / total_mod, 3) if total_mod else None,
+        "pass": total_ord >= 1,    # diagnostic: at least one complete, correctly-ordered module
+    })
+    return res
+
+
+def _verdict_from_pass(r: Optional[dict[str, Any]]) -> str:
+    """Map a check result's ``pass`` field to PASS/FAIL/no_verdict/skipped."""
+    if not r or r.get("skipped"):
+        return "skipped"
+    p = r.get("pass")
+    if p is None:
+        return "no_verdict"
+    return "PASS" if p else "FAIL"
+
+
+def derive_questions(results: dict[str, Any]) -> dict[str, str]:
+    """Combine CHECK results into question-level verdicts (PASS/FAIL/no_verdict/
+    skipped). antiSMASH owns is_bgc + correct_class; class_markers is the fast
+    PROXY used when antiSMASH was skipped (e.g. quick-eval). See QUESTIONS."""
+    def g(name: str) -> dict[str, Any]:
+        return results.get(name) or {}
+    cs, asr, cm = g("coding_sanity"), g("antismash"), g("class_markers")
+    as_ran = bool(asr) and not asr.get("skipped")
+    cm_ran = bool(cm) and not cm.get("skipped")
+    q: dict[str, str] = {}
+
+    # is_bgc — antiSMASH detection is AUTHORITATIVE when it ran (the gold-standard BGC
+    # detector; a real cluster shouldn't fail on a coding-sanity technicality such as
+    # an edge-truncated megasynthase). Without antiSMASH, fall back to the coding_sanity
+    # floor + a domain-count proxy (quick-eval / diagnostics).
+    sane = cs.get("pass")
+    if as_ran and "detected" in asr:
+        q["is_bgc"] = "PASS" if asr["detected"] else "FAIL"
+    elif cm_ran:
+        detected = cm.get("domain_count", 0) > 0           # proxy: has biosynthetic domains
+        if cs and not cs.get("skipped"):
+            q["is_bgc"] = "PASS" if (detected and sane) else "FAIL"
+        else:
+            q["is_bgc"] = "PASS" if detected else "FAIL"
+    elif cs and not cs.get("skipped"):
+        q["is_bgc"] = "PASS" if sane else "FAIL"           # weak: coding floor only
+    else:
+        q["is_bgc"] = "skipped"
+
+    # correct_class = antiSMASH class match (class_markers proxy when AS skipped).
+    if as_ran and asr.get("class_match") is not None:
+        cls = asr["class_match"]
+    elif cm_ran:
+        cls = cm.get("pass")
+    else:
+        cls = None
+    q["correct_class"] = ("skipped" if (not as_ran and not cm_ran)
+                          else "no_verdict" if cls is None
+                          else "PASS" if cls else "FAIL")
+
+    # the remaining questions are one check → one verdict.
+    q["novel"] = _verdict_from_pass(g("kmer_novelty"))
+    q["proteins_plausible"] = _verdict_from_pass(g("protein_homology"))
+    q["complete"] = _verdict_from_pass(g("module_architecture"))
+    q["conditioning_faithful"] = _verdict_from_pass(g("taxon_faithfulness"))
+    return q
+
+
 def evaluate_bgc(
     sequence: str,
     accession: str = "query",
@@ -1073,21 +1211,20 @@ def evaluate_bgc(
     expected_taxon: str = "",
     novelty: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Run the evaluation metrics on a BGC sequence.
+    """Run the eval CHECKS on a BGC sequence and derive the QUESTION verdicts.
 
     ``expected_taxon`` is the taxon the sequence was conditioned on (a full
-    taxonomic_tag or a phylum token); it selects the Metric 7 faithfulness
-    reference from ``config.taxon_profiles``.
+    taxonomic_tag or a phylum token); it selects the taxon_faithfulness reference
+    from ``config.taxon_profiles``. ``novelty`` is the precomputed memorization-scan
+    result for THIS sequence (from memorization_check.scan_corpus), driving the
+    kmer_novelty check.
 
-    ``novelty`` is the precomputed memorization-scan result for THIS sequence
-    (from memorization_check.scan_corpus, computed in batch by the driver); it
-    drives Metric 9, the nucleotide novelty / anti-memorization gate (audit C6).
-
-    Returns a dict with top-level keys for each metric and a summary.
+    Returns a dict with one key per CHECK run, a per-check ``checks`` verdict map,
+    and a ``questions`` map (also aliased as ``summary``) — see CHECKS / QUESTIONS.
     """
     if config is None:
         config = EvalConfig()
-    skip = set(config.skip_metrics)
+    skip = set(config.skip_checks)
 
     results: dict[str, Any] = {
         "accession": accession,
@@ -1096,66 +1233,54 @@ def evaluate_bgc(
         "sequence_length": len(sequence),
     }
 
-    # Tier 1
-    if 1 not in skip:
-        results["metric_1"] = metric_1_antismash(
-            sequence, accession, expected_class, config.class_map, config.antismash_timeout,
+    # is_bgc + correct_class: antiSMASH (gold standard) + class_markers (Pfam proxy).
+    if "antismash" not in skip:
+        results["antismash"] = check_antismash(
+            sequence, accession, expected_class, config.class_map,
+            config.antismash_timeout, config.antismash_db_dir,
         )
-    if 2 not in skip:
-        results["metric_2"] = metric_2_domain_recovery(
+    if "class_markers" not in skip:
+        results["class_markers"] = check_class_markers(
             sequence, expected_class, config.pfam_hmm_path,
         )
-    if 3 not in skip:
-        results["metric_3"] = metric_3_esmfold(sequence)
-    if 4 not in skip:
-        results["metric_4"] = metric_4_synthesis_feasibility(sequence)
-
-    # Tier 2
-    if 5 not in skip:
-        results["metric_5"] = metric_5_evo2_perplexity(sequence)
-    if 6 not in skip:
-        results["metric_6"] = metric_6_bigscape(
-            sequence, accession, config.mibig_gbk_dir,
+    # is_bgc floor: gene-rich, complete coding DNA (catches degenerate output).
+    if "coding_sanity" not in skip:
+        results["coding_sanity"] = check_coding_sanity(sequence)
+    # proteins_plausible: homology to known enzymes.
+    if "protein_homology" not in skip:
+        results["protein_homology"] = check_protein_homology(
+            sequence, accession, config.mmseqs2_db,
         )
-    if 7 not in skip:
-        results["metric_7"] = metric_7_organism_compatibility(
+    # novel: anti-memorization k-mer novelty (a gate — memorized => FAIL).
+    if "kmer_novelty" not in skip:
+        results["kmer_novelty"] = check_kmer_novelty(
+            novelty, config.novelty_fail_threshold, config.novelty_warn_threshold,
+        )
+    # complete: module architecture, derived from class_markers domain positions.
+    if "module_architecture" not in skip:
+        results["module_architecture"] = check_module_architecture(
+            results.get("class_markers"), expected_class,
+        )
+    # conditioning_faithful: codon/GC vs the conditioned taxon (E. coli sub-score
+    # is informational only and does not gate).
+    if "taxon_faithfulness" not in skip:
+        results["taxon_faithfulness"] = check_taxon_faithfulness(
             sequence,
             taxon_profile=resolve_taxon_profile(expected_taxon, config.taxon_profiles),
             chassis_profile=config.chassis_profile,
         )
+    # OPTIONAL: ESMFold foldability — opt-in only (GPU-expensive).
+    if config.run_protein_foldability and "protein_foldability" not in skip:
+        results["protein_foldability"] = check_protein_foldability(sequence)
 
-    # Tier 3
-    if 8 not in skip:
-        results["metric_8"] = metric_8_mmseqs2(
-            sequence, accession, config.mmseqs2_db,
-        )
-
-    # Novelty / anti-memorization gate (audit C6/M13) — a first-class, gating
-    # metric in the scored summary so a memorized sequence FAILS the suite.
-    if 9 not in skip:
-        results["metric_9"] = metric_9_novelty(
-            novelty, config.novelty_fail_threshold, config.novelty_warn_threshold,
-        )
-
-    # Summary
-    summary: dict[str, Any] = {}
-    for i in range(1, 10):
-        key = f"metric_{i}"
-        if i in skip:
-            summary[key] = "skipped"
-        elif key not in results:
-            summary[key] = "skipped"
-        else:
-            m = results[key]
-            if m.get("skipped"):
-                summary[key] = "skipped"
-            elif "pass" in m:
-                if m["pass"] is None:
-                    summary[key] = "no_verdict"
-                else:
-                    summary[key] = "PASS" if m["pass"] else "FAIL"
-            else:
-                summary[key] = "no_verdict"
-    results["summary"] = summary
-
+    # per-check verdicts + derived per-question verdicts.
+    checks_summary: dict[str, str] = {}
+    for name in CHECKS + OPTIONAL_CHECKS:
+        if name in skip:
+            checks_summary[name] = "skipped"
+        elif name in results:
+            checks_summary[name] = _verdict_from_pass(results[name])
+    results["checks"] = checks_summary
+    results["questions"] = derive_questions(results)
+    results["summary"] = results["questions"]   # alias: the headline/accept source
     return results

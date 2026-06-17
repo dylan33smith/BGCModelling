@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Run the 8-metric evaluation suite on BGC sequences.
+"""Run the eval suite (named CHECKS → QUESTIONS) on BGC sequences.
 
-Accepts input as JSONL (from mibig_to_jsonl.py) or FASTA. Runs all metrics
-that have their dependencies installed; gracefully skips the rest.
+Accepts input as JSONL (from mibig_to_jsonl.py) or FASTA. Runs every check whose
+dependencies are installed; gracefully skips the rest. See evaluation.py for the
+CHECKS / QUESTIONS the suite reports.
 
 Usage examples:
-    # Evaluate 3 MIBiG positive controls (metrics 2, 4, 7 only — fast)
+    # Fast local run (skip the DB-bound / slow checks)
     python scripts/evaluate_bgc.py \\
         --jsonl data/processed/splits/test.jsonl \\
         --max-sequences 3 \\
-        --skip-metrics 1 3 5 6 8
+        --skip-checks antismash protein_homology kmer_novelty
 
     # Full evaluation on a generated sequence
     python scripts/evaluate_bgc.py \\
@@ -22,7 +23,7 @@ Usage examples:
         --jsonl data/processed/splits/test.jsonl \\
         --max-sequences 5 \\
         --include-negative-control \\
-        --skip-metrics 1 3 5 6 8
+        --skip-checks protein_homology kmer_novelty
 """
 
 from __future__ import annotations
@@ -93,11 +94,10 @@ def main() -> None:
     )
     parser.add_argument("--mmseqs2-db", type=str, default=None, help="Path to MMseqs2 UniRef50 DB")
     parser.add_argument(
-        "--skip-metrics",
-        type=int,
+        "--skip-checks",
         nargs="*",
         default=[],
-        help="Metric numbers to skip (e.g. 1 3 5 6 8 9 for fast local run)",
+        help="Check NAMES to skip (e.g. antismash protein_homology kmer_novelty).",
     )
     parser.add_argument(
         "--include-negative-control",
@@ -123,7 +123,7 @@ def main() -> None:
         sys.exit(1)
 
     print(
-        f"Evaluating {len(records)} sequences (skip metrics: {args.skip_metrics or 'none'})",
+        f"Evaluating {len(records)} sequences (skip checks: {args.skip_checks or 'none'})",
         file=sys.stderr,
     )
 
@@ -141,7 +141,7 @@ def main() -> None:
         mibig_gbk_dir=args.mibig_gbk_dir if args.mibig_gbk_dir.is_dir() else None,
         mmseqs2_db=args.mmseqs2_db,
         class_map=class_map,
-        skip_metrics=args.skip_metrics or [],
+        skip_checks=args.skip_checks or [],
     )
 
     rng = random.Random(args.seed)
@@ -172,26 +172,22 @@ def main() -> None:
     else:
         print(output)
 
-    # Print summary table
-    print("\n" + "=" * 80, file=sys.stderr)
-    print(f"{'Accession':<20} {'Control':<12} " + " ".join(f"M{i}" for i in range(1, 9)), file=sys.stderr)
-    print("-" * 80, file=sys.stderr)
+    # Print summary table (one column per QUESTION)
+    from bgc_pipeline.evaluation import QUESTIONS
+    qkeys = list(QUESTIONS.keys())
+    glyph = {"PASS": "✓", "FAIL": "✗", "skipped": "-", "no_verdict": "?"}
+    abbr = {"is_bgc": "bgc", "correct_class": "cls", "novel": "nov",
+            "proteins_plausible": "prot", "complete": "cmpl", "conditioning_faithful": "tax"}
+    print("\n" + "=" * 90, file=sys.stderr)
+    print(f"{'Accession':<20} {'Control':<12} "
+          + " ".join(f"{abbr.get(q, q):>5}" for q in qkeys), file=sys.stderr)
+    print("-" * 90, file=sys.stderr)
     for r in all_results:
         acc = r["accession"][:19]
         ctrl = r.get("control", "?")[:11]
-        metrics = []
-        for m in range(1, 9):
-            v = r.get("summary", {}).get(f"metric_{m}", "—")
-            if v == "PASS":
-                metrics.append(" ✓")
-            elif v == "FAIL":
-                metrics.append(" ✗")
-            elif v == "skipped":
-                metrics.append(" -")
-            else:
-                metrics.append(" ?")
-        print(f"{acc:<20} {ctrl:<12} {'  '.join(metrics)}", file=sys.stderr)
-    print("=" * 80, file=sys.stderr)
+        cells = [f"{glyph.get(r.get('questions', {}).get(q, '—'), '—'):>5}" for q in qkeys]
+        print(f"{acc:<20} {ctrl:<12} {' '.join(cells)}", file=sys.stderr)
+    print("=" * 90, file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ reference profile per taxon. This script derives those profiles empirically from
 real BGC training sequences, grouped by phylum token (e.g. P__ACTINOMYCETOTA),
 and writes them as JSON consumable by ``evaluation.load_taxon_profiles``.
 
-See AUDIT_FINDINGS.md C4. Memory-safe: single streaming pass with incremental
+See docs/archive/AUDIT_FINDINGS.md C4. Memory-safe: single streaming pass with incremental
 per-phylum accumulators (sequences are never all held in RAM).
 
 Example:

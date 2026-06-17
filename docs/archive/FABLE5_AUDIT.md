@@ -4,6 +4,14 @@
 
 **Goal under audit:** fine-tune Evo2 7B (LoRA) to generate synthesis-ready, class+taxonomy-conditioned BGCs that are correctly-classified, domain-complete, **NOVEL**, synthesizable, and wet-lab validatable.
 
+> **SUPERSEDED (2026-06-17) — point-in-time audit record; do not read as current.**
+> The eval suite has since been rewritten to named **CHECKS → QUESTIONS** scoped to
+> is-it-a-BGC / correct-class / plausible-proteins / NOVEL / complete (the wet-lab axes —
+> synthesizability, E. coli expressibility — were pruned). antiSMASH is now the
+> recalibrated `is_bgc`/`correct_class` gate (~0.97 on real cores); pyrodigal replaced
+> the six-frame ORF finder; the active dataset is `splits_core`. See
+> [`REDESIGN_PLAN.md`](REDESIGN_PLAN.md) and `src/bgc_pipeline/evaluation.py`.
+
 ---
 
 ## Verdict

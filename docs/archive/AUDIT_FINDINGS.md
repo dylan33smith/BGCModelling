@@ -1,5 +1,14 @@
 # BCGModelling Evo2 Fine-Tuning — Adversarial Deep-Dive Audit
 
+> **SUPERSEDED (2026-06-17) — point-in-time audit record; do not read as current.**
+> The eval suite has since been rewritten from the `metric_1..metric_11` numbering to
+> named **CHECKS → QUESTIONS** (antiSMASH is now the recalibrated `is_bgc`/`correct_class`
+> gate at ~0.97 on real cores; pyrodigal replaced the six-frame ORF finder;
+> synthesizability / Evo2-perplexity / BiG-SCAPE were retired; E. coli expressibility
+> pruned from gating). The active dataset is `splits_core` (strict antiSMASH cores, MiBIG
+> held out). For the current state see [`REDESIGN_PLAN.md`](REDESIGN_PLAN.md),
+> [`EVAL_RUNBOOK.md`](EVAL_RUNBOOK.md), and `src/bgc_pipeline/evaluation.py`.
+
 ## Deferred / Future Work (decisions)
 
 - **2026-06-08 — DEFERRED: near-duplicate leakage (FABLE5 C2/C7).** Splits are

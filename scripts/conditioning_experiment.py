@@ -145,7 +145,7 @@ def _run(plan: list[dict], adapter: Path, classes: list[str], args) -> list[dict
     import generate_bgc as G
     from evo2_inference import load_evo2_wrapper_for_inference, sequence_loglik
     from bgc_pipeline.evaluation import (
-        metric_7_organism_compatibility, load_taxon_profiles, resolve_taxon_profile,
+        check_taxon_faithfulness, load_taxon_profiles, resolve_taxon_profile,
         ECOLI_PROFILE,
     )
     taxon_profiles = (load_taxon_profiles(args.taxon_profiles)
@@ -178,8 +178,8 @@ def _run(plan: list[dict], adapter: Path, classes: list[str], args) -> list[dict
                     if lp > best_lp:
                         best_lp, best_c = lp, c
             rec["recovered_class"] = best_c
-        else:  # taxon control -> metric 7 (GC + CAI vs E. coli)
-            m7 = metric_7_organism_compatibility(
+        else:  # taxon control -> taxon_faithfulness (GC + CAI vs E. coli)
+            m7 = check_taxon_faithfulness(
                 seq, taxon_profile=resolve_taxon_profile(req["taxon"], taxon_profiles),
                 chassis_profile=ECOLI_PROFILE)
             ce = m7.get("chassis_expressibility", {})

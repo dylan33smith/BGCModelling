@@ -3,6 +3,15 @@
 *Generated 2026-05-27. Intended as a comprehensive onboarding and audit
 reference for anyone joining or resuming work on this project.*
 
+> **SUPERSEDED (2026-06-17) — point-in-time snapshot; do not read as current.**
+> Since this was written, the eval suite was rewritten to named **CHECKS → QUESTIONS**
+> (antiSMASH is the recalibrated `is_bgc`/`correct_class` gate; pyrodigal replaced the
+> six-frame ORF finder; synthesizability / perplexity / BiG-SCAPE retired) and the
+> active dataset moved to `splits_core` (strict antiSMASH cores, native GTDB tags,
+> MiBIG held out). Current sources of truth: [`REDESIGN_PLAN.md`](REDESIGN_PLAN.md),
+> [`docs/gputee/PROJECT_GUIDE.md`](docs/gputee/PROJECT_GUIDE.md), and
+> `src/bgc_pipeline/evaluation.py`.
+
 ---
 
 ## 1  Project Objective

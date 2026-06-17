@@ -1,43 +1,232 @@
 # BCGModelling
 
-Fine-tune Evo2 7B to generate synthesis-ready biosynthetic gene cluster (BGC)
-nucleotide sequences conditioned on biosynthetic **class** and taxonomic **lineage**
-(**Phase 1**); **Phase 2+** adds explicit **compound** conditioning for named-product design.
+Fine-tune **Evo2 7B** (LoRA) to generate novel, correctly-classified **biosynthetic
+gene cluster (BGC)** nucleotide sequences conditioned on biosynthetic **class** and
+taxonomic **lineage** (**Phase 1**). **Phase 2+** adds explicit **compound**
+conditioning for named-product design.
 
-## Documentation
+This README is the single current-state entry point. Deep operational runbooks and
+dated audit records are preserved under [`docs/archive/`](docs/archive/); ongoing
+working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
-The project docs are versioned per host, because hardware-specific guidance
-(GPU count, memory budgets, launch commands) varies by server:
+---
 
-- `docs/gputee/` — **active** docs for the current host (1× NVIDIA H100 PCIe, 80 GB).
-  Start here.
-- `docs/trojai/` — archived docs for the previous host (4× NVIDIA A40, 48 GB each).
-  Kept unchanged for historical reference.
+## Current status (snapshot)
 
-Within each folder:
+- **v2 LoRA training in progress** on `gputee` (1× H100 80 GB), tmux `bgc_v2`, run dir
+  `/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768`, context
+  `L=32768`. First checkpoint at step 50.
+- **Eval suite rewritten** from first principles to named **checks → questions** with
+  antiSMASH as the recalibrated `is_bgc`/`correct_class` gate (≈0.97 on real cores).
+- The live, detailed state is in **[`docs/project_memory/progress.md`](docs/project_memory/progress.md)**
+  — read that first when resuming work.
 
-- `PROJECT_GUIDE.md` — single source of truth for the pipeline (data, scripts, metrics, status).
-- `FINETUNE_GUIDE.md` — Evo2 7B fine-tuning: hardware, hyperparameters, logging, checkpointing.
-- `BGC_Research_Plan.md` — full research plan.
-- `README.md` — short local entry point.
+---
 
-`docs/gputee/MIGRATION_CHANGELOG.md` records every change made when porting
-the project from trojai to gputee and why.
+## Project memory protocol
+
+Working knowledge is split into modular files under `docs/project_memory/`:
+
+| File | Contents |
+|------|----------|
+| [`progress.md`](docs/project_memory/progress.md) | Exact state of the research when last stepped away + next actions. |
+| [`decisions.md`](docs/project_memory/decisions.md) | Architecture/approach decisions and **why** (LoRA, strict cores, eval design, …). |
+| [`bugs.md`](docs/project_memory/bugs.md) | Quirks, recurring errors, and the proven fixes. |
+
+See the **Memory Protocol** section in [`CLAUDE.md`](CLAUDE.md): read `progress.md`
+before starting a task; update these files after solving a major bug or making a
+structural decision.
+
+---
+
+## Repository layout
+
+```
+src/bgc_pipeline/evaluation.py   # the eval suite (CHECKS → QUESTIONS); see Evaluation
+src/bgc_pipeline/class_map.py    # load the antiSMASH-product → compound-class map
+scripts/finetune_evo2_lora.py    # training implementation (LoRA on Evo2 7B)
+scripts/queue_h100_production.sh # idle-GPU-gated production launcher (ckpt + auto-resume)
+scripts/queue_h100_smoke.sh      # shared-GPU-safe memory smoke matrix
+scripts/generate_bgc.py          # conditioned generation (sequential; batched gated off)
+scripts/run_eval.sh              # full evaluation after training
+scripts/quick_eval.sh            # fast per-checkpoint functional score
+scripts/eval_suite_driver.py     # batch eval: gen vs positive control, --skip-checks
+scripts/build_class_map.py       # regenerate config/compound_class_map.yaml (antiSMASH 8)
+scripts/build_core_records.py    # extract strict cores from antiSMASH-DB GBKs
+scripts/{split_dataset_grouped,curate_dataset,dedup_core_splits,exclude_mibig_from_core}.py
+scripts/{derive_class_markers,validate_m2_calibration}.py        # class-marker calibration
+scripts/{calibrate_antismash,validate_antismash_calibration}.py  # antiSMASH calibration
+config/compound_class_map.yaml   # antiSMASH/MIBiG product → our 22-class vocabulary
+tests/                           # GPU-free unit tests (run tests/run_all.py)
+docs/project_memory/             # decisions / bugs / progress (working memory)
+docs/archive/                    # archived runbooks, plans, and dated audits
+```
+
+---
+
+## Model & training stack
+
+- **Base model:** Evo2 7B (`arcinstitute/evo2_7b_262k`), StripedHyena-2 hybrid
+  (27 Hyena ops + 5 attention layers), byte-level `CharLevelTokenizer`, 262k context.
+- **Strategy:** LoRA adapters (r=16, α=32, ~28.7M trainable ≈ 0.44%), targeting
+  `Wqkv / out_proj / out_filter_dense / l1 / l2 / l3`. Embedding + LM head **frozen**.
+- **Orchestration:** DeepSpeed (ZeRO-2) + PEFT + PyTorch, bf16.
+- **Conditioning prefix:** `|COMPOUND_CLASS:{class}|{native lowercase GTDB tag}` then the
+  nucleotide sequence. Loss is **masked over the prefix** (only the BGC half trains).
+- **Host:** `gputee`, a single NVIDIA H100 PCIe (80 GB). Data / runs / HF cache live on
+  `/data2` (home is near-full).
+
+---
+
+## Data
+
+**Active dataset (v2):** `/data2/ds85/bgcmodel_data/splits_core/{train,val,test}.jsonl`
+
+- **train 47,524 / val 8,048 / test 18,871**, 22 compound classes.
+- Sequences are **strict antiSMASH core regions** — the contiguous span of
+  `gene_kind="biosynthetic"` CDS, re-extracted from re-acquired antiSMASH-DB (asdb5)
+  whole-genome GBKs (median ~3 kb, ~88% single-window).
+- **Native lowercase GTDB** taxonomy tags (e.g.
+  `|d__Bacteria;p__Pseudomonadota;…;s__Escherichia coli|`) — the old UPPERCASE_underscore
+  tags were out-of-distribution for Evo2.
+- **Leakage-clean:** genome-disjoint split (`split_dataset_grouped.py`) + exact-md5 +
+  cross-split MMseqs2 near-dup removal (`dedup_core_splits.py`).
+- **MiBIG held out** (`exclude_mibig_from_core.py`): near-dups of the 2,636 MiBIG BGCs
+  removed from training, reserved for a possible **Phase-2 compound-conditioned** FT.
+
+Build pipeline: `build_core_records.py` → materialize strict cores →
+`split_dataset_grouped.py` → `curate_dataset.py` → `dedup_core_splits.py` →
+`exclude_mibig_from_core.py`.
+
+**Deprecated (do not use):** `splits_curated/` (~18K), `splits_combined_grouped/`,
+`splits_dedup/`, and `data/processed/splits_combined/` (leaky — 94.6% genome overlap).
+
+---
+
+## Training
+
+```bash
+cd ~/projects/BCGModelling
+micromamba activate bgcmodel
+export HF_HOME=/data2/ds85/hf_cache
+```
+
+**Production launch** (idle-GPU-gated; persistent tmux; checkpoints + auto-resume):
+
+```bash
+scripts/queue_h100_production.sh          # waits for a free GPU, then trains
+```
+
+Key constraints (H100 80 GB, `L=32768`):
+
+- The only micro-batch shape that fits is **`--batch-size 1 --grad-accum 128`**
+  (effective batch 128; `bs=4 ga=32` OOMs). LoRA hyperparameters remain valid.
+- **Block-level activation checkpointing** is default-on (`--no-activation-checkpointing`
+  to opt out). No-checkpoint is not viable above short contexts.
+- Memory ceiling: `L=32768` passes with margin; `L=65536` is near-limit; `L=98304` OOMs.
+- Production uses `--long-seq-strategy chunk --chunk-overlap 2048` (deterministic tiling,
+  full nucleotide coverage); pre-build length sidecars with `scripts/build_chunk_index.py`.
+- Validation: first-window-only (prefix-aligned) loss, length-stratified, with early stopping.
+
+**Smoke / memory matrix** (shared-GPU-safe):
+
+```bash
+scripts/queue_h100_smoke.sh                          # default lengths
+scripts/queue_h100_smoke.sh --lengths "49152 65536 98304"   # long-context probe
+```
+
+---
+
+## Evaluation
+
+The suite (in `src/bgc_pipeline/evaluation.py`) has two layers: **CHECKS** (compute
+units, all sharing one gene caller — **pyrodigal/Prodigal**) combined into **QUESTIONS**
+(what we actually want to know). GATE questions decide accept/reject; diagnostics inform.
+
+| Question | Derived from | Gate? |
+|----------|--------------|-------|
+| `is_bgc` | `coding_sanity` ∧ `antismash.detected` (class_markers proxy) | ✅ |
+| `correct_class` | `antismash.class_match` (class_markers proxy) | ✅ |
+| `novel` | `kmer_novelty` (anti-memorization vs training) | ✅ |
+| `proteins_plausible` | `protein_homology` (MMseqs2 vs known enzymes) | diag |
+| `complete` | `module_architecture` (ordered NRPS/PKS modules) | diag |
+| `conditioning_faithful` | `taxon_faithfulness` (codon/GC vs conditioned taxon) | diag |
+
+- **antiSMASH is the gold-standard `is_bgc`/`correct_class` detector** (≈3 s/core),
+  **recalibrated 0.15 → ≈0.97** on real held-out cores by completing the antiSMASH
+  product→class map (`scripts/build_class_map.py` → `config/compound_class_map.yaml`,
+  covering all 103 antiSMASH 8 products). `class_markers` (data-driven per-class Pfam
+  markers, ANY-marker = right class, ≈0.87 on real cores) is the fast **proxy** when
+  antiSMASH is skipped.
+- **Gene caller:** pyrodigal (Prodigal) everywhere — replaced the legacy six-frame ORF
+  finder, which fragmented megasynthases.
+- **Retired:** synthesis feasibility, Evo2 perplexity, BiG-SCAPE. E. coli expressibility
+  is pruned from gating (the wet-lab axes are out of scope).
+- Headline tiers: `generates_bgc` → `correct_class` → `biological_valid` (both) →
+  **accept** (+ `novel`).
+
+**Run it:**
+
+```bash
+# Fast per-checkpoint functional score (runs the cheap checks incl. antiSMASH;
+# skips protein_homology + kmer_novelty). Appends a row to eval_track.jsonl.
+scripts/quick_eval.sh <run-dir-or-checkpoint-dir> [out-dir]
+
+# Full evaluation after training (generation → novelty → conditioning → suite).
+scripts/run_eval.sh <run-dir-or-checkpoint-dir> [out-dir]
+
+# Direct driver (named checks; skip by name):
+python scripts/eval_suite_driver.py --gen gen.jsonl --positive pos.jsonl \
+  --pfam-hmm /data2/ds85/pfam/Pfam-A.hmm --antismash-db /data2/ds85/antismash_db \
+  --skip-checks protein_homology kmer_novelty --output eval.json
+```
+
+Calibration validators: `scripts/validate_antismash_calibration.py` (is_bgc/correct_class)
+and `scripts/validate_m2_calibration.py` (class_markers).
+
+---
 
 ## Environment recreation
 
-- `environment.yml` — full lock-style export (conda).
-- `environment.min.yml` — portable spec from conda history.
-
 ```bash
-conda env create -f environment.yml
-# or, if conda is not installed (e.g. on gputee):
-micromamba create -n bgcmodel -f environment.yml
+micromamba create -n bgcmodel -f environment.yml   # gputee has micromamba, not conda
+micromamba activate bgcmodel
 ```
 
-> **Heads up:** `environment.yml` alone does not produce a working env on a
-> fresh create. The pip step fails on `flash-attn` (it `import torch`s at
-> build time before torch is installed). The conda side does finish
-> cleanly. See `docs/gputee/FINETUNE_GUIDE.md` §2 for the working
-> install sequence on gputee, and `docs/gputee/PROJECT_GUIDE.md` §3
-> for the broader environment-setup context.
+> **`environment.yml` alone does not produce a working env on a fresh create.** The pip
+> step crashes on `flash-attn` (its `setup.py` runs `import torch` before torch is
+> installed). The conda side finishes cleanly. Working sequence: install torch first,
+> then a prebuilt flash-attn wheel, re-run `env update`, then deepspeed/peft/wandb.
+> See `docs/archive/gputee/FINETUNE_GUIDE.md §2`. `requirements.txt` lists the Python
+> deps (incl. `pyrodigal>=3`, `pyhmmer`, `biopython`).
+
+On conda hosts: `conda env create -f environment.yml` (same caveat).
+
+---
+
+## Known gotchas
+
+- **vortex generation de-batches mixed-length prompts** (silently). Left-padding to
+  equalize lengths perturbs StripedHyena and fails an on-GPU equivalence gate, so
+  `generate_bgc.py` defaults to **sequential** generation.
+- **Evo2 `eos_id = 0` is the null byte** — unusable as a stop token; generation runs the
+  full `n_tokens`.
+- `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reports **unsupported** here; not an
+  OOM fix.
+- NCCL "process group not destroyed" on shutdown is expected for short smoke runs.
+- Shared-host GPU contention can invalidate memory measurements — use the queued,
+  idle-gated runs.
+
+More quirks + fixes: [`docs/project_memory/bugs.md`](docs/project_memory/bugs.md).
+
+---
+
+## Archived documentation
+
+Detailed, host-specific, and historical docs live in [`docs/archive/`](docs/archive/):
+the `gputee/` runbooks (`FINETUNE_GUIDE`, `PROJECT_GUIDE`, `BGC_Research_Plan`,
+`MIGRATION_CHANGELOG`), the `trojai/` (old A40 host) snapshot, `EVAL_RUNBOOK.md`,
+`REDESIGN_PLAN.md` (the eval-rewrite record), the dated audits (`AUDIT_FINDINGS.md`,
+`STATE_AND_AUDIT.md`, `FABLE5_AUDIT.md`), and the TPU grant materials. They are kept
+for reference but are **not** maintained as current — this README + `docs/project_memory/`
+are the source of truth.

@@ -49,6 +49,18 @@ CLASS_PREFIX_FMT = "|COMPOUND_CLASS:{cls}|{tax}"
 CONT_PREFIX_FMT = "|CONTINUATION:{cls}|{tax}"
 _NUC_RE = re.compile(r"[ACGTN]*")
 
+# Left-pad byte for BATCHED generation. vortex only batches prompts of EQUAL
+# length — otherwise it SILENTLY de-batches and loops one-at-a-time
+# (vortex/model/generation.py:312) — and when it does batch it RIGHT-pads with
+# no attention mask, which is wrong for causal generation. We therefore LEFT-pad
+# the prompts to a uniform length ourselves so (a) vortex actually batches and
+# (b) each real prompt stays adjacent to its own generation (vortex's internal
+# right-pad then becomes a no-op). The left pad uses the tokenizer's pad byte
+# (space ≈ pad_id 0). Whether the leading pad perturbs outputs vs. unpadded
+# single-prompt generation is NOT assumed safe — it is verified on-GPU by
+# scripts/validate_batched_generation.py before the batched path is trusted.
+LEFT_PAD_CHAR = " "
+
 
 # ── Pure-logic helpers (no torch; unit-tested) ──────────────────────────────
 
@@ -105,6 +117,57 @@ def sample_prompts(records: list[dict], per_class: int, rng: random.Random) -> l
     return prompts
 
 
+def left_pad_to_uniform(prefixes: list[str], pad: str = LEFT_PAD_CHAR) -> list[str]:
+    """Left-pad every prefix with ``pad`` so all share the longest length.
+
+    Required for vortex batched generation: it only batches prompts of EQUAL
+    length (else silently de-batches). Left-padding (rather than vortex's
+    internal right-pad) keeps each real prompt's final token adjacent to where
+    generation begins, which is the causally-correct placement. Each returned
+    string ENDS with its original prefix (so the conditioning is preserved); a
+    single prefix (or already-uniform prefixes) is returned unchanged.
+    """
+    if not prefixes:
+        return []
+    width = max(len(p) for p in prefixes)
+    return [pad * (width - len(p)) + p for p in prefixes]
+
+
+def assemble_record(cls: str, tax: str, sequence: str, hit_eos: bool,
+                    windows: int, args: Any) -> dict:
+    """Build the per-record output dict. SINGLE source of truth shared by the
+    sequential (``generate_one``) and batched (``generate_batch``) paths so both
+    emit a byte-identical schema downstream (eval_suite_driver / quick_eval /
+    FASTA all key off these fields)."""
+    nfrac = n_fraction(sequence)
+    return {
+        "compound_class": cls,
+        "taxonomic_tag": tax,
+        "sequence": sequence,
+        "length": len(sequence),
+        "hit_eos": hit_eos,
+        "windows": windows,
+        "n_count": sequence.upper().count("N"),
+        "n_fraction": round(nfrac, 5),
+        "n_pass": nfrac <= args.max_n_frac,
+        "decoding": {"temperature": args.temperature, "top_k": args.top_k,
+                     "top_p": args.top_p, "max_new_tokens": args.max_new_tokens},
+    }
+
+
+def should_batch(args: Any) -> bool:
+    """Batched generation applies only for single-window generation. Chained
+    long-seq generation (``--max-windows>1``) carries a per-sequence overlap
+    seed, so it cannot share one batched call; fall back to sequential there."""
+    if args.batch_size == 1:
+        return False
+    if args.max_windows > 1:
+        print("WARNING: --batch-size>1 is not supported with --max-windows>1; "
+              "using sequential generation.", file=sys.stderr)
+        return False
+    return True
+
+
 # ── Generation (GPU; lazy heavy imports) ────────────────────────────────────
 
 def _gen_sequences(out: Any) -> list[str]:
@@ -144,20 +207,37 @@ def generate_one(wrapper: Any, cls: str, tax: str, args) -> dict:
         hit_eos = cont["hit_eos"]
         windows += 1
 
-    nfrac = n_fraction(full)
-    return {
-        "compound_class": cls,
-        "taxonomic_tag": tax,
-        "sequence": full,
-        "length": len(full),
-        "hit_eos": hit_eos,
-        "windows": windows,
-        "n_count": full.upper().count("N"),
-        "n_fraction": round(nfrac, 5),
-        "n_pass": nfrac <= args.max_n_frac,
-        "decoding": {"temperature": args.temperature, "top_k": args.top_k,
-                     "top_p": args.top_p, "max_new_tokens": args.max_new_tokens},
-    }
+    return assemble_record(cls, tax, full, hit_eos, windows, args)
+
+
+def generate_batch(wrapper: Any, prompts: list[dict], args) -> list[dict]:
+    """Generate one conditioned BGC for EACH prompt in a single batched call.
+
+    Single-window only (``should_batch`` guards chaining). All prefixes are
+    left-padded to a uniform length so vortex batches them; the returned strings
+    are generation-only (vortex strips the prompt), so each is fed straight to
+    ``extract_sequence``. Output order matches the input ``prompts`` order, and
+    records are byte-identical in schema to ``generate_one``.
+    """
+    prefixes = [build_prefix(p["compound_class"], p["taxonomic_tag"]) for p in prompts]
+    padded = left_pad_to_uniform(prefixes)
+    out = wrapper.generate(
+        prompt_seqs=padded, n_tokens=args.max_new_tokens,
+        temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
+        batched=True, cached_generation=True, verbose=0,
+    )
+    gens = _gen_sequences(out)
+    if len(gens) != len(prompts):
+        raise RuntimeError(
+            f"batched generate returned {len(gens)} sequences for {len(prompts)} "
+            "prompts — batch alignment broken; refusing to mislabel records.")
+    records = []
+    for p, g in zip(prompts, gens):
+        info = extract_sequence(g)
+        records.append(assemble_record(
+            p["compound_class"], p["taxonomic_tag"],
+            info["sequence"], info["hit_eos"], 1, args))
+    return records
 
 
 def main() -> None:
@@ -184,6 +264,13 @@ def main() -> None:
                     help=">1 enables chained generation for BGCs longer than one window.")
     ap.add_argument("--chunk-overlap", type=int, default=2048,
                     help="Overlap (nt) carried as context into each chained window.")
+    ap.add_argument("--batch-size", type=int, default=1,
+                    help="Sequences generated per batched call. 1 (default) = "
+                         "sequential, one prompt at a time (unchanged behavior). "
+                         ">1 left-pads prompts to uniform length and generates "
+                         "that many at once; 0 = all in one batch. Single-window "
+                         "only (ignored with --max-windows>1). Verify equivalence "
+                         "with scripts/validate_batched_generation.py first.")
     ap.add_argument("--max-n-frac", type=float, default=0.01,
                     help="Max fraction of N for a sequence to be flagged n_pass=true.")
     ap.add_argument("--device", default="cuda")
@@ -223,22 +310,39 @@ def main() -> None:
     wrapper = load_evo2_wrapper_for_inference(args.adapter, device=args.device)
 
     args.out_fasta.parent.mkdir(parents=True, exist_ok=True)
+    # Flatten (prompt, sample) into instances; the id scheme gen_{pi:04d}_{si} and
+    # iteration order are preserved identically by both the sequential and the
+    # batched paths (consumers key records by this id).
+    instances = [(pi, si, p) for pi, p in enumerate(prompts) for si in range(args.n)]
     n_done = n_eos = 0
+
+    def _write(sid: str, rec: dict, fa, jl) -> None:
+        nonlocal n_done, n_eos
+        rec["id"] = sid
+        jl.write(json.dumps(rec) + "\n")
+        fa.write(to_fasta_record(
+            sid, rec["sequence"], compound_class=rec["compound_class"],
+            length=rec["length"], eos=rec["hit_eos"], windows=rec["windows"]))
+        n_done += 1
+        n_eos += int(rec["hit_eos"])
+        if n_done % 10 == 0:
+            print(f"  {n_done}/{total} generated ({n_eos} hit EOS)",
+                  file=sys.stderr, flush=True)
+
     with args.out_fasta.open("w") as fa, args.out_jsonl.open("w") as jl:
-        for pi, p in enumerate(prompts):
-            for si in range(args.n):
+        if should_batch(args):
+            chunk = len(instances) if args.batch_size <= 0 else args.batch_size
+            print(f"Batched generation: batch_size={chunk} "
+                  f"({len(instances)} sequences, single window).", file=sys.stderr)
+            for start in range(0, len(instances), chunk):
+                group = instances[start:start + chunk]
+                recs = generate_batch(wrapper, [g[2] for g in group], args)
+                for (pi, si, _), rec in zip(group, recs):
+                    _write(f"gen_{pi:04d}_{si}", rec, fa, jl)
+        else:
+            for pi, si, p in instances:
                 rec = generate_one(wrapper, p["compound_class"], p["taxonomic_tag"], args)
-                sid = f"gen_{pi:04d}_{si}"
-                rec["id"] = sid
-                jl.write(json.dumps(rec) + "\n")
-                fa.write(to_fasta_record(
-                    sid, rec["sequence"], compound_class=rec["compound_class"],
-                    length=rec["length"], eos=rec["hit_eos"], windows=rec["windows"]))
-                n_done += 1
-                n_eos += int(rec["hit_eos"])
-                if n_done % 10 == 0:
-                    print(f"  {n_done}/{total} generated ({n_eos} hit EOS)",
-                          file=sys.stderr, flush=True)
+                _write(f"gen_{pi:04d}_{si}", rec, fa, jl)
 
     print(f"\nDone: {n_done} sequences ({n_eos} terminated with EOS).", file=sys.stderr)
     print(f"  FASTA: {args.out_fasta}\n  JSONL: {args.out_jsonl}", file=sys.stderr)

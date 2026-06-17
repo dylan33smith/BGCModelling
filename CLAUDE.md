@@ -7,8 +7,28 @@ correctly without repeated setup explanations.
 
 - Keep edits aligned with this repo's actual workflow and constraints.
 - Prioritize reproducible, documented decisions over speculative refactors.
-- Treat `docs/gputee/FINETUNE_GUIDE.md` and `docs/gputee/PROJECT_GUIDE.md`
-  as the primary project-memory sources for ongoing model-training work.
+- Treat `README.md` (consolidated current state) and `docs/project_memory/`
+  (decisions / bugs / progress) as the primary project-memory sources. Deep
+  runbooks and dated audits are archived under `docs/archive/`.
+
+## Memory Protocol (READ / WRITE — required)
+
+Working memory lives in `docs/project_memory/`:
+
+- `progress.md` — exact current state of the research + next actions
+- `decisions.md` — architecture/approach decisions and **why**
+- `bugs.md` — quirks, recurring errors, and the proven fixes
+
+**Before starting a task:** read `docs/project_memory/progress.md` first (and skim
+`decisions.md` / `bugs.md` when the task touches modelling, data, or evaluation) so you
+resume from the real state instead of re-deriving it.
+
+**After solving a major bug, making a structural/architecture decision, or at the end of a
+work session:** you MUST update the relevant file(s) in `docs/project_memory/` to reflect
+the new state — append the bug+fix to `bugs.md`, the decision+rationale to `decisions.md`,
+and refresh `progress.md` (state + next actions + the "Last updated" date). Keep entries
+concise and dated. `README.md` is the consolidated current-state overview — keep it
+consistent whenever behavior, flags, data, or decisions change.
 
 ## Project Snapshot
 
@@ -17,22 +37,27 @@ correctly without repeated setup explanations.
 - Training strategy: LoRA adapters on Evo2 (not full-parameter FT).
 - Orchestration stack: DeepSpeed + PEFT + PyTorch (bf16).
 - Datasets (on `/data2`, see Current Decisions for why):
-  - ACTIVE training/eval: `/data2/ds85/bgcmodel_data/splits_curated/{train,val,test}.jsonl`
-    (curated, leakage-free; train ~18K).
-  - Leakage-free full split: `/data2/ds85/bgcmodel_data/splits_combined_grouped/`.
-  - DEPRECATED (leaky — do not use): `data/processed/splits_combined/`
-    had 94.6% genome overlap across splits.
+  - ACTIVE training/eval (v2): `/data2/ds85/bgcmodel_data/splits_core/{train,val,test}.jsonl`
+    — strict antiSMASH **core** regions, native lowercase GTDB tags, leakage-clean
+    (genome-disjoint + exact + cross-split MMseqs2); train 47,524 / val 8,048 / test 18,871;
+    22 classes; **MiBIG held out** (reserved for a Phase-2 compound-conditioned FT).
+  - DEPRECATED (superseded — do not use): `splits_curated/` (~18K), `splits_combined_grouped/`,
+    `splits_dedup/`, and `data/processed/splits_combined/` (leaky — 94.6% genome overlap).
 
 ## Source of Truth
 
+- Consolidated current state:
+  `README.md`
+- Live status + next actions:
+  `docs/project_memory/progress.md`
+- Eval suite implementation:
+  `src/bgc_pipeline/evaluation.py`
 - Training implementation:
   `scripts/finetune_evo2_lora.py`
 - Smoke queue wrapper:
   `scripts/queue_h100_smoke.sh`
-- Main runbook and findings:
-  `docs/gputee/FINETUNE_GUIDE.md`
-- Project status / priorities:
-  `docs/gputee/PROJECT_GUIDE.md`
+- Archived deep runbook / status (not maintained as current):
+  `docs/archive/gputee/FINETUNE_GUIDE.md`, `docs/archive/gputee/PROJECT_GUIDE.md`
 
 ## Current Decisions (as of latest smoke sweeps)
 
@@ -61,8 +86,8 @@ correctly without repeated setup explanations.
 - **Long sequences:** production training uses `--long-seq-strategy chunk
   --chunk-overlap 2048` (deterministic tiling; full nucleotide coverage; canonical
   prefix from JSON fields; default `--auto-prefix-budget` scans `max_prefix_tokens`
-  into sidecar meta). Sidecars: `data/processed/splits_combined/<split>.lengths.npy`
-  + `.meta.json`; pre-build lengths with `python scripts/build_chunk_index.py`.
+  into sidecar meta). Sidecars: `<dataset-dir>/<split>.lengths.npy` + `.meta.json`
+  (e.g. under `splits_core/`); pre-build lengths with `python scripts/build_chunk_index.py`.
   The L=32k **pilot** keeps default `--long-seq-strategy truncate` for continuity
   with earlier smoke metrics (`FINETUNE_GUIDE.md` §3, `PROJECT_GUIDE.md` §13).
 - **Loss masking (H3, audit 2026-05-14):** the CE loss is masked over
@@ -72,7 +97,7 @@ correctly without repeated setup explanations.
   fixed prefix" intent. Absolute train/val loss values are *not*
   comparable to pre-H3 runs.
 
-### Data & validation decisions (2026-06-02, post-audit — see AUDIT_FINDINGS.md)
+### Data & validation decisions (2026-06-02, post-audit — see docs/archive/AUDIT_FINDINGS.md)
 
 - The original `splits_combined/` split was record-level and leaked badly
   (94.6% genome overlap, 453 byte-identical seqs across splits). Fixed with
@@ -89,7 +114,27 @@ correctly without repeated setup explanations.
 - Metric 7 (organism compatibility) no longer hardcodes E. coli: it grades
   faithfulness vs the conditioned taxon (`scripts/build_taxon_profiles.py`,
   `data/processed/taxon_profiles.json`) and reports E. coli expressibility
-  separately.
+  separately. (Now the `taxon_faithfulness` check — see the 2026-06-17 note.)
+
+### Eval suite rewrite + v2 data (2026-06-17 — see docs/archive/REDESIGN_PLAN.md / docs/archive/EVAL_RUNBOOK.md)
+
+- The eval suite was rewritten from the flat `metric_1..metric_11` numbering to two
+  named layers: **CHECKS** (`coding_sanity`, `antismash`, `class_markers`,
+  `kmer_novelty`, `protein_homology`, `module_architecture`, `taxon_faithfulness`;
+  optional `protein_foldability`) combined into **QUESTIONS** via `derive_questions()`.
+  GATES = `is_bgc`, `correct_class`, `novel`; diagnostics = `proteins_plausible`,
+  `complete`, `conditioning_faithful`. (`src/bgc_pipeline/evaluation.py`.)
+- **antiSMASH is the gold-standard `is_bgc`/`correct_class` gate**, recalibrated
+  ~0.15 → ~0.97 on real cores by completing the product→class map
+  (`scripts/build_class_map.py` → `config/compound_class_map.yaml`). `class_markers`
+  (Pfam) is the fast proxy when antiSMASH is skipped (quick-eval).
+- **Gene caller: pyrodigal (Prodigal)** everywhere; replaced the six-frame ORF finder.
+  RETIRED: synthesis feasibility, Evo2 perplexity, BiG-SCAPE; E. coli expressibility
+  no longer gates.
+- Active data is `splits_core` (above); the ~18K `splits_curated` curation is superseded
+  by the strict-core rebuild (56K → 47.5K after MiBIG exclusion).
+- Per-checkpoint tracking: `scripts/quick_eval.sh` (runs the cheap checks incl. antiSMASH;
+  skips `protein_homology` + `kmer_novelty`). Full eval: `scripts/run_eval.sh`.
 - **Adaptive seq-budget slack (H6, audit 2026-05-14):** chunk windows
   reserve `prefix_token_cap + prefix_slack_tokens` tokens before
   filling with nucleotides. Slack is empirically scanned by rank 0 and
@@ -136,8 +181,8 @@ Single run sanity:
 
 ```bash
 deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
-  --train data/processed/splits_combined/val.jsonl \
-  --val   data/processed/splits_combined/val.jsonl \
+  --train /data2/ds85/bgcmodel_data/splits_core/val.jsonl \
+  --val   /data2/ds85/bgcmodel_data/splits_core/val.jsonl \
   --output-dir /data2/ds85/bgcmodel_runs/ac_sanity \
   --max-seq-len 1024 --batch-size 1 --grad-accum 1 \
   --warmup-steps 2 --max-epochs 1 --max-steps 3 \

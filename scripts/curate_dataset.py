@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Curate a small, robust, representative training set from the grouped split.
 
-RATIONALE (see AUDIT_FINDINGS.md and the curation discussion)
+RATIONALE (see docs/archive/AUDIT_FINDINGS.md and the curation discussion)
 ------------------------------------------------------------
 The combined training set (~280K records) is prohibitively large for a single
 H100 (~20 days/epoch) and highly redundant (Streptomyces-dominated, ~95% from

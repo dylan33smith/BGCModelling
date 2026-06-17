@@ -12,6 +12,10 @@ Active documentation for the current host: `gputee` (1× NVIDIA H100 PCIe, 80 GB
   and a small viewer (serve `docs/gputee` over HTTP or use the HTML file picker
   to load the JSON; instructions are on the page).
 
+The evaluation suite lives in the repo root: `EVAL_RUNBOOK.md` (the named
+**checks → questions** suite + how to run it) and `REDESIGN_PLAN.md` (the
+Phase-1 conditioning redesign + eval rewrite record).
+
 ## Environment Recreation
 
 `environment.yml` (full lock) and `environment.min.yml` (portable) live at

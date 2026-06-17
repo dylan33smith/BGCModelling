@@ -22,6 +22,7 @@
 biopython>=1.83           # GenBank parsing, sequence I/O
 PyYAML>=6.0               # Config / class map loading
 pyhmmer>=0.10             # Metric 2: Pfam domain recovery (HMMER3 bindings)
+pyrodigal>=3.0            # Gene caller (Prodigal) for M2/M8/M10/M11 — replaces six-frame
 
 # -----------------------------------------------------------------------------
 # Evaluation — CPU metrics (Tier 1 / 2)

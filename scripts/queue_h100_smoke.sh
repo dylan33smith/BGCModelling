@@ -45,7 +45,7 @@ OUTPUT_ROOT="/data2/ds85/bgcmodel_runs"
 HF_HOME_PATH="/data2/ds85/hf_cache"
 ENV_NAME="bgcmodel"
 # Curated leakage-free val set (the old data/processed/splits_combined was the
-# leaky split and has been removed — see AUDIT_FINDINGS.md C1/C2).
+# leaky split and has been removed — see docs/archive/AUDIT_FINDINGS.md C1/C2).
 TRAIN_JSONL="/data2/ds85/bgcmodel_data/splits_curated/val.jsonl"
 VAL_JSONL="/data2/ds85/bgcmodel_data/splits_curated/val.jsonl"
 DRY_RUN=0
