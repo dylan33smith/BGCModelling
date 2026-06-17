@@ -14,7 +14,7 @@ _Last updated: 2026-06-17._
   - Run dir: `/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768`
   - tmux session: `bgc_v2` (idle-GPU-gated, checkpoints, auto-resume up to 10 retries)
   - Config: Evo2 7B + LoRA, `L=32768`, `--batch-size 1 --grad-accum 128`, bf16, DeepSpeed.
-  - Health (last seen): ~step 30, train_loss ~0.95 (down from 0.98), GPU 100%, single
+  - Health (last seen): ~step 40, train_loss ~0.89 (down from 0.98), GPU 100%, single
     worker, no restarts. Log every 10 steps; **first checkpoint at step 50**.
   - Data: `splits_core` (train 47,524 / val 8,048 / test 18,871; 22 classes; strict
     antiSMASH cores; native GTDB tags; MiBIG held out).
@@ -55,7 +55,9 @@ _Last updated: 2026-06-17._
 - `protein_homology` (MMseqs2) DB is **not wired** for full-val — diagnostic-only; skipped
   in quick_eval. Wire a UniRef50 DB when running a full milestone eval.
 - Generation-based offline eval depends on `generate_bgc.py` (built; sequential path).
-- Nothing is committed to git — commit only when explicitly asked.
+- All work through 2026-06-17 is **committed and pushed to `main`** (commit `d337184`); the
+  working branch `claude/laughing-hamilton-fdacc5` is synced to `main`. (Commit only when
+  explicitly asked.)
 
 ## Pointers
 
