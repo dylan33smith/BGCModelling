@@ -119,5 +119,15 @@ antiSMASH is cheap (~3 s/core), so per-checkpoint `quick_eval` runs it for the r
 
 **Per-class adapters vs one conditional model (Step 2).** Whether to train one
 conditional adapter (current v2) or per-class adapters depends on whether class
-conditioning is actually being used — to be decided by re-running the conditioning
-diagnostic + quick_eval on a v2 checkpoint. See [progress.md](progress.md).
+conditioning is actually being used.
+
+**Update 2026-06-24 (diagnostic run on v2 `best`, step 400):** the conditioning *is*
+being used but **weakly**. Stochastic diagnostic: composition cross/within **ratio 1.08**
+(class-differentiated), class-appropriate obligate domains for NRPS (0.056; PKS/TERPENE 0),
+GC healthy (0.62–0.71) — script verdict "CONDITIONING WORKS". But the functional gates from
+quick_eval are at the floor (`is_bgc=0`, `correct_class=0`, n=3): the model does not yet
+build complete, antiSMASH-recognizable class machinery. This is a clear step up from the
+2026-06-04 pilot ("CONDITIONING DEAD", ratio ≈1.0). **Decision deferred:** before splitting
+into per-class adapters, first rule out under-training (early stop fired at epoch ~0.97 with
+val loss still drifting) and the tiny-n eval — train longer / re-eval with more sequences,
+then revisit. See [progress.md](progress.md) "Next actions".

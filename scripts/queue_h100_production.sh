@@ -38,10 +38,12 @@ Options:
   --batch-size N          Micro-batch size (default: 1).
   --grad-accum N          Gradient accumulation steps (default: 128).
   --lr FLOAT              Learning rate (default: 5e-5).
+  --lr-min-ratio FLOAT    Cosine LR floor as a ratio of peak; 1.0 = flat/constant (default: 0.1).
   --warmup-steps N        LR warmup steps (default: 50).
   --max-epochs N          Epoch ceiling; early stopping usually cuts it (default: 6).
   --val-every N           Validate every N steps (default: 50).
   --save-every N          Checkpoint every N steps (default: 50).
+  --keep-last-ckpts N     Periodic (step_N) checkpoints to keep; 0 = keep ALL (default: 5).
   --early-stopping-patience N   Stop after N validations with no improvement (default: 4; 0 disables).
   --early-stopping-min-delta F  Min val-loss decrease counted as improvement (default: 0.001).
   --max-retries N         Auto-resume attempts after a non-interrupt failure (default: 10; 0 disables).
@@ -68,6 +70,7 @@ MAX_SEQ_LEN=32768
 BATCH_SIZE=1
 GRAD_ACCUM=128
 LR="5e-5"
+LR_MIN_RATIO="0.1"           # cosine LR floor as ratio of peak; 1.0 = flat/constant
 # Tuned for the curated ~18K set (~225 optimizer steps/epoch in chunk mode):
 # short warmup, frequent validation, and a high epoch ceiling that early
 # stopping cuts off once first-window val loss plateaus.
@@ -75,6 +78,7 @@ WARMUP_STEPS=50
 MAX_EPOCHS=6
 VAL_EVERY=50
 SAVE_EVERY=50
+KEEP_LAST_CKPTS=5             # periodic step_N checkpoints to keep; 0 = keep ALL
 EARLY_STOPPING_PATIENCE=4
 EARLY_STOPPING_MIN_DELTA="0.001"
 KEEP_SPECIAL_CKPTS=2          # rotate oom/interrupted/final checkpoints (m3)
@@ -102,10 +106,12 @@ while [[ $# -gt 0 ]]; do
     --batch-size)       BATCH_SIZE="${2:?missing value}"; shift 2 ;;
     --grad-accum)       GRAD_ACCUM="${2:?missing value}"; shift 2 ;;
     --lr)               LR="${2:?missing value}"; shift 2 ;;
+    --lr-min-ratio)     LR_MIN_RATIO="${2:?missing value}"; shift 2 ;;
     --warmup-steps)     WARMUP_STEPS="${2:?missing value}"; shift 2 ;;
     --max-epochs)       MAX_EPOCHS="${2:?missing value}"; shift 2 ;;
     --val-every)        VAL_EVERY="${2:?missing value}"; shift 2 ;;
     --save-every)       SAVE_EVERY="${2:?missing value}"; shift 2 ;;
+    --keep-last-ckpts)  KEEP_LAST_CKPTS="${2:?missing value}"; shift 2 ;;
     --early-stopping-patience)  EARLY_STOPPING_PATIENCE="${2:?missing value}"; shift 2 ;;
     --early-stopping-min-delta) EARLY_STOPPING_MIN_DELTA="${2:?missing value}"; shift 2 ;;
     --max-retries)      MAX_RETRIES="${2:?missing value}"; shift 2 ;;
@@ -216,9 +222,10 @@ log "  Mode:       $([[ -n "$RESUME_FROM" ]] && echo "resume from ${RESUME_FROM}
 log "  Train data: ${TRAIN_JSONL}"
 log "  Val data:   ${VAL_JSONL}"
 log "  Epochs:     ${MAX_EPOCHS} max  (val-every=${VAL_EVERY}, save-every=${SAVE_EVERY})"
+log "  Ckpt keep:  last=${KEEP_LAST_CKPTS} (0=all)  special=${KEEP_SPECIAL_CKPTS} (0=all)"
 log "  EarlyStop:  patience=${EARLY_STOPPING_PATIENCE} min-delta=${EARLY_STOPPING_MIN_DELTA} (first-window val loss)"
 log "  Batch:      ${BATCH_SIZE} x grad-accum ${GRAD_ACCUM} = effective batch $(( BATCH_SIZE * GRAD_ACCUM ))"
-log "  LR:         ${LR}  (warmup=${WARMUP_STEPS} steps)"
+log "  LR:         ${LR}  (warmup=${WARMUP_STEPS} steps, min-ratio=${LR_MIN_RATIO}; 1.0=flat)"
 log "  AutoResume: up to ${MAX_RETRIES} retries, ${RETRY_BACKOFF_SEC}s backoff"
 log "  WandB:      ${WANDB_MODE} (project: ${WANDB_PROJECT})"
 log "══════════════════════════════════════════════════════════════"
@@ -233,12 +240,14 @@ DS_CMD=(
   --batch-size "$BATCH_SIZE"
   --grad-accum "$GRAD_ACCUM"
   --lr "$LR"
+  --lr-min-ratio "$LR_MIN_RATIO"
   --warmup-steps "$WARMUP_STEPS"
   --max-epochs "$MAX_EPOCHS"
   --val-every "$VAL_EVERY"
   --save-every "$SAVE_EVERY"
   --early-stopping-patience "$EARLY_STOPPING_PATIENCE"
   --early-stopping-min-delta "$EARLY_STOPPING_MIN_DELTA"
+  --keep-last-ckpts "$KEEP_LAST_CKPTS"
   --keep-special-ckpts "$KEEP_SPECIAL_CKPTS"
   --log-every 10
   --long-seq-strategy chunk
