@@ -20,6 +20,14 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Eval suite
 
+- **Small-n quick_eval is noisy — `is_bgc` read 0/6 when the true rate was ~14%.** At
+  step_1200, a single n=6 quick_eval showed `is_bgc=0.0`; pooling n=21 across two decoding
+  temps gave `is_bgc≈3/21 (14%)` (still `correct_class=0/21`). *Lesson:* don't treat one tiny
+  quick_eval as ground truth for a headline gate — use `PER_CLASS≥3` and pool (≥15) before
+  concluding a gate sits at 0. `quick_eval.sh` now accepts `TEMPERATURE`/`TOP_K`/`TOP_P` env
+  overrides (defaults 1.0/4/1.0) for decoding sweeps; conservative decoding (temp 0.7) did NOT
+  reveal core-domain structure, so the megasynthase-conditioning failure is structural, not a
+  sampling artifact.
 - **antiSMASH was ~15% on real BGCs — it was MAP COVERAGE, not parsing.** Parsing of
   `records[].areas[].products` was correct; antiSMASH 8 just emits **103 product types**
   and the old `compound_class_map.yaml` covered a fraction, so real clusters

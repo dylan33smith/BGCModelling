@@ -77,10 +77,23 @@ open(out, "w").write("".join(json.dumps(r) + "\n" for r in keep))
 print(f"[quick_eval] prompt pool: {len(keep)} records across {len(classes)} classes")
 PYEOF
 
+# Decoding controls (default to the historical quick_eval settings so behavior is
+# unchanged unless overridden). TOP_P defaults to 1.0 (disabled).
+TEMPERATURE="${TEMPERATURE:-1.0}"
+TOP_K="${TOP_K:-4}"
+TOP_P="${TOP_P:-1.0}"
+# Chained-generation controls (default 1 window = unchanged behavior). MAX_WINDOWS>1
+# lets long megasynthase cores complete across windows (mirrors training chunking).
+MAX_WINDOWS="${MAX_WINDOWS:-1}"
+CHUNK_OVERLAP="${CHUNK_OVERLAP:-2048}"
+echo "[quick_eval] decoding: temperature=$TEMPERATURE top_k=$TOP_K top_p=$TOP_P max_windows=$MAX_WINDOWS chunk_overlap=$CHUNK_OVERLAP"
+
 # 2. generate the tiny panel (GPU)
 PY scripts/generate_bgc.py --adapter "$CKPT" --from-jsonl "$OUT/prompts.jsonl" \
   --per-class "$PER_CLASS" --max-new-tokens "$MAX_NEW" --seed "$SEED" \
   --batch-size "$GEN_BATCH_SIZE" \
+  --temperature "$TEMPERATURE" --top-k "$TOP_K" --top-p "$TOP_P" \
+  --max-windows "$MAX_WINDOWS" --chunk-overlap "$CHUNK_OVERLAP" \
   --out-fasta "$OUT/gen.fasta" --out-jsonl "$OUT/gen.jsonl"
 
 # 3. cheap checks (coding_sanity, antismash, class_markers, module_architecture,

@@ -117,7 +117,14 @@ def main() -> int:
     ap.add_argument("--min-region-len", type=int, default=1000)
     ap.add_argument("--limit", type=int, default=None, help="stop after N genomes (smoke)")
     ap.add_argument("--progress-every", type=int, default=500)
+    ap.add_argument("--genomes-allowlist", type=Path, default=None,
+                    help="Only process genomes whose accession is listed (one per line) — "
+                         "fast targeted re-parse, e.g. to add strict_core_gene_bounds.")
     args = ap.parse_args()
+    allow = None
+    if args.genomes_allowlist is not None:
+        allow = {ln.strip() for ln in args.genomes_allowlist.open() if ln.strip()}
+        print(f"[core] genome allowlist: {len(allow)} genomes", file=sys.stderr)
 
     class_mapping, class_default = load_class_map(args.class_map)
     res = load_taxa_json(args.taxa)
@@ -141,6 +148,8 @@ def main() -> int:
                     break
                 stem = Path(name).name
                 genome_acc = re.sub(r"\.gbk(\.gz)?$", "", stem)
+                if allow is not None and genome_acc not in allow:
+                    continue
                 fobj = tf.extractfile(member)
                 if fobj is None:
                     continue
@@ -177,6 +186,15 @@ def main() -> int:
                         s_seq, s0, s1, s_n, s_fb = _materialize(full_seq, s_span, rs, re_, args.flank, args.max_len)
                         w_seq, w0, w1, w_n, w_fb = _materialize(full_seq, w_span, rs, re_, args.flank, args.max_len)
 
+                        # Per-gene coordinates relative to the stored strict sequence
+                        # (offsets into s_seq), for gene-aware chunking: any CDS overlapping
+                        # the stored core window, clamped to [0, len(s_seq)]. Enables the
+                        # chunker to snap cut points to gene gaps (never split a gene).
+                        s_gene_bounds = sorted(
+                            [[max(0, cs - s0), min(len(s_seq), ce - s0)]
+                             for (cs, ce, _gk) in cds_coords if ce > s0 and cs < s1]
+                        )
+
                         out.write(json.dumps({
                             "accession": f"{genome_acc}.region{region_number}",
                             "genome_accession": genome_acc,
@@ -188,6 +206,7 @@ def main() -> int:
                             "region_start": rs, "region_end": re_, "region_len": re_ - rs,
                             "strict_core_start": s0, "strict_core_end": s1,
                             "strict_core_len": len(s_seq), "strict_core_genes": s_n,
+                            "strict_core_gene_bounds": s_gene_bounds,
                             "strict_fallback": s_fb, "strict_sequence": s_seq,
                             "wide_core_start": w0, "wide_core_end": w1,
                             "wide_core_len": len(w_seq), "wide_core_genes": w_n,

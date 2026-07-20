@@ -8,6 +8,120 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-07-13] Rank sweep closes the capacity question — expressiveness is not the limiter either
+r=16/64/128 on mega_all (α=2r, n=15): correct_class 0.067 / 0.067 / **0.0** — no rank lifts the
+functional gate; r=128 is worse (over-rank + α–r=2 over-shrink → the rsLoRA regime). r=64 gave a real
+domain-marker bump (class_markers 0.133→0.267) that, like every other lever, did NOT convert to
+correct_class. With probe B (coverage, flat), **LoRA capacity — both which layers and how expressive
+— is ruled out.** This was the last cheap lever. The signature across the whole program is now
+unmistakable: interventions move class-appropriate DOMAINS but never assemble a valid correct-class
+cluster — strongly suggesting LoRA-conditioned Evo2 is near its ceiling for de-novo megasynthase
+generation. Structural fork remains: long-context (multi-GPU) / full-or-partial FT / reposition Evo2
+as an evaluator-scorer (where the recalibrated antiSMASH+eval stack is already strong).
+
+### [2026-07-12] Option A real whole-core run FAILED — cheap fixes exhausted; whole-core-only starves the data
+The milestone-gated mega-only whole-core run (L=32768, fresh-from-base) auto-killed at epoch 4:
+correct_class 0.133 (2/15) at step 120 → **0.0 (0/15) at step 240**, with modules/obligate/is_bgc all
+declining. More training made it WORSE — consistent with overfitting the small whole-core set
+(80 Mbp; whole-core@L=32768 drops 62% of megasynthase nt = the long multi-module cores). Every cheap
+lever now tested & failed: LoRA coverage(B), imbalance(D), chunk-label(P-tag), gene-aware,
+whole-core-at-scale. Remaining = structural: long-context (multi-GPU, keeps all data whole) / higher
+rank (see 2026-07-13, also negative) / full-vs-LoRA FT / reposition as evaluator.
+
+### [2026-07-10] n=15 re-eval: C's correct_class win was small-n noise; whole-core helps DOMAINS, not the GATE
+Re-evaluating P0 / mega_all / C at n=15 (was n=6) collapsed C's headline: **correct_class = 0.067
+(1/15) for all three** — tied at the floor. The robust surviving effect is a **domain-level
+gradient C > mega_all > P0** (class_markers 0.33/0.13/0.07; modules 0.27/0.13/0.07; obligate
+0.147/0.072/0.044): whole megasynthase cores make the model produce ~3–5× more class-appropriate
+obligate domains / partial modules; concentration (mega_all>P0) adds a smaller bump. But it does
+**not** assemble into a valid correct-class cluster. **Implications:** the cheap 350-step probes
+are exhausted; de-chunking and LoRA capacity are out; whole-core + concentration are weakly
+supported ON DOMAINS but UNPROVEN on the functional gate. A real multi-epoch mega-only whole-core
+run is the only way to test whether domain gains convert to correct_class — **but note the
+whole-core ∩ feasible-L tension:** mega cores carry 209 Mbp, and whole-core-only training keeps
+just **79 Mbp at L=32768 (drops the long assembly lines = 62% of the nt)** or 142 Mbp at L=65536.
+The long multi-module cores — the ones we most want — don't fit at single-GPU L. Milestone-gate
+any such run (kill if correct_class is flat by ~epoch 2–3); do not repeat the first run's mistake
+of training to 1,200 steps before looking.
+
+### [2026-07-09] Gene-aware chunking REFUTED — the lever is likely concentration and/or context length, not chunk boundaries
+The gene-aware A/B (blind vs snap-to-gene on the same long-mega cores) showed **gene-aware does
+not help** (`ga_geneaware` flat at 0 on every marker; `ga_blind` got class_markers 0.333 / module
+0.167). So keeping *genes* whole doesn't recover C's benefit — a long cluster is still fragmented
+across windows. Two things this forces us to confront:
+- **C's win is confounded** (mega-only × whole × short ≤16k), and the *reliable* fact is that a
+  mega-only probe shows life while the all-classes production run does not.
+- **Crucially, at the production L=32768, ~79% of mega cores ALREADY fit whole** (see the length
+  distribution) and the full run still produced correct_class=0. So "just make cores fit whole"
+  (via longer L) is **not clearly sufficient** — the difference between the failing run and the
+  C probe is at least as much **mega-only concentration** as whole-vs-chunked.
+**Working stance:** treat long-context (larger L) as *one* lever for the ~7-21% of mega cores that
+don't fit at L=32k, but do NOT assume it fixes conditioning on its own. The cleaner untested
+variable is **training predominantly/only on the megasynthase classes at production scale** (C
+was mega-only; D up-weighted to only 53% and stayed chunked). Recommend isolating concentration
+next, and running any real conclusion at n≥15, not n=6.
+
+### [2026-07-07] Probe sweep: DE-CHUNKING is the lever — overturns the diagnosis ranking
+Four fast probes (350 steps, L=16384, fresh-from-base, vs a shared P0 control;
+`probes_20260706/probe_summary.tsv`) tested the diagnosis fixes:
+- **B** (unfreeze the frozen Hyena long-range input projection via `--lora-target-parameters
+  projections.weight`) came out **identical to control (all functional gates 0)** → **LoRA
+  capacity/coverage is NOT the bottleneck**, overturning the 2026-07-03 diagnosis's #1
+  "leading suspect".
+- **C** (train on **whole megasynthase cores**, no chunking) was the **only** probe to lift the
+  gates — correct_class 0.33, class_markers 0.50, obligate_fraction 0.18, module_count 0.17.
+- **D** (megasynthase upweighted to 53% but still full-length/chunked) stayed **flat (0)** → more
+  mega data doesn't help if fragmented.
+**Conclusion:** the lever is the **training signal** — the model must see the **complete
+assembly line under its class label**. Chunking (diagnosis Lane 2, rated only "contributing")
+is the primary cause; LoRA capacity (Lane 5, "leading suspect") is unsupported. **Next:
+gene-aware chunking / whole-core training** (persist per-gene coords from the GBKs — parser
+already exists in `build_core_records.py` — and snap chunk cuts to gene gaps); genes longer
+than the window still need larger `L`. Caveats: n=6/probe, undertrained; C confounds
+whole-core × mega-only × short — a long-mega chunked-vs-whole probe would fully isolate it.
+
+### [2026-07-03] Stopped the 6-epoch continuation at step_1200 — conditioning failure is structural, not under-training
+The continuous-resume run (step 400→1200, ~2 extra epochs) was launched on the hypothesis
+that Phase-1 was under-trained. The step_1200 functional eval (pooled n=21, two decoding
+temps) **falsified that**: `correct_class` stayed **0/21** and `module_count` **0/21** while
+`is_bgc` sat at ~14% — and every antiSMASH-positive hit was a SIMPLE class (ectoine/terpene),
+never the conditioned megasynthase (NRPS/PKS/hybrid). Robust to more samples and to lower
+decoding temperature; val loss was flat the whole run. So the model emits generic gene-dense
+DNA that occasionally forms an easy cluster but never builds the conditioned class's core
+assembly-line machinery. **Decision:** halt the 6-epoch run (≈7 more days for no evidential
+gain) and diagnose the root cause (data signal / long-gene chunking / class imbalance /
+train-vs-gen prefix / LoRA capacity / gen-window truncation). This directly challenges the
+"surface results = low training, not LoRA capacity" claim in the next section — capacity,
+chunking, and conditioning strength are now live suspects.
+
+### [2026-07-03] Diagnosis of the conditioning failure — data + prefix RULED OUT; leading suspect is frozen long-range (Hyena) adapter coverage
+A 6-lane read-only diagnostic (multi-agent workflow) established:
+- **RULED OUT — training-data signal.** 24/24 sampled NRPS/PKS/HYBRID cores carry their
+  obligate domains (NRPS PF00501/PF00668; PKS KS/AT/ACP) with real multi-module architecture,
+  positionally within the first 32k window. Labels are fine.
+- **RULED OUT — train-vs-generation prefix.** The prefix builders are byte-identical (class,
+  GTDB tag, delimiters, `|END|`, `|CONTINUATION|`, tokenization). The class tag reaches the
+  model exactly as trained.
+- **LEADING SUSPECT (structural) — LoRA coverage/capacity.** The Hyena input projection
+  (`self.projections`, a TELinear producing the x1/x2/v gating streams into all 27 long
+  convolutions — the long-range token-mixing pathway) is UNADAPTED/frozen; the long-filter
+  params are never LoRA-eligible. Of 28.7M adapter params ~81% sit on position-wise MLPs
+  (l1/l2/l3) that cannot mix across positions; only ~6.8% touch attention (just 5 of 32
+  blocks). So LoRA adjusts local content but barely touches the long-range coordination an
+  assembly-line module *is* — matching the symptom (accessory domains appear; ordered
+  multi-domain modules never do). Directly refutes the prior untested "ample capacity" claim.
+  **Full mechanism** — how LoRA attaches, the Hyena-block dataflow, why the conv kernels can't
+  take LoRA, TELinear vs nn.Linear: [../evo2_lora_and_hyena.md](../evo2_lora_and_hyena.md).
+- **CONTRIBUTING — chunking.** Megasynthase cores are heavily fragmented (HYBRID only 56% fit
+  whole in the class-start window; interior windows train under `|CONTINUATION|`, not
+  `|COMPOUND_CLASS|`). But 44–86% DO fit whole and still yield 0 modules → not sufficient alone.
+- **CONTRIBUTING (amplifier) — class imbalance.** simple:mega record ratio 2.62:1 (mega is
+  nucleotide-majority though) → mild pull toward easy attractors (ectoine/terpene).
+- **EVAL CONFOUND to control — gen window.** 13/21 gens hit the 32k cap; but 8/21
+  self-terminated far below it (390–9311 nt) with 0 obligate domains / 0 modules, and
+  megasynthase-SIZED single ORFs (up to 10,793 aa) still scored module_count=0 → truncation is
+  a confound to control for (re-run with `--max-windows 3-4`), not the root cause.
+
 ### LoRA adapters, not full fine-tuning
 Evo2 7B is already pretrained on a huge genomic corpus; Phase-1's job is mostly to teach
 the **conditioning interface** (LIMA-style: a small, high-quality adapter on top of broad

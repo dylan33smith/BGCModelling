@@ -50,6 +50,8 @@ consistent whenever behavior, flags, data, or decisions change.
   `README.md`
 - Live status + next actions:
   `docs/project_memory/progress.md`
+- Multi-GPU long-context run on IU Quartz (setup + execution guide):
+  `docs/quartz_setup.md`
 - Eval suite implementation:
   `src/bgc_pipeline/evaluation.py`
 - Training implementation:

@@ -103,7 +103,10 @@ sys.path.insert(0, str(ROOT / "src"))
 # Constants
 # ────────────────────────────────────────────────────────────────────────
 
-EVO2_MODEL_NAME = "evo2_7b_262k"
+# Base Evo2 checkpoint. Overridable via env so training AND eval (evo2_inference
+# imports this constant) switch together — e.g. EVO2_BASE_MODEL=evo2_1b_base for the
+# fast 1B/8k probe loop (cap --max-seq-len 8192 for that model). Default = production 7B.
+EVO2_MODEL_NAME = os.environ.get("EVO2_BASE_MODEL", "evo2_7b_262k")
 PAD_TOKEN_ID    = 0
 IGNORE_INDEX    = -100
 
@@ -190,6 +193,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lora-targets", type=str, nargs="+",
                    default=LORA_TARGET_MODULES,
                    help="Linear module name suffixes to add LoRA adapters to")
+    p.add_argument("--lora-target-parameters", type=str, nargs="*", default=[],
+                   help="Raw parameter-name suffixes to adapt via peft "
+                        "target_parameters (e.g. 'projections.weight' for the "
+                        "Hyena input projection — a TELinear nn.Module that "
+                        "target_modules cannot reach). Empty = disabled. "
+                        "[2026-07-03 diagnosis: the long-range Hyena mixing "
+                        "input projection is otherwise frozen.]")
     ac = p.add_mutually_exclusive_group()
     ac.add_argument("--activation-checkpointing", dest="activation_checkpointing",
                     action="store_true",
@@ -217,6 +227,11 @@ def parse_args() -> argparse.Namespace:
                     action="store_false",
                     help="Use the class prefix on all windows (legacy M11 behaviour).")
     p.set_defaults(continuation_prefix=True)
+    p.add_argument("--gene-aware-chunking", action="store_true",
+                   help="Snap chunk window boundaries to gene gaps so complete "
+                        "genes/modules aren't split across windows (needs "
+                        "'core_gene_bounds' per record; falls back to arithmetic "
+                        "tiling where absent or for single genes > window budget).")
     p.add_argument("--smoke-pad-to-max-seq-len", action="store_true",
                    help="For train batches only: pad every micro-batch to a fixed "
                         "length of --max-seq-len (pad token + ignored labels on "
@@ -762,6 +777,65 @@ def build_nt_chunk_spans(
     return spans
 
 
+def build_gene_aware_chunk_spans(
+    seq_len_nt: int,
+    gene_bounds: list | None,
+    max_seq_len: int,
+    prefix_token_cap: int,
+    chunk_overlap_nt: int,
+    slack_tokens: int = 0,
+    eos_reserve: int = 0,
+) -> list[tuple[int, int]]:
+    """Like build_nt_chunk_spans but snap each window END to a gene boundary so a
+    complete gene (and the modules inside it) is never split across a window edge.
+
+    Greedily packs complete genes into each window up to ``seq_budget``; the window
+    ends at the end of the last gene that fits. When a single gene is larger than the
+    budget (unavoidable), fall back to an arithmetic cut at ``start + seq_budget``.
+    ``gene_bounds`` = [(start, end), ...] nt offsets within the sequence. Falls back
+    entirely to arithmetic tiling when ``gene_bounds`` is empty/None.
+    """
+    seq_budget = max_seq_len - prefix_token_cap - slack_tokens - eos_reserve
+    if seq_budget <= 0:
+        raise ValueError(
+            f"max_seq_len ({max_seq_len}) must exceed prefix_token_cap "
+            f"({prefix_token_cap}) + slack_tokens ({slack_tokens})"
+        )
+    if seq_len_nt <= seq_budget:
+        return [(0, seq_len_nt)]
+    if not gene_bounds:
+        return build_nt_chunk_spans(
+            seq_len_nt, max_seq_len, prefix_token_cap, chunk_overlap_nt,
+            slack_tokens, eos_reserve,
+        )
+    genes = sorted((int(g[0]), int(g[1])) for g in gene_bounds)
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while start < seq_len_nt:
+        if seq_len_nt - start <= seq_budget:
+            spans.append((start, seq_len_nt))
+            break
+        limit = start + seq_budget
+        end = None
+        for gs, ge in genes:
+            if gs < start:
+                continue
+            if gs >= limit:
+                break            # genes sorted; nothing else fits
+            if ge <= limit:
+                end = ge         # extend window to this gene's end
+        if end is None or end <= start:
+            end = limit          # single gene exceeds budget → forced mid-gene cut
+        spans.append((start, end))
+        # Advance with overlap context; but if the window was shorter than the
+        # overlap (small gene, next gene didn't fit), stepping back by the overlap
+        # would regress — jump to ``end`` instead so we always advance by >= the
+        # window size (avoids a 1-nt crawl / window explosion).
+        nxt = end - chunk_overlap_nt
+        start = nxt if nxt > start else end
+    return spans
+
+
 def build_all_chunk_indices(
     lengths: np.ndarray,
     max_seq_len: int,
@@ -769,14 +843,23 @@ def build_all_chunk_indices(
     chunk_overlap_nt: int,
     slack_tokens: int = 0,
     eos_reserve: int = 0,
+    gene_bounds_list: list | None = None,
 ) -> list[tuple[int, int, int]]:
-    """Flat index: (record_idx, nt_start, nt_end)."""
+    """Flat index: (record_idx, nt_start, nt_end). When ``gene_bounds_list`` is
+    given (one entry per record, aligned to ``lengths``), snap cuts to gene gaps."""
     chunks: list[tuple[int, int, int]] = []
     for rec_idx, slen in enumerate(lengths.astype(int).tolist()):
-        for nt0, nt1 in build_nt_chunk_spans(
-            slen, max_seq_len, prefix_token_cap, chunk_overlap_nt, slack_tokens,
-            eos_reserve,
-        ):
+        if gene_bounds_list is not None:
+            spans = build_gene_aware_chunk_spans(
+                slen, gene_bounds_list[rec_idx], max_seq_len, prefix_token_cap,
+                chunk_overlap_nt, slack_tokens, eos_reserve,
+            )
+        else:
+            spans = build_nt_chunk_spans(
+                slen, max_seq_len, prefix_token_cap, chunk_overlap_nt, slack_tokens,
+                eos_reserve,
+            )
+        for nt0, nt1 in spans:
             chunks.append((rec_idx, nt0, nt1))
     return chunks
 
@@ -796,6 +879,7 @@ class BGCTextDataset(Dataset):
         first_window_only: bool = False,
         append_eos: bool = False,
         continuation_prefix: bool = False,
+        gene_aware_chunking: bool = False,
     ) -> None:
         self.jsonl_path = jsonl_path
         self.tokenizer = tokenizer
@@ -808,6 +892,7 @@ class BGCTextDataset(Dataset):
         self.first_window_only = first_window_only
         self.append_eos = append_eos
         self.continuation_prefix = continuation_prefix
+        self.gene_aware_chunking = gene_aware_chunking
         # Tokens reserved for the EOS_MARKER on the final window (M11). Computed
         # from the tokenizer so the chunk budget below leaves room for it.
         self.eos_reserve = count_prefix_tokens(tokenizer, EOS_MARKER) if append_eos else 0
@@ -834,9 +919,26 @@ class BGCTextDataset(Dataset):
                     f"Lengths sidecar count {len(lengths)} != jsonl line count "
                     f"{len(self.offsets)} for {jsonl_path}"
                 )
+            gene_bounds_list = None
+            if gene_aware_chunking:
+                gene_bounds_list = []
+                with jsonl_path.open() as gbf:
+                    for line in gbf:
+                        gene_bounds_list.append(json.loads(line).get("core_gene_bounds"))
+                if len(gene_bounds_list) != len(lengths):
+                    raise ValueError(
+                        f"core_gene_bounds count {len(gene_bounds_list)} != lengths "
+                        f"{len(lengths)} for {jsonl_path}"
+                    )
+                n_missing = sum(1 for b in gene_bounds_list if not b)
+                rank0_print(
+                    f"  {jsonl_path.name}: gene-aware chunking "
+                    f"({len(gene_bounds_list) - n_missing:,} with bounds, "
+                    f"{n_missing:,} fall back to arithmetic)"
+                )
             self.chunks = build_all_chunk_indices(
                 lengths, max_seq_len, prefix_token_cap, chunk_overlap, slack_tokens,
-                self.eos_reserve,
+                self.eos_reserve, gene_bounds_list=gene_bounds_list,
             )
             if first_window_only:
                 # Validation (audit M2): keep only the prefix-aligned first
@@ -1205,6 +1307,22 @@ def apply_lora(model: torch.nn.Module, args: argparse.Namespace,
     if missing:
         rank0_print(f"  WARNING: LoRA targets not found in model: {missing}")
 
+    # Verify requested target_parameters exist (nn.Parameter suffix match).
+    # These reach non-Linear layers (e.g. the Hyena projections TELinear) that
+    # target_modules cannot wrap; peft adapts the raw weight tensor in place.
+    tparams = list(getattr(args, "lora_target_parameters", []) or [])
+    if tparams:
+        pfound, pcount = set(), 0
+        for pname, _ in model.named_parameters():
+            for t in tparams:
+                if pname.endswith(t):
+                    pfound.add(t); pcount += 1
+        pmissing = set(tparams) - pfound
+        if pmissing:
+            rank0_print(f"  WARNING: LoRA target_parameters not found: {pmissing}")
+        rank0_print(f"  target_parameters resolved: {sorted(pfound)} "
+                    f"({pcount} tensors matched)")
+
     # Fix 1: peft's BaseTuner.get_model_config() calls model.config.to_dict().
     # Evo2's vortex dotdict returns None for missing attribute lookups
     # (rather than raising AttributeError), so hasattr() lies and
@@ -1218,7 +1336,7 @@ def apply_lora(model: torch.nn.Module, args: argparse.Namespace,
     except Exception:
         pass  # last-resort: if config isn't mutable, peft may still work
 
-    config = LoraConfig(
+    config_kwargs = dict(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
@@ -1228,6 +1346,11 @@ def apply_lora(model: torch.nn.Module, args: argparse.Namespace,
         # task_type omitted: CAUSAL_LM adds PeftModelForCausalLM wrapper
         # which expects HF-style attributes Evo2 doesn't have.
     )
+    if tparams:
+        # peft 0.19: adapt raw nn.Parameters (Hyena projections) that
+        # target_modules can't reach. Only one adapter per model may use this.
+        config_kwargs["target_parameters"] = tparams
+    config = LoraConfig(**config_kwargs)
     # Fix 2: peft 0.19 tries to auto-cast adapters to float8_e8m0fnu,
     # which doesn't exist in torch 2.5. Disable with autocast_adapter_dtype=False.
     peft_model = get_peft_model(model, config, autocast_adapter_dtype=False)
@@ -1243,6 +1366,8 @@ def apply_lora(model: torch.nn.Module, args: argparse.Namespace,
     rank0_print(f"  Trainable params: {trainable:,} / {total:,}  "
                 f"({100*trainable/total:.3f}%)")
     rank0_print(f"  Target modules:   {args.lora_targets}")
+    if tparams:
+        rank0_print(f"  Target params:    {tparams}")
 
     return peft_model
 
@@ -1893,6 +2018,7 @@ def main() -> None:
         "lengths_cache_dir": cache_dir if args.long_seq_strategy == "chunk" else None,
         "append_eos": args.eos_token,
         "continuation_prefix": args.continuation_prefix,
+        "gene_aware_chunking": args.gene_aware_chunking,
     }
     train_ds = BGCTextDataset(
         args.train,
