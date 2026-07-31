@@ -1,0 +1,120 @@
+{
+ "model": "pGenomeOcean/GenomeOcean-4B-bgcFM",
+ "target": "compound_class",
+ "restrict_phylum": "Bacillota",
+ "n": 541,
+ "n_classes": 6,
+ "classes": [
+  "BETALACTONE",
+  "ECTOINE",
+  "NRPS",
+  "PKS",
+  "RIPP",
+  "TERPENE"
+ ],
+ "chance": 0.167,
+ "max_nt": 4096,
+ "best_layer": 8,
+ "best_balanced_acc": 0.948,
+ "best_shuffled_acc": 0.157,
+ "layers": [
+  {
+   "layer": 0,
+   "balanced_acc": 0.534,
+   "shuffled_acc": 0.158,
+   "gap": 0.376,
+   "per_class_recall": {
+    "BETALACTONE": 0.472,
+    "ECTOINE": 0.44,
+    "NRPS": 0.667,
+    "PKS": 0.55,
+    "RIPP": 0.5,
+    "TERPENE": 0.575
+   }
+  },
+  {
+   "layer": 4,
+   "balanced_acc": 0.889,
+   "shuffled_acc": 0.168,
+   "gap": 0.721,
+   "per_class_recall": {
+    "BETALACTONE": 0.861,
+    "ECTOINE": 0.92,
+    "NRPS": 0.875,
+    "PKS": 0.917,
+    "RIPP": 0.817,
+    "TERPENE": 0.942
+   }
+  },
+  {
+   "layer": 8,
+   "balanced_acc": 0.948,
+   "shuffled_acc": 0.157,
+   "gap": 0.79,
+   "per_class_recall": {
+    "BETALACTONE": 0.917,
+    "ECTOINE": 0.92,
+    "NRPS": 0.908,
+    "PKS": 0.967,
+    "RIPP": 0.992,
+    "TERPENE": 0.983
+   }
+  },
+  {
+   "layer": 12,
+   "balanced_acc": 0.942,
+   "shuffled_acc": 0.175,
+   "gap": 0.767,
+   "per_class_recall": {
+    "BETALACTONE": 0.889,
+    "ECTOINE": 0.92,
+    "NRPS": 0.908,
+    "PKS": 0.967,
+    "RIPP": 0.983,
+    "TERPENE": 0.983
+   }
+  },
+  {
+   "layer": 16,
+   "balanced_acc": 0.928,
+   "shuffled_acc": 0.188,
+   "gap": 0.74,
+   "per_class_recall": {
+    "BETALACTONE": 0.889,
+    "ECTOINE": 0.92,
+    "NRPS": 0.883,
+    "PKS": 0.933,
+    "RIPP": 0.95,
+    "TERPENE": 0.992
+   }
+  },
+  {
+   "layer": 20,
+   "balanced_acc": 0.925,
+   "shuffled_acc": 0.187,
+   "gap": 0.738,
+   "per_class_recall": {
+    "BETALACTONE": 0.861,
+    "ECTOINE": 0.92,
+    "NRPS": 0.917,
+    "PKS": 0.933,
+    "RIPP": 0.942,
+    "TERPENE": 0.975
+   }
+  },
+  {
+   "layer": 24,
+   "balanced_acc": 0.901,
+   "shuffled_acc": 0.146,
+   "gap": 0.755,
+   "per_class_recall": {
+    "BETALACTONE": 0.778,
+    "ECTOINE": 0.92,
+    "NRPS": 0.925,
+    "PKS": 0.925,
+    "RIPP": 0.892,
+    "TERPENE": 0.967
+   }
+  }
+ ]
+}

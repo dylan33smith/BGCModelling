@@ -13,3 +13,12 @@ __pycache__/
 .venv/
 *.log
 eval_out_firstpass/
+
+# Upstream GenomeOcean source, cloned locally (not vendored into our history).
+genomeocean/external/
+
+# 2026-07-31: `data/` became a symlink to /data2 (disk fix) so the dir rule stopped
+# matching; large local binaries kept out of the repo.
+data
+*.pdf
+*.pptx

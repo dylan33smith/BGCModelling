@@ -1,0 +1,100 @@
+{
+  "model": {
+    "class": "MistralForCausalLM",
+    "total_params": 4253174784,
+    "hidden_size": 3072,
+    "num_hidden_layers": 24,
+    "vocab_size_before_resize": 4096,
+    "tie_word_embeddings": false,
+    "max_position_embeddings": 32768
+  },
+  "seq_len": 10240,
+  "batch_size": 1,
+  "gates": {
+    "class_token_atomic": true,
+    "embedding_resize": true,
+    "gradient_checkpointing_active": true,
+    "train_step": true
+  },
+  "tokenizer": {
+    "vocab_before": 4096,
+    "class_tokens_added": 22,
+    "vocab_after": 4118,
+    "class_token_is_atomic": true,
+    "example_ids_head": [
+      4096,
+      31,
+      70,
+      70,
+      6
+    ]
+  },
+  "resize": {
+    "embed_tokens_shape": [
+      4118,
+      3072
+    ],
+    "lm_head_shape": [
+      4118,
+      3072
+    ],
+    "resize_ok": true
+  },
+  "lora": {
+    "trainable_params": 55578624,
+    "trainable_pct": 1.3067561720971588,
+    "target_modules": [
+      "down_proj",
+      "gate_proj",
+      "k_proj",
+      "o_proj",
+      "q_proj",
+      "up_proj",
+      "v_proj"
+    ],
+    "modules_to_save": [
+      "embed_tokens",
+      "lm_head"
+    ],
+    "gradient_checkpointing_active": true
+  },
+  "sweep": [
+    {
+      "seq_len_tokens": 4096,
+      "bp_covered": 21094,
+      "ok": true,
+      "loss": 10.561660766601562,
+      "peak_gpu_gb": 10.5,
+      "error": null
+    },
+    {
+      "seq_len_tokens": 10240,
+      "bp_covered": 52736,
+      "ok": true,
+      "loss": 10.295753479003906,
+      "peak_gpu_gb": 14.04,
+      "error": null
+    },
+    {
+      "seq_len_tokens": 16384,
+      "bp_covered": 84377,
+      "ok": true,
+      "loss": 10.244400024414062,
+      "peak_gpu_gb": 17.58,
+      "error": null
+    },
+    {
+      "seq_len_tokens": 32768,
+      "bp_covered": 168755,
+      "ok": true,
+      "loss": 10.100690841674805,
+      "peak_gpu_gb": 26.97,
+      "error": null
+    }
+  ],
+  "train_step": {
+    "gradient_checkpointing": true,
+    "max_ok_seq_len_tokens": 32768,
+    "max_ok_bp": 168755
+  }
+}

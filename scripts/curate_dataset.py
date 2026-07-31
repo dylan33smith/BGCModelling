@@ -51,7 +51,7 @@ _VALID_BASES = set("ACGT")
 # Production chunk-mode params, used only to ESTIMATE optimizer steps/epoch.
 # Training iterates over chunk WINDOWS, not records: long BGCs (NRPS/PKS/hybrids)
 # tile into several windows, so the real step count is well above records/128.
-# Mirrors scripts/finetune_evo2_lora.py defaults.
+# Mirrors evo2/scripts/finetune_evo2_lora.py defaults.
 EST_MAX_SEQ_LEN = 32768
 EST_CHUNK_OVERLAP = 2048
 EST_EOS_RESERVE = 5  # len("|END|")

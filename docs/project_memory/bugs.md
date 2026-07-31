@@ -15,6 +15,17 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
   StripedHyena: head-token LCP ~0.004, byte divergence). Keep batched behind that gate.
 - **`eos_id = 0` is the null byte** in `CharLevelTokenizer` — unusable as a stop token;
   `stop_at_eos` is effectively off, so generation always runs the full `n_tokens`.
+- **vortex `Generator.generate()` can't be resumed one token at a time** for stepwise
+  decoding (e.g. CFG). On a resumed call (passing `inference_params_dict`) it derives
+  `seqlen_offset` from the *passed input's* length (`input.shape[-1]`, `generation.py:176`) —
+  which is just the single new token (=1), **not** the accumulated context — so positions get
+  corrupted. Within a single multi-token `generate()` call it's fine (input = full prompt).
+  *Fix (used by `evo2/scripts/cfg_generate.py`):* drive `model(x, inference_params_dict=…)` directly
+  and manage `seqlen_offset` yourself — set it to `prompt_length` after prefill, then `+=1` per
+  token (mirrors `generation.py:168-192`). Good news for logit-level work: `generate()` DOES
+  return per-token `scores` (logits, shape `(B,T,vocab)`) and accepts/returns
+  `inference_params_dict`. Validate any hand-rolled cached loop against a **non-cached
+  full-recompute** greedy (the w=1 gate).
 - **Generation needs the free GPU.** It will not share the device with active training;
   pause/finish training first.
 
@@ -92,3 +103,110 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 - **Timezone confusion:** the queue log uses local **EDT**; `date -u` is **UTC** (4 h
   offset). A run looked stalled for "3.5 h" but was ~24 min in and healthy. Compare like
   for like.
+- **Pooling a paired design and calling it n.** The β titration generated 3 seqs × 5 classes
+  per cell. Treating the 15 as one sample gave "β=2 significantly degrades (z=−2.6)"; the
+  correct paired t over per-class deltas (df=4) says **nothing is significant**. Between-class
+  variance was masquerading as an effect. *Fix:* before any stats, check what the n is composed
+  of — if the same strata appear in every cell, it is paired and must be analyzed per stratum.
+- **Persisting aggregates instead of per-sequence values.** The β titration driver wrote only
+  cell means to `titration.tsv`, so getting error bars required re-running pyrodigal over every
+  sequence. *Fix:* drivers write a per-sequence TSV (`run_steer_magnitude.sh` → `per_sequence.tsv`)
+  including the *actually applied* steering parameters, so analysis never re-derives from logs.
+
+## Activation steering (2026-07-29)
+
+- **★ THE STEERING VECTORS ARE NOT CLASS DIRECTIONS — they are ±the length/norm axis.**
+  `v_class = μ_c − μ_global` computed on mean-pooled L16 activations is ~collinear with PC1,
+  which holds **98.07%** of the centered variance and correlates **−0.9996** with ‖h‖. The 11×4096
+  direction matrix is rank-≈1 (**99.22%** of Frobenius energy in the top singular value; mean
+  off-diagonal \|cos\| **0.934**). As a classifier, diff-of-means scores **0.186** where the
+  logistic probe scores 0.881. Worst of all, the sign is set by whether a class's cores are
+  longer or shorter than average, so the shipped vector **points backwards** for key pairs:
+  steering NRPS→PKS with `v_PKS` has cos = **−0.856** with the true contrast (1-D AUC 0.221);
+  ECTOINE→TERPENE is −0.789 (AUC 0.070). "Steer toward PKS" and "steer toward NRPS" are the same
+  intervention with opposite sign ⇒ **0/30 correct_class was structurally guaranteed** in every
+  α-sweep cell regardless of layer, magnitude, or n. Class lives in the residual 1.9%: removing
+  PC1 leaves the probe at 0.909 (vs 0.908 full), while PC1 alone gives 0.287.
+  *Fix:* rebuild directions as PC1-orthogonalized class-vs-class contrasts (not whitened LDA —
+  rank-990 covariance in D=4096 is unstable); see `docs/steering_program.md` P0.
+- **Teacher-forced scoring with a true-sequence prefix masks the very effect it measures.**
+  `steer_causal_tests.py` conditioned on taxonomy + the first 1000 nt of the *true* sequence, then
+  scored the next 1000 nt. With the real thing sitting immediately before the scored window, the
+  model already knows the class and its exact local position, so neither an exemplar nor a nudge
+  has anything left to contribute. Measured consequence: the positive control (real same-class vs
+  different-class exemplar) read **−0.00126 ± 0.00107 — undetectable**, which made every steering
+  cell uninterpretable. *Fix:* score TWO context conditions side by side — `create` (taxonomy
+  only; the intervention is the sole carrier of class — this is the question we actually care
+  about) and `reinforce` (the old design, retained to quantify the masking).
+- **The steering hook perturbed the CONTEXT as well as the scored region.** `_add_hook` added the
+  vector at every position including the prompt. During real generation we would steer only what
+  the model *writes*, so the test corrupted the context whose continuation it was scoring.
+  *Fix:* `start_pos` gating on both `_add_hook` and `_project_out_hook`.
+- **Core selection silently filtered on LENGTH — the original confound.** Requiring
+  `cond_nt + score_nt` = 2000 nt admits 98% of NRPS but only 29% of PKS, 19% of TERPENE and
+  **5% of ECTOINE** (median core 393 nt). Selecting cores *on length* is the worst possible
+  sampling rule for a program whose directions were wrecked by a length axis. *Fix:* window as a
+  FRACTION of each core's own length (`--split-frac`, default 0.4), so every class is
+  represented at its natural scale.
+- **`_ref_norm()` does not measure what its docstring says.** It reads `X[:, -1, :]` — the
+  **mean-pooled** activation over the full sequence (‖·‖ = 9.97 at L16), not a per-position
+  activation. So `--alpha` is denominated in units of the DC component: α ∈ {1,2,4} ⇒
+  ‖delta‖ ∈ {10,20,40}, which is **1.5–5.9× the entire between-sample scatter**
+  (mean ‖h−gm‖ = 6.752). Every class-scored steering cell ever run was far past any usable dose.
+  *Corollary:* directions are estimated in mean-pooled space but injected **per position** — a
+  units mismatch independent of the magnitude question.
+- **A sweep variable that is not comparable across strata.** `--beta` scales the RAW
+  difference-of-means vector, and `‖v_class‖` at layer 16 spans **17×** (TERPENE 1.05, PKS 1.16,
+  RIPP 1.69, NRPS 5.80, ECTOINE 17.75). A single global β therefore applies a 17×-different
+  *physical* perturbation per class — it destroyed ECTOINE (coding_density 0.850 → 0.191 at
+  β=0.5) while leaving PKS untouched at β=2. Neither knob is universally right: **β is constant
+  in semantics** (class-mean offsets), **‖delta‖ is constant in magnitude** (what actually breaks
+  the model), and with ‖v‖ spanning 17× you cannot hold both. *Fix:* `steer_generate.py` now
+  exposes all three modes (`--delta-norm` absolute magnitude, `--alpha` ref-norm-relative
+  magnitude, `--beta` semantic) and records `steer_v_norm` / `steer_applied_norm` /
+  `steer_beta_equiv` per sequence. Titrate coherence on `--delta-norm`.
+- **The first α sweep was run entirely past the toxicity ceiling.** α=1 sets ‖delta‖ = mean‖h‖
+  ≈ 10, which already collapses coding_density 0.74 → 0.19. The grid started at α=1, so all nine
+  steered cells (L∈{12,16,20} × α∈{1,2,4}) measured a wrecked model. *Fix:* always titrate
+  coherence cheaply (coding_density, no antiSMASH) before spending hours on the real readout.
+- **A readout with no dynamic range cannot detect success.** That α sweep's *unsteered control*
+  scored **1/30 is_bgc (3.3%)**; every steered cell scored 0/30. At n=5/class, 0/30 vs 1/30 is
+  indistinguishable — the experiment could not have detected steering working even if it had.
+  *Fix:* before running a comparison, state the baseline rate and the n needed to detect the
+  claimed lift. Prefer graded readouts (probe-head logit, Pfam `class_markers`) over a binary
+  gate sitting on the floor.
+- **`/home` at 100% breaks `micromamba run` itself**, not just installs: the process lock at
+  `~/.cache/mamba/proc/` cannot be written, so every `micromamba run` fails and jobs die
+  mid-flight. Calling the env's python binary directly is **not** a safe workaround — it skips
+  activation, so `PATH` never gets the env's `bin/`, and antiSMASH/hmmscan/diamond/prodigal
+  (all env binaries) silently fail or resolve elsewhere. *Fix (2026-07-29):* repo `data/` (32 GB,
+  gitignored) moved to `/data2/ds85/bcgm_data` + symlink; `~/.cache/huggingface` (5.5 GB) moved to
+  `/data2/ds85/cache/huggingface` + symlink; all probe drivers now export `TMPDIR`,
+  `XDG_CACHE_HOME`, `MPLCONFIGDIR` to `/data2`.
+
+## GenomeOcean track (2026-07-27)
+
+- **`gradient_checkpointing_enable()` is a SILENT NO-OP unless the model is in `.train()` mode.**
+  transformers' `GradientCheckpointingLayer` gates on `self.training`, and `from_pretrained`
+  returns a model in eval mode. Symptom: memory identical with and without checkpointing, and
+  L=10,240 OOM'd at 77 GB. With `model.train()` the same step takes **14 GB**. Also enable
+  checkpointing on the **base** model *before* `get_peft_model`, with
+  `gradient_checkpointing_kwargs={"use_reentrant": False}`. Always assert the flag actually
+  landed (`model.base_model.model.model.gradient_checkpointing`) rather than trusting the call.
+- **`/home` on gputee is 100% full** (1.8 TB shared, ~6 GB free). A `pip install vllm` into
+  `~/.local/share/mamba/envs/` hit ENOSPC mid-install and also broke an unrelated file write.
+  *Fix:* the GenomeOcean env lives at `/data2/ds85/envs/genomeocean`, with
+  `PIP_CACHE_DIR=/data2/ds85/pip_cache` and `TMPDIR` on /data2 too.
+- **vLLM is installed but unusable on gputee.** The vLLM 0.26 wheel is built against CUDA 13
+  (`import vllm` → `ImportError: libcudart.so.13`) and this host's driver is 575.64.03 (CUDA 12.9).
+  torch had to be refitted to `2.11.0+cu128` (and `torchvision`/`torchaudio` **force-reinstalled**
+  to matching `+cu128` builds, or `transformers` dies with
+  `RuntimeError: operator torchvision::nms does not exist`). All GenomeOcean scripts default to
+  the HF `generate()` backend. To recover vLLM: install a cu128-built vLLM release, or driver 580+.
+- **First CUDA generate() call looks catastrophically slow** — ~3 steps/s for the first ~300
+  steps (warmup/JIT), then **74 steps/s** steady. Do not diagnose throughput, or kill a run, off
+  the first minute. Measuring progress by watching `nvidia-smi` memory growth is also unreliable
+  under `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+- **`peft` 0.19 + `torch` 2.5.1 (the `bgcmodel` env) is broken:** `get_peft_model` →
+  `AttributeError: module 'torch' has no attribute 'float8_e8m0fnu'`. GenomeOcean PEFT work must
+  run in the `genomeocean` env (torch 2.11).

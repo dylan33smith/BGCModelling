@@ -1,9 +1,19 @@
 # BCGModelling
 
-Fine-tune **Evo2 7B** (LoRA) to generate novel, correctly-classified **biosynthetic
-gene cluster (BGC)** nucleotide sequences conditioned on biosynthetic **class** and
-taxonomic **lineage** (**Phase 1**). **Phase 2+** adds explicit **compound**
-conditioning for named-product design.
+Fine-tune a genome foundation model to generate novel, correctly-classified
+**biosynthetic gene cluster (BGC)** nucleotide sequences conditioned on biosynthetic
+**class** and taxonomic **lineage** (**Phase 1**). **Phase 2+** adds explicit
+**compound** conditioning for named-product design.
+
+Two model tracks share one dataset and one eval instrument:
+
+| Track | Model | Status |
+|---|---|---|
+| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; prefix class-conditioning **closed as a dead end** (2026-07-21) |
+| [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | under evaluation since 2026-07-27 |
+
+See [`docs/model_comparison_evo2_vs_genomeocean.md`](docs/model_comparison_evo2_vs_genomeocean.md)
+for the head-to-head and the recommendation.
 
 This README is the single current-state entry point. Deep operational runbooks and
 dated audit records are preserved under [`docs/archive/`](docs/archive/); ongoing
@@ -41,16 +51,17 @@ structural decision.
 
 ## Repository layout
 
+Reorganized 2026-07-27 into **shared root + one folder per model track**. Anything
+model-agnostic (dataset pipeline, eval suite, class map, tests) stays at the root so
+both tracks are scored on the same instrument.
+
 ```
+# ---- SHARED ----
 src/bgc_pipeline/evaluation.py   # the eval suite (CHECKS → QUESTIONS); see Evaluation
 src/bgc_pipeline/class_map.py    # load the antiSMASH-product → compound-class map
-scripts/finetune_evo2_lora.py    # training implementation (LoRA on Evo2 7B)
-scripts/queue_h100_production.sh # idle-GPU-gated production launcher (ckpt + auto-resume)
-scripts/queue_h100_smoke.sh      # shared-GPU-safe memory smoke matrix
-scripts/generate_bgc.py          # conditioned generation (sequential; batched gated off)
-scripts/run_eval.sh              # full evaluation after training
-scripts/quick_eval.sh            # fast per-checkpoint functional score
 scripts/eval_suite_driver.py     # batch eval: gen vs positive control, --skip-checks
+scripts/evaluate_bgc.py          # single-sequence eval
+scripts/memorization_check.py    # k-mer novelty vs a reference corpus
 scripts/build_class_map.py       # regenerate config/compound_class_map.yaml (antiSMASH 8)
 scripts/build_core_records.py    # extract strict cores from antiSMASH-DB GBKs
 scripts/{split_dataset_grouped,curate_dataset,dedup_core_splits,exclude_mibig_from_core}.py
@@ -59,8 +70,29 @@ scripts/{calibrate_antismash,validate_antismash_calibration}.py  # antiSMASH cal
 config/compound_class_map.yaml   # antiSMASH/MIBiG product → our 22-class vocabulary
 tests/                           # GPU-free unit tests (run tests/run_all.py)
 docs/project_memory/             # decisions / bugs / progress (working memory)
+docs/model_comparison_evo2_vs_genomeocean.md   # the two-track head-to-head
 docs/archive/                    # archived runbooks, plans, and dated audits
+
+# ---- EVO2 TRACK ----  (see evo2/README.md)
+evo2/scripts/finetune_evo2_lora.py    # training implementation (LoRA on Evo2 7B)
+evo2/scripts/queue_h100_production.sh # idle-GPU-gated production launcher (ckpt + auto-resume)
+evo2/scripts/queue_h100_smoke.sh      # shared-GPU-safe memory smoke matrix
+evo2/scripts/generate_bgc.py          # conditioned generation (sequential; batched gated off)
+evo2/scripts/run_eval.sh              # full evaluation after training
+evo2/scripts/quick_eval.sh            # fast per-checkpoint functional score
+evo2/experiments/{probes,quartz}/     # the probe programme; Quartz long-context staging
+evo2/docs/                            # evo2_lora_and_hyena.md, quartz_setup.md
+
+# ---- GENOMEOCEAN TRACK ----  (see genomeocean/README.md)
+genomeocean/scripts/analyze_tokenization.py        # BPE compression + context fit vs Evo2
+genomeocean/scripts/probe_finetune_feasibility.py  # LoRA / class-token / memory gate
+genomeocean/scripts/generate_bgc_go.py             # replicate their zero-shot BGC generation
+genomeocean/experiments/                           # measurement outputs
+genomeocean/external/                              # upstream clone (gitignored)
 ```
+
+Shell wrappers in `evo2/scripts/` are still invoked **from the repo root**, e.g.
+`evo2/scripts/queue_h100_smoke.sh`.
 
 ---
 
@@ -114,7 +146,7 @@ export HF_HOME=/data2/ds85/hf_cache
 **Production launch** (idle-GPU-gated; persistent tmux; checkpoints + auto-resume):
 
 ```bash
-scripts/queue_h100_production.sh          # waits for a free GPU, then trains
+evo2/scripts/queue_h100_production.sh          # waits for a free GPU, then trains
 ```
 
 Key constraints (H100 80 GB, `L=32768`):
@@ -125,14 +157,14 @@ Key constraints (H100 80 GB, `L=32768`):
   to opt out). No-checkpoint is not viable above short contexts.
 - Memory ceiling: `L=32768` passes with margin; `L=65536` is near-limit; `L=98304` OOMs.
 - Production uses `--long-seq-strategy chunk --chunk-overlap 2048` (deterministic tiling,
-  full nucleotide coverage); pre-build length sidecars with `scripts/build_chunk_index.py`.
+  full nucleotide coverage); pre-build length sidecars with `evo2/scripts/build_chunk_index.py`.
 - Validation: first-window-only (prefix-aligned) loss, length-stratified, with early stopping.
 
 **Smoke / memory matrix** (shared-GPU-safe):
 
 ```bash
-scripts/queue_h100_smoke.sh                          # default lengths
-scripts/queue_h100_smoke.sh --lengths "49152 65536 98304"   # long-context probe
+evo2/scripts/queue_h100_smoke.sh                          # default lengths
+evo2/scripts/queue_h100_smoke.sh --lengths "49152 65536 98304"   # long-context probe
 ```
 
 ---
@@ -170,10 +202,10 @@ units, all sharing one gene caller — **pyrodigal/Prodigal**) combined into **Q
 ```bash
 # Fast per-checkpoint functional score (runs the cheap checks incl. antiSMASH;
 # skips protein_homology + kmer_novelty). Appends a row to eval_track.jsonl.
-scripts/quick_eval.sh <run-dir-or-checkpoint-dir> [out-dir]
+evo2/scripts/quick_eval.sh <run-dir-or-checkpoint-dir> [out-dir]
 
 # Full evaluation after training (generation → novelty → conditioning → suite).
-scripts/run_eval.sh <run-dir-or-checkpoint-dir> [out-dir]
+evo2/scripts/run_eval.sh <run-dir-or-checkpoint-dir> [out-dir]
 
 # Direct driver (named checks; skip by name):
 python scripts/eval_suite_driver.py --gen gen.jsonl --positive pos.jsonl \

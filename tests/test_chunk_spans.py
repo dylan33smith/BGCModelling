@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
 import finetune_evo2_lora as F  # noqa: E402
 
 L = 32768

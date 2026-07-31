@@ -30,12 +30,36 @@ and refresh `progress.md` (state + next actions + the "Last updated" date). Keep
 concise and dated. `README.md` is the consolidated current-state overview — keep it
 consistent whenever behavior, flags, data, or decisions change.
 
+## Repository Layout (reorganized 2026-07-27)
+
+Two model tracks, one shared instrument:
+
+- **Root = SHARED, model-agnostic.** `scripts/` (dataset pipeline + eval drivers),
+  `src/bgc_pipeline/` (eval suite), `config/`, `tests/`, `data/`, `eval/`,
+  `docs/project_memory/`.
+- **`evo2/`** — Evo2-specific: `scripts/` (trainer, generation, queue wrappers,
+  `quick_eval.sh`/`run_eval.sh`), `experiments/{probes,quartz}/`, `docs/`.
+- **`genomeocean/`** — GenomeOcean-specific: `scripts/`, `experiments/`,
+  `external/` (upstream clone, gitignored).
+
+Shell wrappers under `evo2/scripts/` are still run **from the repo root**
+(`evo2/scripts/queue_h100_smoke.sh`). Python scripts under `evo2/scripts/` anchor the
+repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/` use
+`parents[1]`. Tests at `tests/` add **both** `scripts/` and `evo2/scripts/` to
+`sys.path`.
+
 ## Project Snapshot
 
-- Goal: fine-tune Evo2 7B for BGC sequence generation/evaluation.
+- Goal: fine-tune a genome foundation model for BGC sequence generation/evaluation.
 - Current production host focus: `gputee` (single H100 80 GB).
-- Training strategy: LoRA adapters on Evo2 (not full-parameter FT).
-- Orchestration stack: DeepSpeed + PEFT + PyTorch (bf16).
+- **Evo2 track:** LoRA adapters on Evo2 7B (not full-parameter FT); DeepSpeed + PEFT +
+  PyTorch (bf16); env `bgcmodel` (torch 2.5.1+cu124, transformers 4.46.3). This env also
+  carries **antiSMASH 8.0.4 + Pfam**, so both tracks run the eval suite here.
+- **GenomeOcean track (opened 2026-07-27):** GenomeOcean-4B / `bgcFM`, a stock
+  `MistralForCausalLM`; env at `/data2/ds85/envs/genomeocean` (torch 2.11.0**+cu128**,
+  transformers 5.14.1, peft 0.19.1). Invoke with
+  `micromamba run -p /data2/ds85/envs/genomeocean python ...`. See
+  `docs/model_comparison_evo2_vs_genomeocean.md`.
 - Datasets (on `/data2`, see Current Decisions for why):
   - ACTIVE training/eval (v2): `/data2/ds85/bgcmodel_data/splits_core/{train,val,test}.jsonl`
     — strict antiSMASH **core** regions, native lowercase GTDB tags, leakage-clean
@@ -50,21 +74,25 @@ consistent whenever behavior, flags, data, or decisions change.
   `README.md`
 - Live status + next actions:
   `docs/project_memory/progress.md`
+- Evo2 vs GenomeOcean head-to-head (measured, not quoted):
+  `docs/model_comparison_evo2_vs_genomeocean.md`
+- Per-track entry points:
+  `evo2/README.md`, `genomeocean/README.md`
 - Multi-GPU long-context run on IU Quartz (setup + execution guide):
-  `docs/quartz_setup.md`
+  `evo2/docs/quartz_setup.md`
 - Eval suite implementation:
   `src/bgc_pipeline/evaluation.py`
 - Training implementation:
-  `scripts/finetune_evo2_lora.py`
+  `evo2/scripts/finetune_evo2_lora.py`
 - Smoke queue wrapper:
-  `scripts/queue_h100_smoke.sh`
+  `evo2/scripts/queue_h100_smoke.sh`
 - Archived deep runbook / status (not maintained as current):
   `docs/archive/gputee/FINETUNE_GUIDE.md`, `docs/archive/gputee/PROJECT_GUIDE.md`
 
 ## Current Decisions (as of latest smoke sweeps)
 
 - Block-level activation checkpointing is implemented and default-on in
-  `scripts/finetune_evo2_lora.py` (opt out with
+  `evo2/scripts/finetune_evo2_lora.py` (opt out with
   `--no-activation-checkpointing`).
 - Queue smoke runs default to padded train collation via
   `--smoke-pad-to-max-seq-len` so measured memory reflects requested `L`.
@@ -89,7 +117,7 @@ consistent whenever behavior, flags, data, or decisions change.
   --chunk-overlap 2048` (deterministic tiling; full nucleotide coverage; canonical
   prefix from JSON fields; default `--auto-prefix-budget` scans `max_prefix_tokens`
   into sidecar meta). Sidecars: `<dataset-dir>/<split>.lengths.npy` + `.meta.json`
-  (e.g. under `splits_core/`); pre-build lengths with `python scripts/build_chunk_index.py`.
+  (e.g. under `splits_core/`); pre-build lengths with `python evo2/scripts/build_chunk_index.py`.
   The L=32k **pilot** keeps default `--long-seq-strategy truncate` for continuity
   with earlier smoke metrics (`FINETUNE_GUIDE.md` §3, `PROJECT_GUIDE.md` §13).
 - **Loss masking (H3, audit 2026-05-14):** the CE loss is masked over
@@ -135,8 +163,8 @@ consistent whenever behavior, flags, data, or decisions change.
   no longer gates.
 - Active data is `splits_core` (above); the ~18K `splits_curated` curation is superseded
   by the strict-core rebuild (56K → 47.5K after MiBIG exclusion).
-- Per-checkpoint tracking: `scripts/quick_eval.sh` (runs the cheap checks incl. antiSMASH;
-  skips `protein_homology` + `kmer_novelty`). Full eval: `scripts/run_eval.sh`.
+- Per-checkpoint tracking: `evo2/scripts/quick_eval.sh` (runs the cheap checks incl. antiSMASH;
+  skips `protein_homology` + `kmer_novelty`). Full eval: `evo2/scripts/run_eval.sh`.
 - **Adaptive seq-budget slack (H6, audit 2026-05-14):** chunk windows
   reserve `prefix_token_cap + prefix_slack_tokens` tokens before
   filling with nucleotides. Slack is empirically scanned by rank 0 and
@@ -164,25 +192,25 @@ export HF_HOME=/data2/ds85/hf_cache
 Shared-GPU-safe smoke matrix (default lengths):
 
 ```bash
-scripts/queue_h100_smoke.sh
+evo2/scripts/queue_h100_smoke.sh
 ```
 
 Long-context probe:
 
 ```bash
-scripts/queue_h100_smoke.sh --lengths "49152 65536 98304"
+evo2/scripts/queue_h100_smoke.sh --lengths "49152 65536 98304"
 ```
 
 Disable padded smoke collation (diagnostic only):
 
 ```bash
-scripts/queue_h100_smoke.sh --no-smoke-pad-to-max-seq-len
+evo2/scripts/queue_h100_smoke.sh --no-smoke-pad-to-max-seq-len
 ```
 
 Single run sanity:
 
 ```bash
-deepspeed --num_gpus=1 scripts/finetune_evo2_lora.py \
+deepspeed --num_gpus=1 evo2/scripts/finetune_evo2_lora.py \
   --train /data2/ds85/bgcmodel_data/splits_core/val.jsonl \
   --val   /data2/ds85/bgcmodel_data/splits_core/val.jsonl \
   --output-dir /data2/ds85/bgcmodel_runs/ac_sanity \

@@ -291,12 +291,17 @@ class ORF:
 # ATG-only / six-frame fragmentation that split megasynthases) and flags partial
 # (edge-truncated) genes — a free completeness signal for M10. meta=True avoids
 # per-sequence training so it works on a single BGC of any length.
+_GENE_CALLER_ERROR: Optional[str] = None
 try:  # pragma: no cover - import guard
     import pyrodigal as _pyrodigal
     _GENE_FINDER = _pyrodigal.GeneFinder(meta=True)
-except Exception:  # pyrodigal absent -> fall back to legacy six-frame
+except Exception as _gene_caller_exc:  # keep BROAD: an ABI/API break must not crash the import,
+    # but it must not be indistinguishable from "pyrodigal absent" either -- record WHY, and let
+    # find_orfs() raise with the reason. A bare `except Exception` that silently swapped the gene
+    # caller was the most damaging instance of this bug class in the repo (see find_orfs).
     _pyrodigal = None
     _GENE_FINDER = None
+    _GENE_CALLER_ERROR = f"{type(_gene_caller_exc).__name__}: {_gene_caller_exc}"
 
 
 def find_orfs(sequence: str, min_aa: int = 50) -> list[ORF]:
@@ -308,6 +313,24 @@ def find_orfs(sequence: str, min_aa: int = 50) -> list[ORF]:
     """
     seq = sequence.upper()
     if _GENE_FINDER is None:
+        # THE GENE CALLER IS A GATING RESOURCE. find_orfs feeds check_coding_sanity (whose `pass`
+        # IS the is_bgc verdict whenever antiSMASH is skipped), class_markers, foldability and
+        # homology. Silently swapping Prodigal for the RETIRED six-frame scanner changes the
+        # instrument mid-series with no marker. Measured on one real 9.4 kb PKS core:
+        #   coding_density         0.9736 -> 1.0
+        #   n_orfs                 9      -> 35     (megasynthase fragmentation — the exact
+        #                                            failure the 2026-06-17 rewrite retired)
+        #   complete_gene_fraction 0.889  -> 1.0    (PINNED: the six-frame path never sets
+        #                                            ORF.partial, so 100% of genes read complete)
+        # None of that was recorded anywhere in the result dict.
+        if _strict_resources():
+            raise EvalResourceError(
+                "find_orfs: pyrodigal gene caller unavailable"
+                + (f" ({_GENE_CALLER_ERROR})" if _GENE_CALLER_ERROR else "")
+                + ". Falling back to the RETIRED six-frame scanner would change coding_density, "
+                  "n_orfs and pin complete_gene_fraction to 1.0 with no marker. Install pyrodigal, "
+                  "or set BGC_EVAL_STRICT=0 to accept the degraded caller."
+            )
         return _find_orfs_sixframe(seq, min_aa)
     orfs: list[ORF] = []
     for gene in _GENE_FINDER.find_genes(seq.encode()):
@@ -370,6 +393,56 @@ def _find_orfs_sixframe(sequence: str, min_aa: int = 50) -> list[ORF]:
 # Check: antismash — BGC detection + class (is_bgc / correct_class)
 # ---------------------------------------------------------------------------
 
+
+class EvalResourceError(RuntimeError):
+    """A required evaluation resource is missing (database, HMM file, class map, binary).
+
+    THIS IS A CONFIGURATION BUG, NOT A PROPERTY OF THE SEQUENCE. It must never be reported as a
+    measurement. Measured 2026-07-31, three instances in one afternoon, each producing output
+    indistinguishable from a real research result:
+
+      * check_antismash without `databases_dir`      -> every sequence "skipped"; looked like a
+        broken antiSMASH install and nearly triggered a 15 GB re-download.
+      * check_antismash without `class_map`          -> antiSMASH emits "T1PKS"/"lanthipeptide-
+        class-i" while our vocabulary is "PKS"/"RIPP", so class_match compares raw strings. REAL
+        held-out cores scored correct_class 0.125 instead of 0.750 -- i.e. exactly like "the model
+        cannot produce the right class", the central claim of this project.
+      * check_class_markers without `pfam_hmm_path`  -> every sequence skipped; a caller doing
+        bool(r.get("markers_present")) turned "could not measure" into "measured absent" and
+        produced an all-zero Phase 3 table.
+
+    A crash announces itself. A silent skip that a caller coerces to False does not -- and this
+    project already lost weeks to a 0/30 that was an instrument artifact. Hence: raise.
+
+    Escape hatch: BGC_EVAL_STRICT=0 restores the old skip-and-continue behaviour globally, for
+    the deliberately-optional checks or for triage on a partially-provisioned host.
+    """
+
+
+def _strict_resources() -> bool:
+    return os.environ.get("BGC_EVAL_STRICT", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _resource_missing(result: dict[str, Any], reason: str, *, gating: bool = True) -> dict[str, Any]:
+    """Handle a missing resource.
+
+    `gating=True`  -> the check owns a GATE (is_bgc / correct_class). Raise: a gate that cannot
+                      be evaluated must stop the run, never quietly become a negative.
+    `gating=False` -> a diagnostic/opt-in check (foldability, homology). Skip, but tag
+                      `skip_kind="resource"` so a caller can tell "not configured" apart from
+                      "measured absent".
+    """
+    if gating and _strict_resources():
+        raise EvalResourceError(
+            f"{result.get('check', 'check')}: {reason}. This is a missing resource, not a "
+            f"result -- fix the configuration, or set BGC_EVAL_STRICT=0 to downgrade to a skip."
+        )
+    result["skipped"] = True
+    result["skip_kind"] = "resource"
+    result["reason"] = reason
+    return result
+
+
 def check_antismash(
     sequence: str,
     accession: str = "query",
@@ -381,7 +454,7 @@ def check_antismash(
     """Run antiSMASH on a sequence and check predicted BGC class.
 
     ``databases_dir`` points antiSMASH at a databases root installed outside the
-    package default (we keep them on /data2; see scripts/run_eval.sh). When None,
+    package default (we keep them on /data2; see evo2/scripts/run_eval.sh). When None,
     antiSMASH uses its built-in default path.
     """
     result: dict[str, Any] = {"check": "antismash"}
@@ -405,9 +478,7 @@ def check_antismash(
                 cmd, capture_output=True, text=True, timeout=timeout, check=False,
             )
         except FileNotFoundError:
-            result["skipped"] = True
-            result["reason"] = "antismash not installed"
-            return result
+            return _resource_missing(result, "antismash not installed", gating=True)
         except subprocess.TimeoutExpired:
             result["skipped"] = True
             result["reason"] = f"timeout after {timeout}s"
@@ -441,6 +512,19 @@ def check_antismash(
                 # in load_class_map; ANY mapped product matching = right class).
                 if class_map:
                     mapped = {class_map.get(p.lower(), "OTHER") for p in all_products}
+                elif expected_class:
+                    # NO SKIP HERE -- this branch silently returns WRONG classes. antiSMASH emits
+                    # "T1PKS"/"lanthipeptide-class-i"; our vocabulary is "PKS"/"RIPP". Comparing
+                    # raw uppercased products scored REAL held-out cores at correct_class 0.125
+                    # instead of 0.750 -- indistinguishable from "the model cannot produce the
+                    # right class". Only raise when a class verdict was actually requested;
+                    # detection-only callers legitimately need no map.
+                    return _resource_missing(
+                        result,
+                        "expected_class was requested but no class_map supplied — mapped_classes "
+                        "would be raw antiSMASH products and class_match would be silently wrong. "
+                        "Load config/compound_class_map.yaml via bgc_pipeline.class_map.load_class_map",
+                        gating=True)
                 else:
                     mapped = {p.upper() for p in all_products}
                 result["mapped_classes"] = sorted(mapped)
@@ -468,13 +552,14 @@ def check_antismash(
             # BGC: detected=False) from "antismash could not run" (rc!=0, no JSON —
             # almost always missing DBs). The latter taught us nothing → SKIP.
             if proc.returncode != 0:
-                result["skipped"] = True
-                result["reason"] = (
-                    f"antismash exited {proc.returncode} without results "
-                    "(prerequisite DBs not downloaded? run download-antismash-databases)"
-                )
                 if proc.stderr:
                     result["stderr_tail"] = proc.stderr.strip()[-500:]
+                return _resource_missing(
+                    result,
+                    f"antismash exited {proc.returncode} without results — prerequisite DBs "
+                    f"missing. Pass databases_dir=/data2/ds85/antismash_db (they are NOT in the "
+                    f"package directory, which holds only a README)",
+                    gating=True)
             else:
                 result["detected"] = False
                 result["class_match"] = False
@@ -506,14 +591,15 @@ def check_class_markers(
         from pyhmmer.easel import TextSequence, Alphabet
         from pyhmmer.plan7 import HMMFile
     except ImportError:
-        result["skipped"] = True
-        result["reason"] = "pyhmmer not installed"
-        return result
+        return _resource_missing(result, "pyhmmer not installed", gating=True)
 
-    if pfam_hmm_path is None or not pfam_hmm_path.exists():
-        result["skipped"] = True
-        result["reason"] = f"Pfam HMM not found at {pfam_hmm_path}"
-        return result
+    if pfam_hmm_path is None or not Path(pfam_hmm_path).exists():
+        return _resource_missing(
+            result,
+            f"Pfam HMM not found at {pfam_hmm_path} (expected /data2/ds85/pfam/Pfam-A.hmm). "
+            f"Without it EVERY sequence skips, and a caller coercing markers_present to bool "
+            f"reads that as 'markers absent'",
+            gating=True)
 
     orfs = find_orfs(sequence)
     result["orf_count"] = len(orfs)
@@ -613,9 +699,7 @@ def check_protein_foldability(
         import torch
         from transformers import AutoTokenizer, EsmForProteinFolding
     except ImportError:
-        result["skipped"] = True
-        result["reason"] = "transformers not installed (pip install transformers==4.46.3 accelerate)"
-        return result
+        return _resource_missing(result, "transformers not installed (pip install transformers==4.46.3 accelerate)", gating=False)
 
     orfs = find_orfs(sequence)[:max_orfs]
     result["orf_count"] = len(orfs)
@@ -633,9 +717,7 @@ def check_protein_foldability(
         )
         model = model.to(device).eval()
     except Exception as e:
-        result["skipped"] = True
-        result["reason"] = f"ESMFold model load failed: {e}"
-        return result
+        return _resource_missing(result, f"ESMFold model load failed: {e}", gating=False)
 
     orf_results: list[dict[str, Any]] = []
     for i, orf in enumerate(orfs):
@@ -874,9 +956,7 @@ def check_protein_homology(
     try:
         subprocess.run(["mmseqs", "version"], capture_output=True, timeout=10, check=False)
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        result["skipped"] = True
-        result["reason"] = "mmseqs2 not installed"
-        return result
+        return _resource_missing(result, "mmseqs2 not installed", gating=False)
 
     orfs = find_orfs(sequence)
     result["orf_count"] = len(orfs)
@@ -892,9 +972,7 @@ def check_protein_homology(
                 f.write(f">orf_{i}_len{len(orf.aa_seq)}\n{orf.aa_seq}\n")
 
         if db_path is None:
-            result["skipped"] = True
-            result["reason"] = "no database path provided (need UniRef50 MMseqs2 DB)"
-            return result
+            return _resource_missing(result, "no database path provided (need UniRef50 MMseqs2 DB)", gating=False)
 
         result_tsv = Path(tmp) / "result.tsv"
         tmpdir = Path(tmp) / "mmseqs_tmp"
@@ -1077,7 +1155,13 @@ def check_coding_sanity(sequence: str, min_aa: int = 50) -> dict[str, Any]:
     res.update({
         "coding_density": coding_density, "n_orfs": len(orfs),
         "mean_orf_aa": round(sum(aa) / len(aa), 1) if aa else 0, "max_orf_aa": max_aa,
-        "complete_gene_fraction": round(complete / len(orfs), 3) if orfs else 0.0,
+        # complete_gene_fraction is only meaningful under Prodigal, which flags edge-truncated
+        # genes. The six-frame fallback never sets ORF.partial, so this would be exactly 1.0 for
+        # every sequence -- a fabricated "every gene is complete". Report None instead, and stamp
+        # the caller so a reader can never mistake one instrument's numbers for the other's.
+        "complete_gene_fraction": (round(complete / len(orfs), 3) if orfs else 0.0)
+                                  if _GENE_FINDER is not None else None,
+        "gene_caller": "prodigal" if _GENE_FINDER is not None else "sixframe_DEGRADED",
         "dinuc_entropy": dinuc_entropy,
         # gene-rich + a substantial gene + non-degenerate sequence complexity.
         "pass": coding_density >= 0.5 and len(orfs) >= 1 and max_aa >= 100 and dinuc_entropy >= 2.5,

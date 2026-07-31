@@ -12,6 +12,7 @@ Run: python tests/test_eval_metrics.py
 """
 
 import random
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
 import eval_conditioning_adherence as E  # noqa: E402
 import finetune_evo2_lora as F  # noqa: E402
 
@@ -126,16 +128,31 @@ def test_metric1_skips_when_tool_cannot_run():
 
     orig = _sp.run
     try:
+        # CONTRACT CHANGED 2026-07-31: a tool that COULD NOT RUN is a configuration bug, not a
+        # measurement. It now RAISES instead of skipping, because three separate silent skips in
+        # one afternoon produced tables indistinguishable from real negative results.
         _sp.run = lambda *a, **k: _Proc(1)         # tool present but exits 1, writes no JSON
-        r = ev.check_antismash("ACGT" * 50, expected_class="NRPS")
-        assert r.get("skipped") is True and "pass" not in r, r
+        try:
+            ev.check_antismash("ACGT" * 50, expected_class="NRPS")
+            raise AssertionError("expected EvalResourceError for a tool that could not run")
+        except ev.EvalResourceError:
+            pass
+        # ...and BGC_EVAL_STRICT=0 must still downgrade it to the old skip, for triage on a
+        # partially-provisioned host.
+        os.environ["BGC_EVAL_STRICT"] = "0"
+        try:
+            r = ev.check_antismash("ACGT" * 50, expected_class="NRPS")
+            assert r.get("skipped") is True and "pass" not in r, r
+            assert r.get("skip_kind") == "resource", r
+        finally:
+            os.environ.pop("BGC_EVAL_STRICT", None)
         _sp.run = lambda *a, **k: _Proc(0)         # ran cleanly, still no region found
         r0 = ev.check_antismash("ACGT" * 50, expected_class="NRPS")
         assert r0.get("skipped") is not True and r0.get("pass") is False, r0
         assert r0.get("detected") is False, r0     # clean run, no cluster -> not a BGC
     finally:
         _sp.run = orig
-    print("PASS antismash: failed-to-run skips; clean-but-empty -> detected=False/FAIL")
+    print("PASS antismash: failed-to-run RAISES (strict) / skips (BGC_EVAL_STRICT=0); clean-but-empty -> detected=False/FAIL")
 
 
 def test_eval_suite_driver_wires_dbs():
@@ -143,6 +160,7 @@ def test_eval_suite_driver_wires_dbs():
     class_markers/protein_homology can run; absent/nonexistent paths leave them
     unset (self-skip)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
     import eval_suite_driver as D
     import bgc_pipeline.evaluation as ev
@@ -169,6 +187,7 @@ def test_eval_suite_driver_wires_dbs():
 
 def test_eval_suite_aggregation():
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
     import eval_suite_driver as D
     results = [
@@ -201,6 +220,7 @@ def test_gate_keyed_headline():
     """Headline keys off the 3 gate QUESTIONS (is_bgc, correct_class, novel). The
     diagnostics never gate acceptance."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
     import eval_suite_driver as D
     from bgc_pipeline.evaluation import GATE_QUESTIONS, DIAGNOSTIC_QUESTIONS

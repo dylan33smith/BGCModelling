@@ -1,0 +1,144 @@
+{
+ "model": "pGenomeOcean/GenomeOcean-4B-bgcFM",
+ "target": "compound_class",
+ "restrict_phylum": "Pseudomonadota",
+ "n": 931,
+ "n_classes": 9,
+ "classes": [
+  "ARYLPOLYENE",
+  "BETALACTONE",
+  "ECTOINE",
+  "HSERLACTONE",
+  "NRPS",
+  "PKS",
+  "PKS_NRPS_HYBRID",
+  "RIPP",
+  "TERPENE"
+ ],
+ "chance": 0.111,
+ "max_nt": 4096,
+ "best_layer": 8,
+ "best_balanced_acc": 0.907,
+ "best_shuffled_acc": 0.13,
+ "layers": [
+  {
+   "layer": 0,
+   "balanced_acc": 0.415,
+   "shuffled_acc": 0.101,
+   "gap": 0.314,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.475,
+    "BETALACTONE": 0.541,
+    "ECTOINE": 0.444,
+    "HSERLACTONE": 0.425,
+    "NRPS": 0.458,
+    "PKS": 0.35,
+    "PKS_NRPS_HYBRID": 0.347,
+    "RIPP": 0.25,
+    "TERPENE": 0.442
+   }
+  },
+  {
+   "layer": 4,
+   "balanced_acc": 0.818,
+   "shuffled_acc": 0.11,
+   "gap": 0.708,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.912,
+    "BETALACTONE": 0.928,
+    "ECTOINE": 0.911,
+    "HSERLACTONE": 0.875,
+    "NRPS": 0.692,
+    "PKS": 0.775,
+    "PKS_NRPS_HYBRID": 0.632,
+    "RIPP": 0.792,
+    "TERPENE": 0.842
+   }
+  },
+  {
+   "layer": 8,
+   "balanced_acc": 0.907,
+   "shuffled_acc": 0.13,
+   "gap": 0.777,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.962,
+    "BETALACTONE": 0.982,
+    "ECTOINE": 0.911,
+    "HSERLACTONE": 0.958,
+    "NRPS": 0.833,
+    "PKS": 0.875,
+    "PKS_NRPS_HYBRID": 0.705,
+    "RIPP": 0.975,
+    "TERPENE": 0.958
+   }
+  },
+  {
+   "layer": 12,
+   "balanced_acc": 0.904,
+   "shuffled_acc": 0.117,
+   "gap": 0.787,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.95,
+    "BETALACTONE": 0.973,
+    "ECTOINE": 0.911,
+    "HSERLACTONE": 0.967,
+    "NRPS": 0.825,
+    "PKS": 0.883,
+    "PKS_NRPS_HYBRID": 0.716,
+    "RIPP": 0.95,
+    "TERPENE": 0.958
+   }
+  },
+  {
+   "layer": 16,
+   "balanced_acc": 0.885,
+   "shuffled_acc": 0.113,
+   "gap": 0.772,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.925,
+    "BETALACTONE": 0.946,
+    "ECTOINE": 0.911,
+    "HSERLACTONE": 0.95,
+    "NRPS": 0.833,
+    "PKS": 0.842,
+    "PKS_NRPS_HYBRID": 0.726,
+    "RIPP": 0.9,
+    "TERPENE": 0.933
+   }
+  },
+  {
+   "layer": 20,
+   "balanced_acc": 0.869,
+   "shuffled_acc": 0.122,
+   "gap": 0.747,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.925,
+    "BETALACTONE": 0.955,
+    "ECTOINE": 0.911,
+    "HSERLACTONE": 0.95,
+    "NRPS": 0.767,
+    "PKS": 0.825,
+    "PKS_NRPS_HYBRID": 0.716,
+    "RIPP": 0.867,
+    "TERPENE": 0.908
+   }
+  },
+  {
+   "layer": 24,
+   "balanced_acc": 0.832,
+   "shuffled_acc": 0.109,
+   "gap": 0.722,
+   "per_class_recall": {
+    "ARYLPOLYENE": 0.888,
+    "BETALACTONE": 0.892,
+    "ECTOINE": 0.889,
+    "HSERLACTONE": 0.925,
+    "NRPS": 0.7,
+    "PKS": 0.792,
+    "PKS_NRPS_HYBRID": 0.674,
+    "RIPP": 0.85,
+    "TERPENE": 0.875
+   }
+  }
+ ]
+}

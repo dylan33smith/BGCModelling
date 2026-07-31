@@ -6,7 +6,7 @@ a drop-in for the sequential path (generate_one): same per-record schema, same
 ordering, same values — the only difference is one batched wrapper.generate()
 call instead of N. These tests mock wrapper.generate so the assembly logic is
 exercised without loading the 7B model; on-GPU equivalence of the actual
-generation is verified separately by scripts/validate_batched_generation.py.
+generation is verified separately by evo2/scripts/validate_batched_generation.py.
 
 Run: python tests/test_generation_batched.py   (also pytest-discoverable)
 """
@@ -16,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
 import generate_bgc as G  # noqa: E402
 
 

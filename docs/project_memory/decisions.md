@@ -245,3 +245,289 @@ build complete, antiSMASH-recognizable class machinery. This is a clear step up 
 into per-class adapters, first rule out under-training (early stop fired at epoch ~0.97 with
 val loss still drifting) and the tiny-n eval — train longer / re-eval with more sequences,
 then revisit. See [progress.md](progress.md) "Next actions".
+
+### Native-format alignment is LOW leverage for CLASS conditioning (2026-07-21, workflow-verified)
+
+Investigated whether re-aligning our conditioning prefix to Evo2's native pretraining
+format is a lever for **class** conditioning. Verdict from code + the Evo2 paper +
+an adversarial refutation pass (all converged; citations below): **no — spend effort on
+CFG / per-class adapters instead, keep the GTDB tag as-is.**
+
+- **Taxonomy tag is already native.** Our `|d__…;p__…;…;s__…|` is byte-for-byte Evo2's
+  only structured pretraining conditioning field (lowercase 7-rank GTDB, pipe-wrapped,
+  semicolon-separated, loss-masked, node-level `random_lineage_dropout`). No lever left
+  there. NB the native `c__` rank is *taxonomic* class (Gammaproteobacteria), **not**
+  biosynthetic product class.
+- **Evo2 has ZERO native handle for product/function class.** Complete conditioning
+  special-token inventory = GTDB phylo-tags + structural contig-stitch tokens `@`/`#`
+  (Methods §4.1.2/4.1.3); functional priorities enter via *data weighting/windowing*,
+  not tokens. CharLevelTokenizer is pure byte-level (vocab 512; reserved eod 0/eos 0/pad 1),
+  so `|COMPOUND_CLASS:X|` tokenizes as raw UTF-8 with no dedicated encoding — LoRA must
+  install class→sequence from scratch through the low-rank bottleneck. Reformatting cannot
+  recruit a prior that does not exist.
+- **Arc's own precedent = our exact pattern.** cas9/cas12/cas13 functional conditioning was
+  a *separate finetuning stage* (prepend token + finetune on 8 kb sequences), not a base
+  prior — confirming prepend-token+finetune *can* install functional conditioning, but note
+  they used full-FT on a single coherent protein family vs. our LoRA on multi-gene BGCs
+  (harder + thinner).
+- **Two cheap ideas the investigation surfaced (queued, not levers-by-themselves):**
+  (1) **Position-0 collision hypothesis** — our class block sits at byte 0, exactly where
+  Evo2's prior expects the leading `|…|` to be *lineage*; it may corrupt the native
+  lineage-reading pathway. Test by moving class *after* the tax tag or folding it in as a
+  pseudo-rank `|d__…;s__…;b__<class>|`. Requires a retrain (adapter learned class-first), so
+  **bundle with the next CFG-dropout retrain**, treat as formatting hygiene not a lever.
+  (2) **Nucleotide-context seeding** — the one *native* functional handle: seed with a real
+  class-diagnostic ORF (NRPS C-A-T / PKS KS-AT-ACP nt context) and see if Evo2 continues
+  in-class (it autonomously learned coding/protein features). Pure-inference, no retrain —
+  worth a cheap diagnostic alongside CFG.
+- **Consequence for the fork:** levers ranked CFG (option 1) > per-class/class-embedded
+  adapters (option 3) ≫ native-format alignment (~option 4, low). CFG diagnostic scaffolding
+  written: `evo2/scripts/cfg_generate.py` + `experiments/probes/run_cfg_diagnostic.sh` (two-stream
+  CFG on the existing v2 adapter, cond=`|COMPOUND_CLASS:X|{tax}` vs uncond=`{tax}`, w-sweep,
+  w=1↔non-cached-oracle correctness gate).
+- Citations: `vortex/model/tokenizer.py:126-193`; `evo2/utils.py:35-75` (make_phylotag_from_gbif);
+  `evo2/configs/evo2-7b-262k.yml`; BioNeMo Evo2 Data-Prep docs (Evo2TaxonomyLineage,
+  random_lineage_dropout); Evo2 paper Methods §4.1.2/4.1.3; Arc cas9/cas12/cas13 finetune.
+
+### CFG (classifier-free guidance) diagnostic — the #1 lever, built (2026-07-21)
+
+Since no native class prior exists, we amplify the (present-but-weak: ratio ~1.08, near-floor
+correct_class) class signal at **sampling time** rather than via more capacity/data.
+`evo2/scripts/cfg_generate.py` + `experiments/probes/run_cfg_diagnostic.sh` run two-stream CFG on the
+**existing v2 adapter (no retrain)**: per step, `cond = |COMPOUND_CLASS:X|{tax}` and
+`uncond = {tax}` (class dropped) each produce next-token logits; sample from
+`logits = uncond + w·(cond − uncond)`, sweeping `w∈{1,3,5}`. Rising correct_class with `w` ⇒ signal
+is real and amplifiable ⇒ retrain with random class-dropout + CFG. Flat ⇒ per-class adapters.
+**Caveat:** v2 was NOT trained with class-dropout, so `uncond` is a *proxy* null, not a learned one —
+a high-`w` coherence collapse (coding_density/is_bgc) is the expected OOD failure mode, read
+cautiously; the clean version retrains with dropout first. **Correctness gate:** at `w=1`, CFG
+reduces to plain conditional, so it must equal an independent non-cached-recompute greedy
+token-for-token; the runner aborts on mismatch before trusting any `w>1` number. We drive
+`wrapper.model(x, inference_params_dict=…)` directly for two states rather than the high-level
+`generate()` (see [bugs.md](bugs.md): single-token-resume `seqlen_offset`). Read via the SHORT
+classes (terpene/ectoine/betalactone) where 8 kb fully covers the cluster (no truncation confound).
+
+**Result (2026-07-21):** validation gate PASSED (bookkeeping correct). Sweep w∈{1,3,5}: correct_class
+0.067 → **0 → 0** while coding_density collapses 0.903 → 0.257 → **0.0**. Amplifying the class
+direction did NOT raise correct_class — it pushed the model OOD into gibberish, with no transient
+lift. **No amplifiable class signal** (consistent with the no-native-prior finding above). Caveat:
+v2 wasn't trained with class-dropout, so the high-w collapse is partly the expected untrained-null
+failure — so this doesn't fully rule out a *trained*-null CFG. Paired with the n=15 simple-class
+confirmation (v2 correct_class 0.013, **base-Evo2 0.0** — LoRA adds coherence, not class), every
+prefix-conditioning lever is now negative. **Leaning: per-class adapters** (resolves the "Open
+architectural fork" toward per-class). Cheap tie-breakers before committing: a finer w-sweep
+{1.5,2.0,2.5} (lift before OOD collapse?) and nucleotide-context seeding.
+
+**Nucleotide-context seeding diagnostic (`evo2/scripts/seed_generate.py`, 2026-07-22).** The one *native*
+functional handle Evo2 offers: prompt with the first ~2 kb of a REAL class-X core (its assembly-line
+start) and let the model continue. Scores **continuation-only** — vortex `generate()` returns
+generation with the prompt stripped, so the seed never enters the score and a correct-class result is
+the model's own contribution, not seed leakage through antiSMASH. Arms: **base Evo2 + seed, no class
+tag** (purest native-handle test) and **v2 + seed + class tag** (best practical). Read vs the no-seed
+floor (~0.01-0.07 v2, ~0 base): a large lift ⇒ seeding is a usable control handle (provide a starter
+gene → model extends the cluster in-class); flat ⇒ even a real exemplar doesn't hold the class.
+
+**Outcome (2026-07-22):** the finer CFG sweep confirmed no amplifiable signal (correct_class flat
+through w≤2, then collapses). Seeding gave a lift — v2+seed agg correct_class 0.37 on megasynthases;
+base+seed 0/30 — but a next-directions workflow adversary rates it **likely-inflated**: (1) trivial
+gene-continuation (the model may just finish the seeded megasynthase ORF — the tight is_bgc↔
+correct_class coupling is that signature), (2) memorization (novelty was skipped), (3) confounded arm
+(v2+seed+tag never isolated from v2+seed+no-tag). **Gated:** do not build on seeding until a
+de-confound factorial settles it — 2×2 {base,v2}×{tag,no-tag} with seeds fixed, novelty gate ON,
+housekeeping-seed negative, codon-truncated boundary (no ORF crosses seed→continuation), n≥15/class.
+Parallel cheap gate for the whole program: a **class linear-probe** on Evo2 hidden states of real
+cores (separable ⇒ decoding/steering problem, cheap fixes viable; not separable ⇒ must INSTALL a
+representation — the only thing that justifies Quartz long-context).
+
+### RESOLVED 2026-07-27/28: it's a STEERING problem, and seeding is exemplar- not label-conditioning
+
+- **Probe verdict: class IS represented.** base Evo2 balanced_acc **0.911** (chance 0.091, shuffled
+  0.089, n=991/11 classes); the v2 adapter is identical (0.906) so it added no class representation.
+  Class peaks **mid-network (L16)** and **fades to 0.414 by L31** — i.e. the information exists but
+  is not carried into the next-token distribution. **Decision: stop trying to INSTALL a class
+  representation** (this de-prioritizes per-class adapters AND Quartz long-context for this purpose)
+  **and start STEERING/DECODING with it.** The probe head doubles as the fast class scorer that
+  guided decoding needs (one matmul at L16).
+- **Seeding verdict: real but exemplar-driven.** All pre-registered criteria passed — novelty
+  (420/420 PASS, max containment 0.024 ⇒ memorization ruled out), codon-truncation holds (0.217),
+  shuffled seed collapses (0.0), leak 0. **But** the mismatch arm shows the continuation follows the
+  **seed** (0.317) not the **tag** (0.067), and v2_notag == v2_tag ⇒ **the tag is inert**. So the
+  honest claim is **exemplar-conditioned generation** ("extend/diversify a given cluster"), not
+  label-conditioned de-novo generation; true effect ~0.283 (the n=10 pilot's 0.37 was optimistic).
+  The adapter is still required (base_notag 0.0 → v2_notag 0.283).
+- Together: **Evo2 knows the class but won't act on a label; it will act on an exemplar.** That is
+  the project's core scientific finding and the basis for the next phase (steering + guided decoding,
+  composed with retrieval-based exemplar seeding).
+
+---
+
+## 2026-07-27 — Repo split into two model tracks; GenomeOcean opened as a candidate substrate
+
+**Decision: reorganize into `evo2/` + `genomeocean/` with shared infrastructure at the root.**
+The dataset pipeline (`scripts/`), eval suite (`src/bgc_pipeline/evaluation.py` + its drivers),
+class map (`config/`) and tests stay at the repo root; only model-specific code moved. *Why:*
+the eval suite is the comparison instrument. Forking it per model (the obvious "two independent
+folders" layout) would let the two copies drift and make any Evo2-vs-GenomeOcean number
+untrustworthy. One dataset, one antiSMASH gate, two models. `tests/run_all.py` passes after the
+move; `tests/` adds both `scripts/` and `evo2/scripts/` to `sys.path`.
+
+**Decision: evaluate GenomeOcean-4B/`bgcFM` as a replacement substrate — but do NOT retire Evo2 yet.**
+Measured on gputee against `splits_core` (`genomeocean/experiments/*.json`,
+`docs/model_comparison_evo2_vs_genomeocean.md`):
+
+- *The reason that matters:* GenomeOcean is a stock `MistralForCausalLM` with a **4,096-entry BPE
+  vocabulary and 5 special tokens**, so a compound-class tag can be a **real token with its own
+  trainable embedding row and output logit** (verified: 22 `[CLS_*]` tokens added, vocab 4096→4118,
+  `[CLS_NRPS]` → single atomic id 4096, both `embed_tokens` and `lm_head` resized since
+  `tie_word_embeddings=false`, ~0 GB cost). On Evo2's byte-level `CharLevelTokenizer` a class tag is
+  just bytes with no pretrained prior — the mechanism we identified on 2026-07-21 as *the* reason
+  conditioning failed. This does not guarantee conditioning works; it removes the diagnosed cause.
+- *Throughput:* L=10,240 tok (52.7 kb) trains in **14.0 GB**; **bs=8 fits in 54.8 GB**. Evo2 at
+  L=32,768 fits only `bs=1`. ~12.8× more nucleotides per micro-step, and generation at 74 steps/s
+  × batch 24 ≈ 1,800 tok/s (~9,200 bp/s) on the plain HF backend. This directly attacks the
+  project's chronic n≈15 evaluation ceiling, which has already overturned two conclusions.
+- *Context, stated honestly:* on **strict cores** the advantage is modest (mega whole-fit 0.966 vs
+  0.892) — context is not the differentiator on today's data and should not be used to sell the
+  switch. On **whole antiSMASH regions** it is decisive: median mega region 47.2 kb ⇒ Evo2 fits
+  **0%** whole, GenomeOcean **64%**. Probe C (2026-07-07) said the lever is seeing the *complete
+  cluster*; that experiment is unrunnable on Evo2 at one GPU and runnable here today.
+- *What it does NOT give us:* `bgcFM` is **unconditional**. It was fine-tuned on 1.72M dedup'd SMC
+  BGCs with no product label; their T1PKS figure is a best-of-258,260 filtering result (4.3%
+  antiSMASH-positive, their number), not a conditioned generation. There is also no public
+  fine-tuning script, and the `gmeval` repo cited in their Methods is 404.
+- *Costs:* 4B < 7B capacity; metagenome-trained, so our **GTDB lineage tags have no pretrained
+  meaning** and taxon conditioning would need re-installing or dropping; SMC↔`splits_core` leakage
+  is **unquantified** and must be measured before any novelty claim; BPE changes the basis for
+  k-mer novelty calibration.
+
+**Next experiment stays the same, but moves hosts:** the class linear-probe (progress.md action 3b)
+is still the gating question — *is compound class linearly decodable from hidden states?* — and it is
+cheaper on GenomeOcean (forward passes only, 4B, 5× fewer tokens). Run it on both; if it separates on
+GenomeOcean-bgcFM and not Evo2, that is a decisive, cheap reason to switch. If it fails on both, the
+problem is the data and no model swap fixes it.
+
+## Activation steering — scaling parameterization (2026-07-29)
+
+**Decision: steering strength is expressed in THREE explicit modes, and the coherence axis is
+`--delta-norm` (absolute perturbation magnitude), not `--beta`.**
+
+*Why.* The class direction norms at layer 16 span 17× (TERPENE 1.05 … ECTOINE 17.75). Two
+different things we want to hold constant across classes are therefore in direct conflict:
+
+| quantity | held constant by | what it controls |
+|---|---|---|
+| semantic push (class-mean offsets) | `--beta` | how far toward class X we move |
+| physical perturbation ‖delta‖ | `--delta-norm` (or `--alpha`, relative) | whether the model survives |
+
+You cannot hold both. Measured 2026-07-29: coherence damage tracks ‖delta‖, so **titrate
+coherence on `--delta-norm`**, then convert the surviving ceiling into a per-class β via
+`β = ‖delta‖_max / ‖v_class‖`. Every generated record now carries `steer_v_norm`,
+`steer_applied_norm`, `steer_beta_equiv` so the two axes are always recoverable.
+
+*Consequence, stated up front:* holding magnitude constant makes the semantic push vary
+inversely. At ‖delta‖=2, TERPENE receives 1.90 class-mean offsets but ECTOINE only 0.11. If the
+coherence ceiling lands low, **large-‖v‖ classes (ECTOINE, NRPS) may be un-steerable at layer 16
+by this method** — a limit of the approach, not a tunable parameter.
+
+## The LoRA supplies BGC-ness, not class — so base Evo2 is a control, not a fallback (2026-07-30)
+
+**Decision: run Phases 0–4 on the v2 adapter, and add a BASE-model arm at Phase 1 as a
+scientific control.**
+
+*Why.* Measured, base vs v2:
+
+| | base Evo2 | v2 (fine-tuned) |
+|---|---|---|
+| class readable at L16 | **0.9107** | 0.9062 |
+| coding density | 0.606 | **0.893** |
+| is_bgc (simple classes) | 0.00 | **0.12** |
+| is_bgc, seeded | 0.183 | **0.417** |
+| correct_class | ~0 | ~0 |
+
+The fine-tune contributes **nothing** to class representation (base is marginally better) while
+substantially improving the model's ability to write gene-cluster-like DNA at all. It therefore
+does **job (1) of the seed** ("write a BGC") and not job (2) ("write THIS class") — see "The seed
+does TWO jobs". This explains the whole conditioning history: coherent BGCs, zero class control.
+
+*Consequences.*
+- **Phase 4 needs v2**: with no seed, the adapter is the only thing supplying BGC-ness
+  (is_bgc 0.00 → 0.12). Probably still not enough — hence the proposed "BGC-ness" direction.
+- **Phase 1b (base arm) is cheap and diagnostic**: `acts_base.npz` is already cached so directions
+  are a CPU build; only the causal tests need GPU (~1 h). If steering works on base, the result is
+  a property of **Evo2 itself** rather than of our fine-tune — much stronger, and requires no
+  training. If it works *better* on base, the fine-tune has dampened the class→output path
+  (plausible: it was trained with class tags it learned to ignore), and only this test catches it.
+
+*Stated limit.* "The LoRA adds no class information" rests on a single probe comparison
+(0.9107 vs 0.9062, n=991). That is *linearly readable* class content only. It does not exclude
+the fine-tune changing how **usable** that content is downstream — exactly what the base-vs-v2
+steering comparison would measure, and what nothing run so far addresses.
+
+## ⚠ OPEN DEBT: steering directions are fit on val+test — revisit the splits before publishing (2026-07-30)
+
+**Decision: fitting directions on a genome-disjoint half of val+test is ACCEPTED FOR NOW to
+establish whether the mechanism works, and MUST be redone before any reported result.**
+
+*Why we did it.* `train` is length-biased by the curation pipeline — it was MMseqs2-deduped and
+capped at ~4k/class while val/test were kept full, so long distinct cores survive and short
+near-duplicate ones get collapsed. Measured: PKS median core 6,282 nt in train vs 1,158 (val) /
+1,170 (test), a 5.37x mismatch, while val↔test agree to 1.01x. Directions fit on train did not
+transfer (PKS cos 0.469, held-out AUC 0.740); refit on val+test they reach 0.928.
+
+*The debt.* val was used for early stopping, and test is meant to be the untouched final holdout.
+Fitting the *intervention* on test means a later "steering achieves X% correct_class" number is
+not measured on clean data. This does not leak into model weights — it leaks into the tool — but
+it is still leakage and it invalidates a headline claim.
+
+*Mitigation in place:* the fit and evaluation halves are **genome-disjoint**
+(`splits_core/valtest_{fit,eval}.jsonl`, 5,501 genomes each), so nothing scored in Phase 1 helped
+define a direction. That makes the current mechanistic result sound; it does not make the split
+publishable.
+
+*The real fix, before any reported number:* carve a dedicated **direction-fitting split** that is
+disjoint from train, val AND test. The cleanest route is to resample from `train` to match the
+natural (val/test) length distribution — train has 47.5k cores, so the short PKS records needed to
+match should exist; confirm before committing. Failing that, re-split from the pre-curation pool
+into four parts: model-train / dir-fit / val / test.
+
+## The seed does TWO jobs, and class-steering only addresses one (2026-07-29)
+
+**Decision: seedless class-conditioned generation is treated as a TWO-problem milestone, not one,
+and is sequenced after seeded steering is shown to work.**
+
+*Why.* Taxonomy-only generation produces a valid BGC only ~3–12% of the time; seeded generation
+reaches ~40% `is_bgc` and 0.283 `correct_class`. So the seed is doing two separable things:
+
+1. **putting the model in "write a BGC" mode** (is_bgc 0.03–0.12 → 0.40), and
+2. **specifying which class** (the part steering is meant to replace).
+
+Activation class-steering only attacks (2). Drop the seed and (1) goes too — and **you cannot
+steer the class of a sequence that is not a gene cluster.** That, not class control, is what the
+3% floor has been reporting all along. Any seedless attempt must solve (1) separately; the natural
+candidate is a **"BGC-ness" direction** built the same way (real cores vs ordinary genomic DNA)
+and composed with the class direction.
+
+*The sharper next experiment is a seed-length titration* — 2000 → 1000 → 500 → 200 → 100 → 0 nt,
+with and without steering. The decisive comparison is whether **steering compensates for a
+shortened seed**: if 500 nt + steering matches 2000 nt alone, steering is doing real work and
+there is a measured path toward zero. If class control collapses as soon as the seed shortens
+regardless of steering, the seed is load-bearing in a way steering cannot replace.
+
+*Note the seeded product is not a consolation prize:* seeded generations are verified novel
+(max training containment 0.024) and survive seed truncation, so "extend this cluster into a novel
+one" is a real capability, and cross-class override (seed ectoine → generate PKS) would be new.
+
+## Evaluation must have dynamic range before it is used to compare (2026-07-29)
+
+**Decision: no steering configuration is evaluated with antiSMASH until the unsteered control
+under the same prompting regime clears a usable floor.**
+
+*Why.* The α sweep's unsteered control scored **1/30 is_bgc (3.3%)** under taxonomy-only
+prompting; all nine steered cells scored 0/30. Detecting a lift off a 3% floor at n=5/class is
+impossible, so ~9 GPU-hours produced no information in either direction. Meanwhile *seeded*
+generation already reaches **0.283** — a regime with real dynamic range.
+
+*Practical rule.* Before a comparison: state the baseline rate, the effect size worth detecting,
+and the n required. Prefer graded readouts — the layer-16 probe head is one matmul and gives a
+continuous class score — over a binary antiSMASH gate resting on the floor. Reserve antiSMASH
+for confirming configurations that a cheap graded readout has already selected.

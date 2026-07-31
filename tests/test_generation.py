@@ -13,6 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "evo2" / "scripts"))
 import generate_bgc as G  # noqa: E402
 
 

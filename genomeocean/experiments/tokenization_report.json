@@ -1,0 +1,239 @@
+{
+  "model": "pGenomeOcean/GenomeOcean-4B-bgcFM",
+  "jsonl": "/data2/ds85/bgcmodel_data/splits_core/train.jsonl",
+  "n_records": 4000,
+  "compression": {
+    "bp_per_token_overall": 5.1549126515900365,
+    "bp_per_token_mean": 5.120388744386826,
+    "bp_per_token_median": 5.153225806451613,
+    "bp_per_token_min": 4.571428571428571,
+    "bp_per_token_max": 5.602941176470588
+  },
+  "context_fit": {
+    "genomeocean_trained_10240tok": {
+      "all": 0.97,
+      "megasynthase": 0.9663716814159292
+    },
+    "genomeocean_rope_ceiling_32768tok": {
+      "all": 0.99675,
+      "megasynthase": 1.0
+    },
+    "evo2_32768bp": {
+      "all": 0.93825,
+      "megasynthase": 0.8920353982300885
+    }
+  },
+  "by_class": {
+    "ALKALOID": {
+      "n": 95,
+      "median_bp": 1284,
+      "max_bp": 61160,
+      "median_tokens": 261,
+      "bp_per_token": 5.115620422818183,
+      "fits_go_10240tok": 0.9894736842105263,
+      "fits_evo2_32768bp": 0.9894736842105263
+    },
+    "ARYLPOLYENE": {
+      "n": 340,
+      "median_bp": 3597.0,
+      "max_bp": 262144,
+      "median_tokens": 698.0,
+      "bp_per_token": 5.073831715448802,
+      "fits_go_10240tok": 0.9911764705882353,
+      "fits_evo2_32768bp": 0.9794117647058823
+    },
+    "BETALACTAM": {
+      "n": 14,
+      "median_bp": 3498.0,
+      "max_bp": 3705,
+      "median_tokens": 676.0,
+      "bp_per_token": 5.168677894178491,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 1.0
+    },
+    "BETALACTONE": {
+      "n": 354,
+      "median_bp": 7836.5,
+      "max_bp": 262144,
+      "median_tokens": 1540.5,
+      "bp_per_token": 5.04032592161563,
+      "fits_go_10240tok": 0.9915254237288136,
+      "fits_evo2_32768bp": 0.9915254237288136
+    },
+    "BUTYROLACTONE": {
+      "n": 312,
+      "median_bp": 984.0,
+      "max_bp": 73739,
+      "median_tokens": 190.0,
+      "bp_per_token": 5.212238123230896,
+      "fits_go_10240tok": 0.9935897435897436,
+      "fits_evo2_32768bp": 0.9935897435897436
+    },
+    "CDPS": {
+      "n": 128,
+      "median_bp": 729.0,
+      "max_bp": 50479,
+      "median_tokens": 143.0,
+      "bp_per_token": 5.180093823299453,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 0.984375
+    },
+    "ECTOINE": {
+      "n": 186,
+      "median_bp": 393.0,
+      "max_bp": 126464,
+      "median_tokens": 79.0,
+      "bp_per_token": 5.223744011792163,
+      "fits_go_10240tok": 0.989247311827957,
+      "fits_evo2_32768bp": 0.9838709677419355
+    },
+    "FURAN": {
+      "n": 42,
+      "median_bp": 1014.0,
+      "max_bp": 32772,
+      "median_tokens": 199.5,
+      "bp_per_token": 5.187248039967353,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 0.9761904761904762
+    },
+    "HSERLACTONE": {
+      "n": 311,
+      "median_bp": 639,
+      "max_bp": 262144,
+      "median_tokens": 128,
+      "bp_per_token": 5.099016257245898,
+      "fits_go_10240tok": 0.9807073954983923,
+      "fits_evo2_32768bp": 0.9807073954983923
+    },
+    "MELANIN": {
+      "n": 240,
+      "median_bp": 472.5,
+      "max_bp": 19780,
+      "median_tokens": 90.0,
+      "bp_per_token": 5.25353792039586,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 1.0
+    },
+    "NRPS": {
+      "n": 283,
+      "median_bp": 7500,
+      "max_bp": 156165,
+      "median_tokens": 1529,
+      "bp_per_token": 5.194500654402246,
+      "fits_go_10240tok": 0.9681978798586572,
+      "fits_evo2_32768bp": 0.8657243816254417
+    },
+    "NUCLEOSIDE": {
+      "n": 14,
+      "median_bp": 4152.0,
+      "max_bp": 18619,
+      "median_tokens": 791.0,
+      "bp_per_token": 5.229173024107415,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 1.0
+    },
+    "PHENAZINE": {
+      "n": 35,
+      "median_bp": 492,
+      "max_bp": 52653,
+      "median_tokens": 99,
+      "bp_per_token": 5.203241664818511,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 0.9428571428571428
+    },
+    "PHOSPHONATE": {
+      "n": 151,
+      "median_bp": 12158,
+      "max_bp": 55222,
+      "median_tokens": 2379,
+      "bp_per_token": 5.144972353645328,
+      "fits_go_10240tok": 0.9933774834437086,
+      "fits_evo2_32768bp": 0.9337748344370861
+    },
+    "PKS": {
+      "n": 282,
+      "median_bp": 6499.5,
+      "max_bp": 126232,
+      "median_tokens": 1265.0,
+      "bp_per_token": 5.221012712142062,
+      "fits_go_10240tok": 0.9645390070921985,
+      "fits_evo2_32768bp": 0.9184397163120568
+    },
+    "PKS_NRPS_HYBRID": {
+      "n": 272,
+      "median_bp": 27140.5,
+      "max_bp": 262144,
+      "median_tokens": 5248.0,
+      "bp_per_token": 5.171048773990393,
+      "fits_go_10240tok": 0.7389705882352942,
+      "fits_evo2_32768bp": 0.5845588235294118
+    },
+    "PUFA": {
+      "n": 9,
+      "median_bp": 15817,
+      "max_bp": 45253,
+      "median_tokens": 3242,
+      "bp_per_token": 5.040465616638623,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 0.8888888888888888
+    },
+    "RESORCINOL": {
+      "n": 87,
+      "median_bp": 1932,
+      "max_bp": 44720,
+      "median_tokens": 372,
+      "bp_per_token": 5.022361883808373,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 0.9655172413793104
+    },
+    "RIPP": {
+      "n": 303,
+      "median_bp": 2148,
+      "max_bp": 108663,
+      "median_tokens": 414,
+      "bp_per_token": 5.134165086156529,
+      "fits_go_10240tok": 0.9933993399339934,
+      "fits_evo2_32768bp": 0.9900990099009901
+    },
+    "SACCHARIDE": {
+      "n": 50,
+      "median_bp": 4524.5,
+      "max_bp": 123680,
+      "median_tokens": 898.0,
+      "bp_per_token": 5.273395459751181,
+      "fits_go_10240tok": 0.98,
+      "fits_evo2_32768bp": 0.92
+    },
+    "SIDEROPHORE": {
+      "n": 180,
+      "median_bp": 15215.0,
+      "max_bp": 96301,
+      "median_tokens": 2985.0,
+      "bp_per_token": 5.152575456755973,
+      "fits_go_10240tok": 0.95,
+      "fits_evo2_32768bp": 0.8722222222222222
+    },
+    "TERPENE": {
+      "n": 312,
+      "median_bp": 1044.0,
+      "max_bp": 43715,
+      "median_tokens": 199.0,
+      "bp_per_token": 5.153151783730692,
+      "fits_go_10240tok": 1.0,
+      "fits_evo2_32768bp": 0.9935897435897436
+    }
+  },
+  "whole_region_fit": {
+    "note": "region token counts are ESTIMATED as region_bp / measured bp-per-token; the strict-core numbers above are exact.",
+    "median_region_bp": 26649.0,
+    "median_mega_region_bp": 47167,
+    "genomeocean_trained_10240tok": {
+      "all": 0.84025,
+      "megasynthase": 0.6407079646017699
+    },
+    "evo2_32768bp": {
+      "all": 0.57625,
+      "megasynthase": 0.0
+    }
+  }
+}

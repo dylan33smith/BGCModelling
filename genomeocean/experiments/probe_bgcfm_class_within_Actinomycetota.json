@@ -1,0 +1,112 @@
+{
+ "model": "pGenomeOcean/GenomeOcean-4B-bgcFM",
+ "target": "compound_class",
+ "restrict_phylum": "Actinomycetota",
+ "n": 552,
+ "n_classes": 5,
+ "classes": [
+  "BETALACTONE",
+  "NRPS",
+  "PKS",
+  "RIPP",
+  "TERPENE"
+ ],
+ "chance": 0.2,
+ "max_nt": 4096,
+ "best_layer": 8,
+ "best_balanced_acc": 0.954,
+ "best_shuffled_acc": 0.187,
+ "layers": [
+  {
+   "layer": 0,
+   "balanced_acc": 0.551,
+   "shuffled_acc": 0.164,
+   "gap": 0.387,
+   "per_class_recall": {
+    "BETALACTONE": 0.556,
+    "NRPS": 0.592,
+    "PKS": 0.567,
+    "RIPP": 0.458,
+    "TERPENE": 0.583
+   }
+  },
+  {
+   "layer": 4,
+   "balanced_acc": 0.857,
+   "shuffled_acc": 0.187,
+   "gap": 0.669,
+   "per_class_recall": {
+    "BETALACTONE": 0.833,
+    "NRPS": 0.858,
+    "PKS": 0.9,
+    "RIPP": 0.825,
+    "TERPENE": 0.867
+   }
+  },
+  {
+   "layer": 8,
+   "balanced_acc": 0.954,
+   "shuffled_acc": 0.187,
+   "gap": 0.767,
+   "per_class_recall": {
+    "BETALACTONE": 0.944,
+    "NRPS": 0.933,
+    "PKS": 0.967,
+    "RIPP": 0.967,
+    "TERPENE": 0.958
+   }
+  },
+  {
+   "layer": 12,
+   "balanced_acc": 0.953,
+   "shuffled_acc": 0.177,
+   "gap": 0.777,
+   "per_class_recall": {
+    "BETALACTONE": 0.958,
+    "NRPS": 0.925,
+    "PKS": 0.967,
+    "RIPP": 0.967,
+    "TERPENE": 0.95
+   }
+  },
+  {
+   "layer": 16,
+   "balanced_acc": 0.934,
+   "shuffled_acc": 0.201,
+   "gap": 0.733,
+   "per_class_recall": {
+    "BETALACTONE": 0.903,
+    "NRPS": 0.942,
+    "PKS": 0.95,
+    "RIPP": 0.942,
+    "TERPENE": 0.933
+   }
+  },
+  {
+   "layer": 20,
+   "balanced_acc": 0.92,
+   "shuffled_acc": 0.222,
+   "gap": 0.698,
+   "per_class_recall": {
+    "BETALACTONE": 0.875,
+    "NRPS": 0.933,
+    "PKS": 0.933,
+    "RIPP": 0.933,
+    "TERPENE": 0.925
+   }
+  },
+  {
+   "layer": 24,
+   "balanced_acc": 0.894,
+   "shuffled_acc": 0.205,
+   "gap": 0.689,
+   "per_class_recall": {
+    "BETALACTONE": 0.861,
+    "NRPS": 0.908,
+    "PKS": 0.933,
+    "RIPP": 0.858,
+    "TERPENE": 0.908
+   }
+  }
+ ]
+}

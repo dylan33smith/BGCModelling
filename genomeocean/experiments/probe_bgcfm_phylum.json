@@ -1,0 +1,144 @@
+{
+ "model": "pGenomeOcean/GenomeOcean-4B-bgcFM",
+ "target": "phylum",
+ "restrict_phylum": null,
+ "n": 981,
+ "n_classes": 9,
+ "classes": [
+  "Actinomycetota",
+  "Bacillota",
+  "Bacteroidota",
+  "Campylobacterota",
+  "Cyanobacteriota",
+  "Methanobacteriota",
+  "Planctomycetota",
+  "Pseudomonadota",
+  "Thermodesulfobacteriota"
+ ],
+ "chance": 0.111,
+ "max_nt": 4096,
+ "best_layer": 4,
+ "best_balanced_acc": 0.899,
+ "best_shuffled_acc": 0.103,
+ "layers": [
+  {
+   "layer": 0,
+   "balanced_acc": 0.657,
+   "shuffled_acc": 0.11,
+   "gap": 0.546,
+   "per_class_recall": {
+    "Actinomycetota": 0.792,
+    "Bacillota": 0.45,
+    "Bacteroidota": 0.583,
+    "Campylobacterota": 0.656,
+    "Cyanobacteriota": 0.756,
+    "Methanobacteriota": 0.664,
+    "Planctomycetota": 0.793,
+    "Pseudomonadota": 0.608,
+    "Thermodesulfobacteriota": 0.608
+   }
+  },
+  {
+   "layer": 4,
+   "balanced_acc": 0.899,
+   "shuffled_acc": 0.103,
+   "gap": 0.796,
+   "per_class_recall": {
+    "Actinomycetota": 0.917,
+    "Bacillota": 0.883,
+    "Bacteroidota": 0.925,
+    "Campylobacterota": 0.906,
+    "Cyanobacteriota": 0.9,
+    "Methanobacteriota": 0.929,
+    "Planctomycetota": 0.939,
+    "Pseudomonadota": 0.842,
+    "Thermodesulfobacteriota": 0.85
+   }
+  },
+  {
+   "layer": 8,
+   "balanced_acc": 0.892,
+   "shuffled_acc": 0.109,
+   "gap": 0.783,
+   "per_class_recall": {
+    "Actinomycetota": 0.925,
+    "Bacillota": 0.875,
+    "Bacteroidota": 0.933,
+    "Campylobacterota": 0.875,
+    "Cyanobacteriota": 0.878,
+    "Methanobacteriota": 0.903,
+    "Planctomycetota": 0.927,
+    "Pseudomonadota": 0.875,
+    "Thermodesulfobacteriota": 0.833
+   }
+  },
+  {
+   "layer": 12,
+   "balanced_acc": 0.889,
+   "shuffled_acc": 0.11,
+   "gap": 0.78,
+   "per_class_recall": {
+    "Actinomycetota": 0.942,
+    "Bacillota": 0.892,
+    "Bacteroidota": 0.917,
+    "Campylobacterota": 0.865,
+    "Cyanobacteriota": 0.867,
+    "Methanobacteriota": 0.912,
+    "Planctomycetota": 0.902,
+    "Pseudomonadota": 0.875,
+    "Thermodesulfobacteriota": 0.833
+   }
+  },
+  {
+   "layer": 16,
+   "balanced_acc": 0.886,
+   "shuffled_acc": 0.119,
+   "gap": 0.768,
+   "per_class_recall": {
+    "Actinomycetota": 0.917,
+    "Bacillota": 0.858,
+    "Bacteroidota": 0.892,
+    "Campylobacterota": 0.854,
+    "Cyanobacteriota": 0.889,
+    "Methanobacteriota": 0.894,
+    "Planctomycetota": 0.939,
+    "Pseudomonadota": 0.875,
+    "Thermodesulfobacteriota": 0.858
+   }
+  },
+  {
+   "layer": 20,
+   "balanced_acc": 0.891,
+   "shuffled_acc": 0.11,
+   "gap": 0.781,
+   "per_class_recall": {
+    "Actinomycetota": 0.9,
+    "Bacillota": 0.858,
+    "Bacteroidota": 0.925,
+    "Campylobacterota": 0.875,
+    "Cyanobacteriota": 0.878,
+    "Methanobacteriota": 0.894,
+    "Planctomycetota": 0.939,
+    "Pseudomonadota": 0.9,
+    "Thermodesulfobacteriota": 0.85
+   }
+  },
+  {
+   "layer": 24,
+   "balanced_acc": 0.879,
+   "shuffled_acc": 0.118,
+   "gap": 0.761,
+   "per_class_recall": {
+    "Actinomycetota": 0.908,
+    "Bacillota": 0.825,
+    "Bacteroidota": 0.892,
+    "Campylobacterota": 0.875,
+    "Cyanobacteriota": 0.856,
+    "Methanobacteriota": 0.885,
+    "Planctomycetota": 0.939,
+    "Pseudomonadota": 0.858,
+    "Thermodesulfobacteriota": 0.875
+   }
+  }
+ ]
+}
