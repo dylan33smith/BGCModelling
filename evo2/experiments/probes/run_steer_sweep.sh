@@ -75,7 +75,7 @@ gen_cell "a0_control" 16 0
 for L in $LAYERS; do for A in $ALPHAS; do gen_cell "L${L}_a${A}" "$L" "$A"; done; done
 
 SUM="$ROOT/steer_summary.tsv"
-printf "cell\tlayer\talpha\tn\tis_bgc\tcorrect_class\tcc_large\tcc_small\tmarkers\tcoding_density\n" > "$SUM"
+printf "cell\tlayer\talpha\tn\tn_skipped\tis_bgc\tcorrect_class\tcc_large\tcc_small\tmarkers\tcoding_density\n" > "$SUM"
 for f in "$ROOT"/a0_control.jsonl $(for L in $LAYERS; do for A in $ALPHAS; do echo "$ROOT/L${L}_a${A}.jsonl"; done; done); do
   [ -s "$f" ] || continue
   name=$(basename "$f" .jsonl)
@@ -91,10 +91,16 @@ large=set(large.split())
 recs=json.load(open(rep_p))["per_record"]["generated"]
 gen=[json.loads(l) for l in open(gen_p)]
 layer=gen[0].get("steer_layer") if gen else None; alpha=gen[0].get("steer_alpha") if gen else None
-n=len(recs); ib=cc=mk=0; cod=[]; by=collections.defaultdict(lambda:[0,0,0])
+n=len(recs); ib=cc=mk=0; n_skip=0; cod=[]; by=collections.defaultdict(lambda:[0,0,0])
 gl=[0,0]; gs=[0,0]      # [correct, n] for large / small
 for r in recs:
     a=r.get("antismash",{}) or {}; cm=r.get("class_markers",{}) or {}; cs=r.get("coding_sanity",{}) or {}
+    # A SKIPPED antiSMASH record is "could not measure", not "measured negative". Counting it in
+    # the denominator deflated is_bgc/correct_class by exactly the fraction the tool timed out
+    # on or could not run -- indistinguishable from the model getting worse.
+    if a.get("skipped"):
+        n_skip+=1
+        continue
     exp=r.get("expected_class"); det=bool(a.get("detected")); ok=det and bool(a.get("class_match"))
     ib+=det; cc+=ok
     if cm.get("domain_count",0)>0 and not cm.get("skipped"): mk+=1
@@ -102,14 +108,15 @@ for r in recs:
     by[exp][2]+=1; by[exp][1]+=det; by[exp][0]+=ok
     tgt = gl if exp in large else gs
     tgt[0]+=ok; tgt[1]+=1
-f=lambda x,d=n: round(x/d,3) if d else None
+n_ok=n-n_skip
+f=lambda x,d=None: (round(x/(n_ok if d is None else d),3) if (n_ok if d is None else d) else None)
 open(sum_p,"a").write("\t".join(str(x) for x in
-  [name,layer,alpha,n,f(ib),f(cc),f(gl[0],gl[1]),f(gs[0],gs[1]),f(mk),
+  [name,layer,alpha,n,n_skip,f(ib),f(cc),f(gl[0],gl[1]),f(gs[0],gs[1]),f(mk),
    round(sum(cod)/len(cod),3) if cod else None])+"\n")
 with open(pc_p,"w") as fh:
     fh.write("class\tcorrect\tis_bgc\tn\n")
     for c in sorted(by): a_,b_,c_=by[c]; fh.write(f"{c}\t{a_}\t{b_}\t{c_}\n")
-print(f"[steer] {name}: correct={f(cc)} (large {f(gl[0],gl[1])} / small {f(gs[0],gs[1])}) coding={round(sum(cod)/len(cod),3) if cod else None}")
+print(f"[steer] {name}: n_ok={n_ok}/{n} (skipped {n_skip}) correct={f(cc)} (large {f(gl[0],gl[1])} / small {f(gs[0],gs[1])}) coding={round(sum(cod)/len(cod),3) if cod else None}")
 PYEOF
 done
 

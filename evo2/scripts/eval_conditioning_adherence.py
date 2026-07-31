@@ -90,7 +90,20 @@ def summarize_adherence(per_record: list[dict], classes: list[str]) -> dict[str,
         margin_sum += scores[true] - best_wrong
         confusion[true][ranked[0]] += 1
 
-    denom = max(n, 1)
+    # `denom = max(n, 1)` made top1/top3/mrr print 0.000 when NOTHING was scored -- which reads
+    # as "conditioning is far worse than the 0.045 random baseline", a headline claim, when the
+    # truth is that no record produced a score at all. Report None (not measurable) instead;
+    # n_scored=0 still travels so a caller can see why.
+    if n == 0:
+        return {
+            "n_scored": 0,
+            "n_classes": len(classes),
+            "random_baseline_top1": round(1.0 / max(len(classes), 1), 4),
+            "top1_acc": None, "top3_acc": None, "top5_acc": None,
+            "mrr": None, "mean_margin": None,
+            "reason": "no record produced a score (sequence_loglik returned None for all)",
+        }
+    denom = n
     return {
         "n_scored": n,
         "n_classes": len(classes),

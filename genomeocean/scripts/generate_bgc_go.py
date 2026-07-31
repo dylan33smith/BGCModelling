@@ -26,9 +26,17 @@ Usage:
 
   # score with our suite (unconditional -> compound_class is empty, so the
   # correct_class gate is not graded; is_bgc is)
+  #
+  # --antismash-db IS REQUIRED. Without it antiSMASH cannot run, is_bgc falls back to the
+  # coding_sanity floor alone, and `generates_bgc.rate` becomes "the fraction of generations
+  # that are gene-rich, non-degenerate DNA" -- which nearly every 50 kb bgcFM generation
+  # satisfies. That reads as a spectacular BGC hit rate and is not one. Likewise --pfam-hmm,
+  # without which the class_markers proxy silently produces no verdict.
   python scripts/eval_suite_driver.py \
       --gen genomeocean/experiments/zeroshot_run1/gen.jsonl \
       --skip-checks protein_homology kmer_novelty \
+      --pfam-hmm /data2/ds85/pfam/Pfam-A.hmm \
+      --antismash-db /data2/ds85/antismash_db \
       --output genomeocean/experiments/zeroshot_run1/eval.json
 """
 from __future__ import annotations

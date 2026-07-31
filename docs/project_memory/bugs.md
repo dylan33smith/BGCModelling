@@ -113,6 +113,69 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
   sequence. *Fix:* drivers write a per-sequence TSV (`run_steer_magnitude.sh` → `per_sequence.tsv`)
   including the *actually applied* steering parameters, so analysis never re-derives from logs.
 
+## ★ SILENT DEGRADATION — the highest-severity bug class in this repo (2026-07-31)
+
+**A missing resource that yields a plausible wrong number is worse than a crash.** A crash
+announces itself; a silent skip coerced to `False` looks exactly like a scientific result — and
+this project already lost weeks to a 0/30 that was an instrument artifact.
+
+Four hit in one afternoon, each indistinguishable from a real negative:
+
+| call | missing | what it looked like |
+|---|---|---|
+| `check_antismash` | `databases_dir` | "prerequisite DBs not downloaded" → looked like a broken install |
+| `check_antismash` | `class_map` | real cores scored correct_class **0.125 vs 0.750** → looked like "the model can't hit the right class" |
+| `check_class_markers` | `pfam_hmm_path` | every sequence skipped; caller's `bool(...)` → "markers absent" → all-zero Phase 3 table |
+| `find_orfs` | pyrodigal (behind `except Exception`) | silently swapped to the RETIRED six-frame scanner |
+
+The gene caller was the worst: it feeds *every* check. Measured on one real 9.4 kb PKS core,
+Prodigal → six-frame gives coding_density 0.9736 → **1.0**, n_orfs 9 → **35** (megasynthase
+fragmentation, the exact failure the 2026-06-17 rewrite retired it for), and
+complete_gene_fraction **pinned to exactly 1.0** (the six-frame path never sets `ORF.partial`).
+No marker anywhere in the output. `except Exception` also swallowed an API break identically to
+a missing package.
+
+**Fix — `evaluation.py` now has `EvalResourceError` + `_resource_missing()`:** gating checks
+(`antismash`, `class_markers`, `find_orfs`) RAISE; opt-in diagnostics skip but tag
+`skip_kind="resource"`; `BGC_EVAL_STRICT=0` restores the old behaviour for triage.
+
+### A 4-lens audit then confirmed 36 more sites. Fixed:
+
+- **Rates divided by denominators containing unmeasured records.** `eval_suite_driver`
+  computed every headline as k/n over ALL records while numerators counted only `"PASS"`. Since
+  `quick_eval.sh` always passes `--skip-checks kmer_novelty`, the project's ACCEPT rate
+  (`biological_valid_and_novel`) was **structurally 0.000 in every quick-eval ever run**. Rates
+  now divide by what was actually evaluated and return **None** — never 0.0 — when nothing was.
+  Same fix in `run_steer_sweep.sh`, `run_seed_deconfound.sh`, `quick_eval.sh`.
+- **`no_gate_fail` was the inverse bug** — an unmeasured gate is not "FAIL", so skipped gates
+  counted as clean passes, inflating it exactly when the instrument was least configured.
+- **The novelty GATE failed OPEN.** `novelty.get("max_containment", 0.0)` returned *maximal
+  novelty* for a record missing the key. A gate must never default to its passing value.
+- **`correct_novel_only` was a no-op** — `nov.get("pass") is not False` counted "not run" as
+  novel, making it numerically identical to `correct_class` under a name claiming otherwise.
+- **`tracks_seed` was hard 0.000 in every row** of `deconfound_summary.tsv`: the summariser
+  joined on `r["sequence"][:80]`, but `evaluate_bgc` records carry no `sequence` key. Recomputed
+  by index, v2_mismatch is **tracks_seed 0.317 vs tracks_tag 0.067** — the number quoted in the
+  artifact was right, but the shipped script could not have produced it.
+- **`conditioning_faithful` was null on EVERY row ever.** `phylum_token` matched `"P__"`
+  case-sensitively against lowercase GTDB tags, and profile keys are uppercase. Both ends now
+  case-insensitive.
+- **`protein_homology`** ignored the mmseqs return code and only set `pass` when hits existed —
+  so pass_rate averaged over only the sequences that already had a hit (9 hit-less + 1 hit
+  reported 1.000, not 0.100). Zero hits is now `pass=False`.
+- **`protein_foldability`** counted per-ORF runtime crashes in the denominator, reporting
+  "these proteins do not fold" for "ESMFold could not run here".
+- **`run_eval.sh` defaulted to SUPERSEDED corpora** (`splits_combined_grouped`,
+  `splits_curated`), so the novelty gate compared against a corpus the model never trained on.
+- **Unresolvable supplied paths now warn.** A typo in `--pfam-hmm` and a genuinely
+  unprovisioned host previously produced byte-identical output.
+- **Fully-skipped arms print `n/a`, not `0.000`**, so they cannot be read as total failure.
+
+**Lesson worth keeping:** every one of these was found by *running a check*, never by reasoning
+that one was needed. The positive control is the cheapest instrument in the repo — real
+held-out cores scored at the same length/settings as the generations — and it caught three of
+these in minutes.
+
 ## Activation steering (2026-07-29)
 
 - **★ THE STEERING VECTORS ARE NOT CLASS DIRECTIONS — they are ±the length/norm axis.**

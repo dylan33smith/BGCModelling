@@ -480,6 +480,10 @@ def check_antismash(
         except FileNotFoundError:
             return _resource_missing(result, "antismash not installed", gating=True)
         except subprocess.TimeoutExpired:
+            # Tag it like every other failure path. An untagged skip is indistinguishable from a
+            # measured negative downstream, and a timeout silently swaps the is_bgc verdict from
+            # antiSMASH to the much looser Pfam proxy MID-SERIES in eval_track.jsonl.
+            result["skip_kind"] = "timeout"
             result["skipped"] = True
             result["reason"] = f"timeout after {timeout}s"
             return result
@@ -511,6 +515,14 @@ def check_antismash(
                 # map antiSMASH products -> our class vocabulary (keys are lowercased
                 # in load_class_map; ANY mapped product matching = right class).
                 if class_map:
+                    # An antiSMASH upgrade that adds product rules makes the NEW products
+                    # silently map to OTHER, so genuine PKS/RIPP regions score class_match=False
+                    # and correct_class deflates for exactly those classes -- which reads as a
+                    # biological finding ("the model handles PKS but not RIPP") rather than a
+                    # stale YAML. Record what fell through so it is visible in the result.
+                    unmapped = sorted({p for p in all_products if p.lower() not in class_map})
+                    if unmapped:
+                        result["unmapped_products"] = unmapped
                     mapped = {class_map.get(p.lower(), "OTHER") for p in all_products}
                 elif expected_class:
                     # NO SKIP HERE -- this branch silently returns WRONG classes. antiSMASH emits
@@ -660,6 +672,11 @@ def check_class_markers(
     # graded "fraction of markers present" (obligate_domains − missing_obligate) is
     # the climb signal surfaced by quick_eval.
     if expected_class:
+        # An OOV class name (typo, new class, wrong vocabulary) yields [] exactly like the
+        # deliberately-empty "OTHER" entry, so it silently becomes no_verdict -- which
+        # eval_suite_driver then counts in the denominator of correct_class.
+        if expected_class not in OBLIGATE_DOMAINS:
+            result["unknown_class"] = expected_class
         markers = OBLIGATE_DOMAINS.get(expected_class, [])
         if markers:
             present = [d for d in markers if d in domain_accessions]
@@ -673,7 +690,12 @@ def check_class_markers(
             result["pass"] = None  # No markers defined for this class (e.g. OTHER)
             result["note"] = f"No class markers defined for class {expected_class}"
     else:
+        # No expected_class was supplied, so no class verdict is possible. Say so explicitly:
+        # the previous silent `pass=None` with NO markers_present key meant a caller doing
+        # bool(r.get("markers_present")) read "no class requested" as "markers absent".
         result["pass"] = None
+        result["no_expected_class"] = True
+        result["markers_present"] = None      # explicit "not evaluated", not an empty list
 
     return result
 
@@ -745,7 +767,17 @@ def check_protein_foldability(
 
     result["orf_results"] = orf_results
     passing = [o for o in orf_results if o.get("passes_plddt_70")]
-    result["pass"] = len(passing) > len(orf_results) // 2
+    # Per-ORF exceptions (CUDA OOM, tokenizer error) were appended to orf_results and counted
+    # in the DENOMINATOR, so "ESMFold could not run here" was reported as "these proteins do not
+    # fold". Score only ORFs that actually produced a pLDDT.
+    scored = [o for o in orf_results if "error" not in o]
+    result["n_orfs_errored"] = len(orf_results) - len(scored)
+    if not scored:
+        result["skipped"] = True
+        result["skip_kind"] = "runtime"
+        result["reason"] = f"all {len(orf_results)} ORFs errored during folding; no pLDDT obtained"
+        return result
+    result["pass"] = len(passing) > len(scored) // 2
 
     return result
 
@@ -781,7 +813,17 @@ def check_kmer_novelty(
         result["reason"] = ("no novelty scan supplied; run memorization_check.scan_corpus "
                             "over the full reference corpus and pass the per-sequence result")
         return result
-    cont = float(novelty.get("max_containment", 0.0))
+    # A GATE MUST NOT DEFAULT TO ITS PASSING VALUE. `.get("max_containment", 0.0)` returned 0.0
+    # -- maximal novelty -- for a novelty record that exists but lacks the key (schema drift, a
+    # truncated memorization report, a partially-written scan). A memorized sequence would be
+    # certified novel. Absence of evidence must be a skip, never a pass.
+    if "max_containment" not in novelty:
+        result["skipped"] = True
+        result["skip_kind"] = "malformed"
+        result["reason"] = ("novelty record present but has no 'max_containment' key — the "
+                            "anti-memorization gate cannot be evaluated; refusing to default to PASS")
+        return result
+    cont = float(novelty["max_containment"])
     result["max_containment"] = round(cont, 4)
     result["nearest_accession"] = novelty.get("nearest_accession")
     if cont >= fail_threshold:
@@ -954,7 +996,13 @@ def check_protein_homology(
     result: dict[str, Any] = {"check": "protein_homology"}
 
     try:
-        subprocess.run(["mmseqs", "version"], capture_output=True, timeout=10, check=False)
+        _probe = subprocess.run(["mmseqs", "version"], capture_output=True, timeout=10, check=False)
+        if _probe.returncode != 0:
+            # Present on PATH but broken (bad build, missing shared lib). Discarding the return
+            # code let the suite proceed and then report "no ORF resembles a known enzyme".
+            return _resource_missing(
+                result, f"mmseqs present but `mmseqs version` exited {_probe.returncode}",
+                gating=False)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return _resource_missing(result, "mmseqs2 not installed", gating=False)
 
@@ -989,9 +1037,23 @@ def check_protein_homology(
                 cmd, capture_output=True, text=True, timeout=timeout, check=False,
             )
         except subprocess.TimeoutExpired:
+            # Tag it like every other failure path. An untagged skip is indistinguishable from a
+            # measured negative downstream, and a timeout silently swaps the is_bgc verdict from
+            # antiSMASH to the much looser Pfam proxy MID-SERIES in eval_track.jsonl.
+            result["skip_kind"] = "timeout"
             result["skipped"] = True
             result["reason"] = f"timeout after {timeout}s"
             return result
+
+        if proc.returncode != 0:
+            # The return code was assigned and never read: the function branched only on whether
+            # the TSV existed. A failed search (bad DB, out of disk) produced no TSV, fell to the
+            # `else`, and reported hits=[] -- "no ORF resembles any known enzyme".
+            return _resource_missing(
+                result,
+                f"mmseqs easy-search exited {proc.returncode}: "
+                f"{(proc.stderr or '').strip()[-200:]}",
+                gating=False)
 
         if result_tsv.exists():
             hits: list[dict[str, Any]] = []
@@ -1023,8 +1085,17 @@ def check_protein_homology(
                 )
                 # Diagnostic (non-gating) verdict: do most ORFs look like real proteins?
                 result["pass"] = result["homology_fraction"] >= 0.5
+            else:
+                # ZERO hits is the WORST outcome for proteins_plausible, not an absent one.
+                # Leaving `pass` unset made pass_rate a mean over only the sequences that
+                # already had a hit: 9 hit-less + 1 homologous reported 1.000 instead of 0.100.
+                result["max_pident"] = 0.0
+                result["homology_fraction"] = 0.0
+                result["pass"] = False
         else:
             result["hits"] = []
+            result["homology_fraction"] = 0.0
+            result["pass"] = False
 
     return result
 
@@ -1065,7 +1136,9 @@ def phylum_token(taxonomic_tag: str) -> Optional[str]:
     """Extract the phylum token (e.g. 'P__ACTINOMYCETOTA') from a taxonomic tag."""
     for part in (taxonomic_tag or "").replace("|", ";").split(";"):
         part = part.strip()
-        if part.startswith("P__") and len(part) > 3:
+        # GTDB tags are lowercase ("p__Actinomycetota") but this matched "P__", so
+        # conditioning_faithful was null on EVERY row of every eval_track.jsonl.
+        if part.upper().startswith("P__") and len(part) > 3:
             return part
     return None
 
@@ -1081,11 +1154,19 @@ def resolve_taxon_profile(
     """
     if not expected_taxon or not taxon_profiles:
         return None
+    # CASE-INSENSITIVE. build_taxon_profiles.py writes UPPERCASE keys ("P__ACTINOMYCETOTA") while
+    # GTDB tags are lowercase ("p__Actinomycetota"), so every exact lookup missed and
+    # conditioning_faithful was null on EVERY row of every eval_track.jsonl.
+    upper = {k.upper(): v for k, v in taxon_profiles.items()}
     if expected_taxon in taxon_profiles:
         return taxon_profiles[expected_taxon]
+    if expected_taxon.upper() in upper:
+        return upper[expected_taxon.upper()]
     phy = phylum_token(expected_taxon)
     if phy and phy in taxon_profiles:
         return taxon_profiles[phy]
+    if phy and phy.upper() in upper:
+        return upper[phy.upper()]
     return None
 
 

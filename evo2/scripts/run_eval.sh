@@ -26,8 +26,14 @@ PER_CLASS="${3:-3}"
 
 ENV_NAME="${ENV_NAME:-bgcmodel}"
 export HF_HOME="${HF_HOME:-/data2/ds85/hf_cache}"
-VAL="${VAL:-/data2/ds85/bgcmodel_data/splits_curated/val.jsonl}"
-REF="${REF:-/data2/ds85/bgcmodel_data/splits_combined_grouped/train.jsonl}"
+# splits_curated is SUPERSEDED (CLAUDE.md: "do not use"). It overlaps the active
+# splits_core training set, so every headline was computed over prompts that are
+# not fully held out.
+VAL="${VAL:-/data2/ds85/bgcmodel_data/splits_core/val.jsonl}"
+# The novelty GATE must compare against the corpus the model ACTUALLY trained on.
+# splits_combined_grouped is superseded; using it let sequences memorized from
+# splits_core pass as novel.
+REF="${REF:-/data2/ds85/bgcmodel_data/splits_core/train.jsonl}"
 POS="${POS:-eval/positive_control_mibig.jsonl}"
 MAX_NEW="${MAX_NEW:-16384}"
 

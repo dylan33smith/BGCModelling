@@ -140,6 +140,8 @@ def scan_corpus(queries: list[tuple[str, str]], ref_path: Path, k: int = 21,
             if progress_every and i % progress_every == 0:
                 print(f"  scanned {i:,} reference BGCs...", flush=True)
 
+    n_refs = i          # how many reference records were actually scanned (see --max-refs)
+
     def _read(off: int) -> dict:
         with ref_path.open("rb") as f:
             f.seek(off)
@@ -154,10 +156,18 @@ def scan_corpus(queries: list[tuple[str, str]], ref_path: Path, k: int = 21,
             cont = exact_containment(qseq, rec.get("sequence", ""), k)
             if cont > max_cont:
                 max_cont, acc = cont, rec.get("accession")
+        # PROVENANCE. Without it, a scan against a truncated or wrong reference corpus is
+        # indistinguishable from a scan against the real one: every query comes back
+        # PASS_novel and the suite certifies the model as non-memorizing on the strength of a
+        # partial comparison. The `novel` GATE is the pre-synthesis safety check, so the
+        # corpus it was actually run against has to travel with the number.
         results.append({"id": qid, "length": len(qseq),
                         "max_containment": round(max_cont, 4),
                         "max_estimate": round(max_est, 4),
-                        "nearest_accession": acc})
+                        "nearest_accession": acc,
+                        "ref_corpus": str(ref_path),
+                        "ref_n_records": n_refs,
+                        "k": k})
     return results
 
 

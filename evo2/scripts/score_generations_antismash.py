@@ -174,8 +174,11 @@ def main() -> int:
     for arm in sorted(agg):
         a = agg[arm]
         ok = a["n"] - a["skip"]
-        print(f"{arm:>16} {a['n']:>5} {ok:>7} {a['skip']:>8} "
-              f"{(a['bgc'] / ok if ok else 0):>9.3f} {(a['cls'] / ok if ok else 0):>15.3f}")
+        # A fully-skipped arm must NOT render as 0.000 next to arms with real rates -- that
+        # reads as total failure of the condition rather than "nothing was measured".
+        bgc = f"{a['bgc'] / ok:>9.3f}" if ok else f"{'n/a':>9}"
+        cls = f"{a['cls'] / ok:>15.3f}" if ok else f"{'n/a':>15}"
+        print(f"{arm:>16} {a['n']:>5} {ok:>7} {a['skip']:>8} {bgc} {cls}")
     if any(a["skip"] for a in agg.values()):
         print("\n  NOTE: skipped = antiSMASH could not run. NOT a negative result — excluded from")
         print("        the rates above rather than counted as failures.")

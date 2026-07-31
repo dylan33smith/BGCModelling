@@ -120,6 +120,7 @@ coding, mods, ordmods, inorder = [], [], [], []
 for r in recs:
     cmk = r.get("class_markers", {}) or {}
     if not cmk.get("skipped"):
+            n_cmk+=1
         dc = cmk.get("domain_count", len(cmk.get("domains_found", []) or []))
         any_dom += int(dc > 0)
         ob = cmk.get("obligate_domains") or []     # the class's markers
@@ -145,7 +146,11 @@ rec = {
     "correct_class": qr("correct_class"),                                 # GATE (antiSMASH)
     "obligate_fraction": rnd(sum(fracs) / len(fracs)) if fracs else None,  # graded EARLY signal
     "class_markers": cr("class_markers"),                                 # marker PASS rate (proxy)
-    "any_domain_rate": rnd(any_dom / len(recs)) if recs else None,
+    # denominator = records where class_markers actually RAN. Dividing by every record
+        # reported any_domain_rate 0.0 ("not one generation has a single Pfam domain")
+        # when the truth was "Pfam was not configured".
+        "any_domain_rate": rnd(any_dom / n_cmk) if n_cmk else None,
+        "any_domain_evaluated": n_cmk,
     "coding_density": avg(coding),                                         # coding_sanity (quality)
     "module_count": avg(mods),                                            # modules' worth
     "ordered_modules": avg(ordmods),                                      # in-order modules

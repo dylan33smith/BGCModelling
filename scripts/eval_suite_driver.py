@@ -76,31 +76,51 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
     #   CORRECT_CLASS = correct_class PASS
     #   BIOLOGICAL    = generates_bgc AND correct_class
     #   ACCEPT        = biological AND novel
+    # A rate must be computed over the records where the question was actually EVALUATED.
+    # Previously every rate was k/n over ALL records with numerators counting only == "PASS", so a
+    # question that was never measured ("skipped" / "no_verdict") landed in the DENOMINATOR and
+    # dragged the rate toward zero. Because evo2/scripts/quick_eval.sh always passes
+    # `--skip-checks protein_homology kmer_novelty`, `novel` is "skipped" for every record — so
+    # the project's ACCEPT rate (biological_valid_and_novel) was STRUCTURALLY 0.000 in every
+    # quick-eval ever run, regardless of how good the generations were.
     gen_bgc = correct_class = bio_valid = accept = no_gate_fail = 0
+    d_bgc = d_cls = d_bio = d_acc = d_gate = 0
+
+    def _evaluated(v) -> bool:
+        return v in ("PASS", "FAIL")
+
     for r in results:
         s = r.get("questions", {})
         g_bgc = s.get("is_bgc") == "PASS"
         c_cls = s.get("correct_class") == "PASS"
         novel = s.get("novel") == "PASS"
         bio = g_bgc and c_cls
-        gen_bgc += int(g_bgc)
-        correct_class += int(c_cls)
+        gen_bgc += int(g_bgc);       d_bgc += int(_evaluated(s.get("is_bgc")))
+        correct_class += int(c_cls); d_cls += int(_evaluated(s.get("correct_class")))
         bio_valid += int(bio)
+        d_bio += int(_evaluated(s.get("is_bgc")) and _evaluated(s.get("correct_class")))
         accept += int(bio and novel)
-        no_gate_fail += int(all(s.get(q) != "FAIL" for q in GATE_QUESTIONS))
+        d_acc += int(_evaluated(s.get("is_bgc")) and _evaluated(s.get("correct_class"))
+                     and _evaluated(s.get("novel")))
+        # no_gate_fail was the INVERSE bug: an unmeasured gate is not "FAIL", so skipped gates
+        # counted as clean passes, inflating it exactly when the instrument was least configured.
+        no_gate_fail += int(all(s.get(q) == "PASS" for q in GATE_QUESTIONS))
+        d_gate += int(all(_evaluated(s.get(q)) for q in GATE_QUESTIONS))
 
-    def rate(k: int) -> Optional[float]:
-        return round(k / n, 3) if n else None
+    def rate(k: int, d: Optional[int] = None) -> Optional[float]:
+        """None when nothing was evaluated — NEVER 0.0, which reads as a measured total failure."""
+        d = n if d is None else d
+        return round(k / d, 3) if d else None
     return {
         "n": n, "per_question": per_q, "per_check": per_c,
         "roles": {"gates": list(GATE_QUESTIONS), "diagnostics": list(DIAGNOSTIC_QUESTIONS)},
         "headline": {
-            "generates_bgc": {"n": gen_bgc, "rate": rate(gen_bgc)},
-            "correct_class": {"n": correct_class, "rate": rate(correct_class)},
-            "biological_valid": {"n": bio_valid, "rate": rate(bio_valid)},
-            "biological_valid_and_novel": {"n": accept, "rate": rate(accept)},
-            "valid_and_novel": {"n": accept, "rate": rate(accept)},   # legacy alias = accept
-            "no_gate_fail": {"n": no_gate_fail, "rate": rate(no_gate_fail)},
+            "generates_bgc": {"n": gen_bgc, "evaluated": d_bgc, "rate": rate(gen_bgc, d_bgc)},
+            "correct_class": {"n": correct_class, "evaluated": d_cls, "rate": rate(correct_class, d_cls)},
+            "biological_valid": {"n": bio_valid, "evaluated": d_bio, "rate": rate(bio_valid, d_bio)},
+            "biological_valid_and_novel": {"n": accept, "evaluated": d_acc, "rate": rate(accept, d_acc)},
+            "valid_and_novel": {"n": accept, "evaluated": d_acc, "rate": rate(accept, d_acc)},   # legacy alias
+            "no_gate_fail": {"n": no_gate_fail, "evaluated": d_gate, "rate": rate(no_gate_fail, d_gate)},
         },
     }
 
@@ -117,12 +137,33 @@ def run_group(records: list[dict], novelty: dict[str, dict], skip_checks: list[s
     # antismash class match: map antiSMASH product types -> our harmonised compound
     # classes (T1PKS->PKS, lanthipeptide->RIPP, ...). Without this the antismash check
     # does an exact string match and fails real BGCs (PKS != T1PKS).
-    cmap = Path("config/compound_class_map.yaml")
-    if cmap.exists():
-        from bgc_pipeline.class_map import load_class_map
-        cfg.class_map, _ = load_class_map(cmap)
+    # REPO-ANCHORED, not CWD-relative. This module is invoked from several working directories
+    # (quick_eval.sh, run_eval.sh, the probe drivers, the GenomeOcean recipe); from any of them a
+    # bare "config/..." silently missed and the class map was dropped -- which is failure mode #2
+    # from 2026-07-31: antiSMASH "T1PKS" vs our "PKS", correct_class collapsing to ~0.
+    _REPO = Path(__file__).resolve().parents[1]
+    cmap = _REPO / "config" / "compound_class_map.yaml"
+    if not cmap.exists():
+        raise SystemExit(f"eval_suite_driver: class map not found at {cmap}. Without it "
+                         f"correct_class is silently wrong (antiSMASH product names are not our "
+                         f"class vocabulary).")
+    from bgc_pipeline.class_map import load_class_map
+    cfg.class_map, _ = load_class_map(cmap)
     # Wire optional reference DBs so antismash/class_markers/protein_homology can run.
     # Each check still self-skips if its path is missing, so passing them is safe.
+    # A path that was SUPPLIED but does not resolve is a typo, not a deliberate omission. Warn
+    # loudly and record it, so "I passed --pfam-hmm and got zeros" is distinguishable from
+    # "I never passed it". Previously both produced byte-identical output.
+    unresolved: list[str] = []
+    for label, val, ok in (("--pfam-hmm", pfam_hmm, bool(pfam_hmm and pfam_hmm.exists())),
+                           ("--mibig-gbk", mibig_gbk, bool(mibig_gbk and mibig_gbk.is_dir())),
+                           ("--antismash-db", antismash_db, bool(antismash_db and antismash_db.is_dir()))):
+        if val and not ok:
+            unresolved.append(f"{label}={val}")
+    if unresolved:
+        print(f"WARNING eval_suite_driver: supplied but unresolvable, check(s) will DEGRADE: "
+              f"{', '.join(unresolved)}", file=sys.stderr)
+        cfg_unresolved = unresolved
     if pfam_hmm and pfam_hmm.exists():
         cfg.pfam_hmm_path = pfam_hmm
     if mibig_gbk and mibig_gbk.is_dir():
@@ -133,7 +174,10 @@ def run_group(records: list[dict], novelty: dict[str, dict], skip_checks: list[s
         cfg.antismash_db_dir = str(antismash_db)
     results = []
     for i, rec in enumerate(records):
-        sid = rec.get("id") or rec.get("accession") or str(i)
+        # PRECEDENCE MUST MATCH scripts/memorization_check.py:189, which builds ids as
+        # `accession or id or str(i)`. The opposite order here meant the novelty lookup missed
+        # and every arm was scored against the first arm's containment values.
+        sid = rec.get("accession") or rec.get("id") or str(i)
         nov = novelty.get(sid)
         res = evaluate_bgc(
             rec.get("sequence", ""), accession=sid,
@@ -181,7 +225,16 @@ def main() -> None:
     gen = load_jsonl(args.gen)
     pos = load_jsonl(args.positive) if args.positive and args.positive.exists() else []
 
-    enabled = [name for name, v in dbs.items() if v]
+    # Report what actually RESOLVED. Listing a DB as enabled because the flag was merely set
+    # made the run log assert a configuration that run_group had silently dropped.
+    def _resolves(v) -> bool:
+        if not v:
+            return False
+        pv = Path(v)
+        return pv.exists() or pv.is_dir() or not isinstance(v, (str, Path))
+    enabled = [name for name, v in dbs.items() if _resolves(v)]
+    missing = [f"{name}(unresolved)" for name, v in dbs.items() if v and not _resolves(v)]
+    enabled += missing
     print(f"Generated: {len(gen)} | positive control: {len(pos)} | "
           f"novelty entries: {len(novelty)} | skip checks: {skip or 'none'} | "
           f"opt-in DBs: {', '.join(enabled) or 'none (checks self-skip)'}", file=sys.stderr)

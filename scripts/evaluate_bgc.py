@@ -136,11 +136,33 @@ def main() -> None:
         mapping, _ = load_class_map(class_map_path)
         class_map = mapping
 
+    # A path that was SUPPLIED but does not resolve is a typo, not an omission. Silently
+    # coercing it to None made "I passed --pfam-hmm and got zeros" byte-identical to
+    # "I never passed it".
+    for _label, _val, _ok in (("--pfam-hmm", args.pfam_hmm, args.pfam_hmm.exists()),
+                              ("--mibig-gbk-dir", args.mibig_gbk_dir, args.mibig_gbk_dir.is_dir())):
+        if _val and not _ok:
+            print(f"WARNING: {_label}={_val} does not resolve; that check will DEGRADE",
+                  file=sys.stderr)
+
+    # taxon_profiles was never wired here, so conditioning_faithful was `no_verdict` on EVERY
+    # row -- including the positive controls -- and the summary printed "?" for all of them.
+    _tp = Path(__file__).resolve().parents[1] / "data" / "processed" / "taxon_profiles.json"
+    _profiles = {}
+    if _tp.exists():
+        from bgc_pipeline.evaluation import load_taxon_profiles
+        _profiles = load_taxon_profiles(_tp)
+    else:
+        print(f"WARNING: taxon profiles not found at {_tp}; conditioning_faithful will have "
+              f"no verdict", file=sys.stderr)
+
     config = EvalConfig(
         pfam_hmm_path=args.pfam_hmm if args.pfam_hmm.exists() else None,
         mibig_gbk_dir=args.mibig_gbk_dir if args.mibig_gbk_dir.is_dir() else None,
         mmseqs2_db=args.mmseqs2_db,
         class_map=class_map,
+        taxon_profiles=_profiles,
+        antismash_db_dir=getattr(args, "antismash_db", None) or "/data2/ds85/antismash_db",
         skip_checks=args.skip_checks or [],
     )
 

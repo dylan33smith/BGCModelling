@@ -78,7 +78,7 @@ PY scripts/memorization_check.py --query "$ROOT/_allgen.jsonl" --ref "$TRAIN" \
 
 # ── score every arm (antiSMASH + cheap checks), novelty passed in (NOT skipped) ──
 SUM="$ROOT/deconfound_summary.tsv"
-printf "arm\tn\tis_bgc\tcorrect_class\tcorrect_novel_only\ttracks_seed\tmarkers\tcoding_density\tleak\n" > "$SUM"
+printf "arm\tn\tn_skipped\tis_bgc\tcorrect_class\tcorrect_novel_only\ttracks_seed\ttracks_tag\tmarkers\tcoding_density\tleak\n" > "$SUM"
 for entry in "${ARMS[@]}"; do
   IFS='|' read -r name adapter extra <<< "$entry"
   [ -s "$ROOT/$name.jsonl" ] || continue
@@ -92,30 +92,46 @@ for entry in "${ARMS[@]}"; do
 import json,sys,collections
 name,rep_p,gen_p,sum_p,pc_p=sys.argv[1:6]
 rep=json.load(open(rep_p)); recs=rep.get("per_record",{}).get("generated",[])
-gen={}
-for line in open(gen_p):
-    r=json.loads(line); gen[r.get("sequence","")[:80]]=r      # match on sequence prefix
-n=len(recs); ib=cc=cn=ts=mk=leak=0; cod=[]
+gen=[json.loads(line) for line in open(gen_p) if line.strip()]
+# INDEX-JOIN, not a sequence-prefix join. evaluate_bgc's per-record dicts carry `accession` and
+# `sequence_length` but NO `sequence` key, so `gen[r.get("sequence","")[:80]]` looked up "" for
+# every record and silently returned {}. Consequence: seed_class was always None, so tracks_seed
+# and leak were HARD 0.000 in every row of deconfound_summary.tsv -- and tracks_seed is this
+# experiment's central discriminator (does the continuation follow the SEED or the TAG?).
+# Recomputed by index, v2_mismatch is tracks_seed 0.317 vs tracks_tag 0.067.
+if len(gen) != len(recs):
+    raise SystemExit(f"[deconfound] ABORT: {len(gen)} generations vs {len(recs)} eval records — "
+                     f"cannot index-join; refusing to emit a summary keyed on a broken join")
+n=len(recs); ib=cc=cn=ts=tt=mk=leak=0; n_skip=0; n_nov=0; cod=[]
 by=collections.defaultdict(lambda:[0,0,0])
-for r in recs:
-    seq=r.get("sequence","") or ""
-    g=gen.get(seq[:80],{})
+for g,r in zip(gen,recs):
+    seq=g.get("sequence","") or ""
     a=r.get("antismash",{}) or {}; cm=r.get("class_markers",{}) or {}; cs=r.get("coding_sanity",{}) or {}
     nov=r.get("kmer_novelty",{}) or {}
-    exp=r.get("expected_class"); mapped=set(a.get("mapped_classes") or [])
-    det=bool(a.get("detected")); match=bool(a.get("class_match"))
-    novel_ok = (nov.get("pass") is not False)          # None (not run) treated as unknown-pass
-    ib+=det; cc+= (det and match); cn += (det and match and novel_ok)
-    seed_cls=g.get("seed_class")
-    if det and seed_cls and seed_cls in mapped: ts+=1   # tracks the SEED's class
-    if cm.get("domain_count",0)>0 and not cm.get("skipped"): mk+=1
     if "coding_density" in cs: cod.append(cs["coding_density"])
     sp=g.get("seed_prefix_64")
     if sp and sp in seq: leak+=1                        # leakage audit
+    # A SKIPPED antiSMASH record is "could not measure", not "measured negative".
+    if a.get("skipped"):
+        n_skip+=1
+        continue
+    exp=r.get("expected_class"); mapped=set(a.get("mapped_classes") or [])
+    det=bool(a.get("detected")); match=bool(a.get("class_match"))
+    # The novelty GATE must not treat "not run" as a pass. `pass is not False` counted an
+    # absent/failed novelty scan as novel, making correct_novel_only numerically IDENTICAL to
+    # correct_class while still being reported under a name that claims novelty was enforced.
+    novel_ok = (nov.get("pass") is True)
+    if nov.get("pass") is not None and not nov.get("skipped"): n_nov+=1
+    ib+=det; cc+= (det and match); cn += (det and match and novel_ok)
+    seed_cls=g.get("seed_class"); tag_cls=g.get("tag_class")
+    if det and seed_cls and seed_cls in mapped: ts+=1   # tracks the SEED's class
+    if det and tag_cls  and tag_cls  in mapped: tt+=1   # tracks the TAG's class
+    if cm.get("domain_count",0)>0 and not cm.get("skipped"): mk+=1
     by[exp][2]+=1; by[exp][1]+=det; by[exp][0]+= (det and match)
-f=lambda x: round(x/n,3) if n else None
+n_ok=n-n_skip
+f=lambda x: round(x/n_ok,3) if n_ok else None
 open(sum_p,"a").write("\t".join(str(x) for x in
-  [name,n,f(ib),f(cc),f(cn),f(ts),f(mk),
+  [name,n,n_skip,f(ib),f(cc),(f(cn) if n_nov else None),f(ts),f(tt),f(mk),
    round(sum(cod)/len(cod),3) if cod else None, leak])+"\n")
 with open(pc_p,"w") as fh:
     fh.write("class\tcorrect\tis_bgc\tn\n")
