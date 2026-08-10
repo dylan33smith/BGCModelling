@@ -566,6 +566,23 @@ def check_antismash(
             if proc.returncode != 0:
                 if proc.stderr:
                     result["stderr_tail"] = proc.stderr.strip()[-500:]
+                # INPUT REJECTION IS A MEASUREMENT, NOT A CONFIGURATION ERROR. antiSMASH exits 1
+                # when every input record is under its 1000 nt minimum -- which is exactly what a
+                # model emitting short/degenerate output produces. Measured: all 102 historical
+                # antismash "skips" across 25 reports were this, with sequence lengths min=0,
+                # median=117, max=990. Raising here would make a MODEL FAILURE MODE crash its own
+                # evaluation, and would have aborted 11.7% of the records on record.
+                _err = (proc.stderr or "").lower()
+                if ("smaller than minimum length" in _err or "no valid records" in _err
+                        or "input records smaller" in _err):
+                    result["detected"] = False
+                    result["class_match"] = False
+                    result["pass"] = False
+                    result["input_rejected"] = True
+                    result["reason"] = ("antiSMASH rejected the input (below its minimum record "
+                                        "length) — scored as NOT a BGC, which is the correct "
+                                        "verdict for a too-short generation")
+                    return result
                 return _resource_missing(
                     result,
                     f"antismash exited {proc.returncode} without results — prerequisite DBs "
@@ -1335,27 +1352,42 @@ def derive_questions(results: dict[str, Any]) -> dict[str, str]:
     # detector; a real cluster shouldn't fail on a coding-sanity technicality such as
     # an edge-truncated megasynthase). Without antiSMASH, fall back to the coding_sanity
     # floor + a domain-count proxy (quick-eval / diagnostics).
+    # PROVENANCE IS PART OF THE VERDICT. Measured on 768 paired records where BOTH antiSMASH and
+    # the Pfam proxy ran, the proxy's agreement with the gold standard on correct_class is:
+    #     precision 0.366   recall 0.972
+    #     proxy PASS 191/768 (0.249)  vs  antiSMASH PASS 72/768 (0.094)
+    # i.e. the proxy INFLATES correct_class by ~2.6x. Substituting it silently means a number
+    # produced with antiSMASH skipped is not comparable to one produced with it, and nothing in
+    # the output said which you were looking at. Record the source alongside every gate verdict.
+    prov: dict[str, str] = {}
     sane = cs.get("pass")
     if as_ran and "detected" in asr:
         q["is_bgc"] = "PASS" if asr["detected"] else "FAIL"
+        prov["is_bgc"] = "antismash"
     elif cm_ran:
         detected = cm.get("domain_count", 0) > 0           # proxy: has biosynthetic domains
         if cs and not cs.get("skipped"):
             q["is_bgc"] = "PASS" if (detected and sane) else "FAIL"
         else:
             q["is_bgc"] = "PASS" if detected else "FAIL"
+        prov["is_bgc"] = "class_markers_proxy"
     elif cs and not cs.get("skipped"):
         q["is_bgc"] = "PASS" if sane else "FAIL"           # weak: coding floor only
+        prov["is_bgc"] = "coding_floor_only"
     else:
         q["is_bgc"] = "skipped"
+        prov["is_bgc"] = "none"
 
     # correct_class = antiSMASH class match (class_markers proxy when AS skipped).
     if as_ran and asr.get("class_match") is not None:
         cls = asr["class_match"]
+        prov["correct_class"] = "antismash"
     elif cm_ran:
         cls = cm.get("pass")
+        prov["correct_class"] = "class_markers_proxy"   # precision 0.366 — inflates ~2.6x
     else:
         cls = None
+        prov["correct_class"] = "none"
     q["correct_class"] = ("skipped" if (not as_ran and not cm_ran)
                           else "no_verdict" if cls is None
                           else "PASS" if cls else "FAIL")
@@ -1365,6 +1397,8 @@ def derive_questions(results: dict[str, Any]) -> dict[str, str]:
     q["proteins_plausible"] = _verdict_from_pass(g("protein_homology"))
     q["complete"] = _verdict_from_pass(g("module_architecture"))
     q["conditioning_faithful"] = _verdict_from_pass(g("taxon_faithfulness"))
+    # Not a question — leading underscore keeps it out of any QUESTIONS-keyed tally.
+    q["_verdict_source"] = prov
     return q
 
 

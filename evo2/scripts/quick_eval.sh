@@ -115,12 +115,12 @@ def qr(q):   # question pass-rate
 def cr(c):   # check pass-rate
     return g.get("per_check", {}).get(c, {}).get("pass_rate")
 # graded signals from per-record class_markers + coding_sanity + module_architecture
-fracs, any_dom = [], 0
+fracs, any_dom, n_cmk = [], 0, 0
 coding, mods, ordmods, inorder = [], [], [], []
 for r in recs:
     cmk = r.get("class_markers", {}) or {}
     if not cmk.get("skipped"):
-            n_cmk+=1
+        n_cmk += 1
         dc = cmk.get("domain_count", len(cmk.get("domains_found", []) or []))
         any_dom += int(dc > 0)
         ob = cmk.get("obligate_domains") or []     # the class's markers

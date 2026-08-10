@@ -111,8 +111,24 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
         """None when nothing was evaluated — NEVER 0.0, which reads as a measured total failure."""
         d = n if d is None else d
         return round(k / d, 3) if d else None
+    # Which instrument produced each gate verdict, aggregated. A correct_class rate derived from
+    # the Pfam proxy is NOT comparable to one derived from antiSMASH (measured on 768 paired
+    # records: proxy precision 0.366, and it reports 0.249 where antiSMASH reports 0.094).
+    src_tally: dict[str, dict[str, int]] = {}
+    for r in results:
+        for gate, src in (r.get("questions", {}).get("_verdict_source", {}) or {}).items():
+            src_tally.setdefault(gate, {}).setdefault(src, 0)
+            src_tally[gate][src] += 1
+    proxy_warn = [g for g, d in src_tally.items() if d.get("class_markers_proxy", 0) or
+                  d.get("coding_floor_only", 0)]
+
     return {
         "n": n, "per_question": per_q, "per_check": per_c,
+        "verdict_source": src_tally,
+        "verdict_source_warning": (
+            f"gate(s) {proxy_warn} were derived from a PROXY, not antiSMASH — the Pfam proxy has "
+            f"precision 0.366 for correct_class and inflates it ~2.6x; these rates are NOT "
+            f"comparable to antiSMASH-derived ones" if proxy_warn else None),
         "roles": {"gates": list(GATE_QUESTIONS), "diagnostics": list(DIAGNOSTIC_QUESTIONS)},
         "headline": {
             "generates_bgc": {"n": gen_bgc, "evaluated": d_bgc, "rate": rate(gen_bgc, d_bgc)},
@@ -125,13 +141,19 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
     }
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 def run_group(records: list[dict], novelty: dict[str, dict], skip_checks: list[str],
               run_foldability: bool = False,
               pfam_hmm: Optional[Path] = None, mmseqs2_db: Optional[str] = None,
               mibig_gbk: Optional[Path] = None, antismash_db: Optional[Path] = None) -> list[dict]:
     from bgc_pipeline.evaluation import evaluate_bgc, EvalConfig, load_taxon_profiles
     cfg = EvalConfig(skip_checks=skip_checks, run_protein_foldability=run_foldability)
-    tp = Path("data/processed/taxon_profiles.json")
+    # REPO-ANCHORED like the class map ten lines below. A CWD-relative path missed from every
+    # driver not run at the repo root, which is why taxon_faithfulness was no_verdict on all 870
+    # probe records while the one eval run FROM the repo root has it populated.
+    tp = _REPO_ROOT / "data" / "processed" / "taxon_profiles.json"
     if tp.exists():
         cfg.taxon_profiles = load_taxon_profiles(tp)
     # antismash class match: map antiSMASH product types -> our harmonised compound
