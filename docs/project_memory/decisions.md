@@ -8,6 +8,36 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-10] Dilution is NOT why steering failed — injecting later gives LESS influence, not more
+After Phase 3 killed layer-16 steering, the leading remaining excuse was that the edit is made 16
+blocks from the output and never survives — the residual stream grows 11 orders of magnitude in
+the last blocks (L27 11.25 → L30 3.69e12). We tested it at **layer 27**, the last layer where the
+class direction is still real (held-out AUC 0.835) and the last before the blow-up.
+
+New instrument: `evo2/scripts/steer_reach.py` measures `reach` = mean KL of the next-token
+distribution under a steering edit whose magnitude is a fixed fraction of the **local** residual
+norm. Measured on n=40 held-out cores at frac 0.16: **L16 0.01011 → L20 0.00604 → L24 0.00359 →
+L27 0.00288.** Reach falls monotonically with depth; the same relative edit at L27 moves the
+output **3.5x less** than at L16.
+
+**Why that is the right answer rather than a surprise.** The residual stream is additive, so an
+edit at L16 is both carried forward unchanged *and* read, amplified and re-expressed by the 11
+blocks after it. An edit at L27 has 4 blocks left to be read by. "Closer to the output" means
+**fewer opportunities to be used**. The late-layer norm explosion attenuates both injection
+points equally, since it happens after both.
+
+**Consequences.** (a) Multi-layer steering and later-layer steering are both dead as fixes — they
+address a constraint that is not binding, and the deeper you inject the worse it gets. (b) The
+remaining explanation for Phase 3 is the one the program flagged at the outset: the class
+coordinate is *present* at L16 but the generator barely *consumes* it, so the answer is
+**training-time coupling** (per-class adapters, or a class-prediction loss that forces the
+last blocks to read the class coordinate), not any inference-time intervention.
+(c) Doses must be quoted as a fraction of the **live** residual norm, never from the pooled
+activation cache — see bugs.md 2026-08-10.
+
+**Open leakage debt (unchanged):** all steering directions, including the new L27 build, are fit
+on val+test. They must be refit on train-only before any number is reported externally.
+
 ### [2026-07-13] Rank sweep closes the capacity question — expressiveness is not the limiter either
 r=16/64/128 on mega_all (α=2r, n=15): correct_class 0.067 / 0.067 / **0.0** — no rank lifts the
 functional gate; r=128 is worse (over-rank + α–r=2 over-shrink → the rsLoRA regime). r=64 gave a real

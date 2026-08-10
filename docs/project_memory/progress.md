@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-07-27._
+_Last updated: 2026-08-10._
 
 ---
 
@@ -202,6 +202,55 @@ better substrate for a *conditioned retrain* (class token + throughput) if steer
 > report hits/Mbp. Touches `src/bgc_pipeline/evaluation.py` +
 > `scripts/eval_suite_driver.py::summarize_group`. This same defect is the leading
 > explanation for the 12.5%-vs-4.3% gap above.
+
+## ★★★ PHASE 5 (2026-08-10): dilution is NOT the constraint. Inference-time steering is CLOSED.
+
+The last standing excuse for Phase 3's null was **dilution** — the edit is made 16 blocks from the
+output and the residual stream grows 11 orders of magnitude in the final blocks (L27 11.25 →
+L30 3.69e12), so perhaps the nudge never survives. Tested at **layer 27**: the last layer where
+the class direction is still real (held-out AUC 0.835) and the last before the blow-up.
+
+**1. Reach falls with depth — the opposite of the hypothesis.** New instrument
+`evo2/scripts/steer_reach.py` measures `reach` = mean KL of the next-token distribution under an
+edit sized as a fraction of the **local** residual norm (n=40 held-out cores, 3 shuffled-label
+controls). At frac 0.16: **L16 0.01011 → L20 0.00604 → L24 0.00359 → L27 0.00288.** The same
+relative edit at L27 moves the output **3.5x less** than at L16.
+*Why:* the residual stream is additive, so an L16 edit is carried forward **and** read, amplified
+and re-expressed by the 11 blocks after it; an L27 edit has 4 blocks left to be read by. "Closer
+to the output" means fewer opportunities to be used. The L28 norm explosion is *after* both
+injection points and attenuates them equally.
+
+**2. Generation confirms it at L27** (`evo2/experiments/probes/run_steer_l27.sh`, Phase 3's seeded
+cross-class design, n=12/dose, 0 skipped):
+
+| dose (frac live ‖h‖) | class-units | coding_density | target markers | seed markers |
+|---|---|---|---|---|
+| 0.061 | 1.1 | 0.925 | **0/12** | 6/12 |
+| 0.16 | 2.9 | 0.883 | **0/12** | 5/12 |
+| 0.32 | 5.9 | 0.896 | **0/12** | 6/12 |
+| 0.64 | 11.9 | **0.684** | **0/12** | 3/12 |
+
+**0/48 overall**, spanning 1.1–11.9 class-units (up to ~16x Phase 3's output-distribution impact).
+The dose-response is Phase 3's signature exactly: the target class never appears, while the
+*seed's own* markers erode (6/12 → 3/12) and coherence collapses at the top dose. **Degradation,
+not redirection.** A pre-registered stop rule (≥2/12 target markers with coding ≥0.85) was set
+before the data landed; nothing fired, so the paired Stage 2 was not run.
+
+**3. Dosing bug found and fixed.** The activation cache stores *mean-pooled* states, so ‖h‖ read
+from it disagrees with the live per-position norm at the hook by 0.75x at L16 but **2.84x at L27**
+(pooled 11.25 vs live 31.97). Same failure family as the retired `_ref_norm`. Fixed by
+`--steer-norm-frac` (dose = fraction of the live local norm, recomputed per position) with the
+realized ‖h‖/‖delta‖/dose persisted per record. **Phase 3's L16 dose was 0.082 of the local norm
+— slightly stronger than believed, so its null is not an under-dosing artefact.**
+
+⇒ **Inference-time steering is closed**: wrong-axis, toxic-dose and floor-bound readout were all
+fixed, the layer was made a variable, and the dose was made comparable — and it is still null.
+Multi-layer / later-layer steering are dead too, since they target a non-binding constraint that
+worsens with depth. **The next spend is training-time coupling**: per-class LoRA adapters, or a
+class-prediction loss that forces the last blocks to read the class coordinate.
+
+**Standing debt:** all steering directions, including the L27 build, are fit on **val+test**. Refit
+on train-only before any externally reported number.
 
 ## ★★ PHASE 3 FINAL (2026-07-31): steering does NOT control generated class. Program answered.
 

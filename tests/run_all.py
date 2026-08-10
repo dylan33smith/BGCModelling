@@ -25,6 +25,7 @@ TESTS = [
     # the same failure one level up: a guard that does not run is not a guard.
     "test_eval_smoke.py",               # eval paths EXECUTE on real cores (not just logic)
     "test_shell_embedded_python.py",    # every PYEOF heredoc in the shell drivers compiles
+    "test_steer_hooks.py",              # WHERE and HOW BIG the injected steering edit is
 ]
 
 

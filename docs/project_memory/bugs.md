@@ -8,6 +8,26 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Evo2 / vortex / generation
 
+- **[2026-08-10] A mean-POOLED activation norm is not the norm a generated token sees — and the
+  error grows with depth.** The activation cache stores mean-pooled hidden states, so ‖h‖ read
+  from it disagrees with the live per-position ‖h‖ at the steering hook by 0.75x at L16 but
+  **2.84x at L27** (pooled 11.25 vs live 31.97). Pooling averages vectors pointing in different
+  directions and shrinks the norm by a depth-dependent factor. Any dose derived from the cache is
+  therefore mis-scaled, and a cross-layer comparison built on it is confounded by exactly the
+  quantity under test. This is the same failure family as the retired `_ref_norm` bug (which read
+  `X[:, -1, :]`, the pooled vector, and made every alpha 1.5–5.9x the between-sample scatter).
+  *Fix:* `seed_generate.py --steer-norm-frac` recomputes ‖delta‖ = frac × ‖h‖ from each generated
+  position's own residual, and every record persists the **realized** ‖h‖ / ‖delta‖ / dose
+  (`steer_mean_h_norm`, `steer_realized_norm_frac`, `steer_realized_class_units`) so no analysis
+  ever has to re-derive a dose from stderr again — which the β-titration had to.
+  Guarded by `tests/test_steer_hooks.py`.
+- **[2026-08-10] A z-score against 3 permutation controls is not a z-score.** `steer_reach.py`
+  reported z = 16.5 at L24 — from a control sd of 0.00003 estimated off three points, on an
+  effect of 0.00017. With few controls the sd is mostly noise, so a small spread manufactures a
+  huge z. Same family as the retired "beat the max of the controls" rule, which got *stricter*
+  as controls were added. *Fix:* suppress z below 5 controls and quote the permutation p, which
+  is honest but floored at 1/(n+1).
+
 - **vortex silently de-batches mixed-length prompts.** `Evo2.generate(..., batched=True)`
   checks `uniform_lengths` and falls back to per-sequence generation for ragged batches.
   *Fix:* generate **sequentially** (`generate_bgc.py` default). Left-padding to equalize

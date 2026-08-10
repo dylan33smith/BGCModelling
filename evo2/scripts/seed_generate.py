@@ -84,8 +84,9 @@ def _load_housekeeping_seeds(path: Path, seed_nt: int, rng) -> list[str]:
 
 
 
-def _install_generated_only_steer_hook(model, layer: int, delta):
-    """Add `delta` to block `layer`'s output ONLY during incremental generation.
+def _install_generated_only_steer_hook(model, layer: int, unit_vec, *,
+                                       abs_norm=None, norm_frac=None, stats=None):
+    """Add a steering vector to block `layer`'s output ONLY during incremental generation.
 
     THE CRITICAL DETAIL FOR PHASE 3. vortex `generate()` runs the whole prompt through the model
     once (prefill, sequence length > 1), then emits tokens one at a time (sequence length == 1).
@@ -93,13 +94,52 @@ def _install_generated_only_steer_hook(model, layer: int, delta):
     is carrying the class signal we are trying to override, and making the experiment measure
     something else entirely. Gating on shape[1] == 1 confines the intervention to generated
     positions, which is what "steer the output" actually means.
+
+    TWO DOSE PARAMETERISATIONS, because Evo2's residual stream is NOT scale-stable with depth.
+    Measured on the activation cache the directions are fit from (n=3,430 real cores,
+    mean-pooled over positions, `acts_valtest_fit.npz`) and, separately, LIVE at this hook
+    during real cached generation:
+
+        layer                  16      24      27       28        30
+        cached (mean-pooled)   8.95    6.54    11.25    5.47e3    3.69e12
+        LIVE (per position)    6.69    13.77   31.97    --        --
+
+    The two disagree by 2.8x at L27 (0.75x at L16) because pooling averages vectors that point
+    in different directions and so shrinks the norm. THE LIVE NUMBER IS THE ONE THAT GOVERNS a
+    generated token; deriving a dose from the pooled cache is the same mistake as the retired
+    `_ref_norm`, which read `X[:, -1, :]` and made every alpha 1.5-5.9x the between-sample
+    scatter. In LIVE units one class-unit is 0.082*||h|| at L16 but only 0.056*||h|| at L27 --
+    i.e. the semantic unit gets WEAKER with depth, the reverse of what the cache implies.
+
+      abs_norm  : ||delta|| = abs_norm                     -- absolute. Phase 1-3 used this
+                  (class-units x the layer's class-unit), which is fine WITHIN one layer.
+      norm_frac : ||delta|| = norm_frac * ||h||_position   -- a fixed fraction of the LOCAL
+                  residual norm, recomputed at every generated position. The only dose that
+                  is comparable across layers, and the only one that does not depend on a
+                  pooled statistic standing in for a per-position one.
+
+    `stats` (optional dict) accumulates the REALIZED ||h|| and ||delta|| so the record can carry
+    what was actually applied rather than what was requested. Sums stay as GPU tensors: calling
+    .item() per generated token would force a host sync on every one of ~3,000 steps.
     """
+    if (abs_norm is None) == (norm_frac is None):
+        raise ValueError("give exactly one of abs_norm / norm_frac")
     block = dict(model.named_modules())[f"blocks.{layer}"]
 
     def _apply(h):
         if h.shape[1] != 1:          # prefill: the seed. Leave it untouched.
             return h
-        return h + delta.to(h.dtype)
+        if abs_norm is not None:
+            d = unit_vec * abs_norm
+        else:
+            # float32 for the norm: the residual stream exceeds bf16's range in the last blocks
+            n = h.detach().float().norm(dim=-1, keepdim=True)      # (B, 1, 1), per position
+            d = unit_vec * (norm_frac * n)
+        if stats is not None:
+            stats["n"] += 1
+            stats["h_sum"] += h.detach().float().norm(dim=-1).mean()
+            stats["d_sum"] += torch.linalg.vector_norm(d.detach().float(), dim=-1).mean()
+        return h + d.to(h.dtype)
 
     def hook(_m, _in, out):
         if isinstance(out, (tuple, list)):
@@ -145,6 +185,13 @@ def main() -> int:
     ap.add_argument("--steer-layer", type=int, default=16)
     ap.add_argument("--steer-class-units", type=float, default=0.0,
                     help="Dose in class-units (same scale as Phase 1 / Phase 2). 0 = unsteered arm.")
+    ap.add_argument("--steer-norm-frac", type=float, default=0.0,
+                    help="ALTERNATIVE dose, scaled to the LOCAL residual norm: ||delta|| = this "
+                         "fraction of ||h|| at each generated position. Use this instead of "
+                         "--steer-class-units whenever the LAYER is the variable: measured LIVE "
+                         "at the hook, mean ||h|| is 6.69 at L16 but 31.97 at L27, so an "
+                         "absolute dose is not a comparable dose across depths. In those live "
+                         "units 1 class-unit = 0.082*||h|| at L16 and 0.056*||h|| at L27.")
     ap.add_argument("--steer-dir-prefix", default="",
                     help="\"\" = real direction; \"perm0_\" = shuffled-label control arm.")
     ap.add_argument("--steer-toward", default="rotate",
@@ -154,6 +201,15 @@ def main() -> int:
                          "disappears.")
     ap.add_argument("--out-jsonl", type=Path, required=True)
     args = ap.parse_args()
+
+    # Validate BEFORE the (slow) model load, so a bad invocation fails in milliseconds rather
+    # than after a merge. Two dose knobs at once is silently ambiguous, which is exactly the
+    # class of bug that made the beta titration uninterpretable.
+    if args.steer_class_units and args.steer_norm_frac:
+        ap.error("give at most one of --steer-class-units / --steer-norm-frac "
+                 f"(got {args.steer_class_units} and {args.steer_norm_frac})")
+    if (args.steer_class_units or args.steer_norm_frac) and args.steer_dirs_npz is None:
+        ap.error("a nonzero steering dose requires --steer-dirs-npz")
 
     args.out_jsonl.parent.mkdir(parents=True, exist_ok=True)
     adapter = args.adapter
@@ -221,8 +277,8 @@ def main() -> int:
                 prefix = tax if args.no_class_tag else build_prefix(tag_cls, tax)
                 prompt = prefix + seed
                 # --- Phase 3: pick the override target and install the generation-only hook ---
-                steer_target, handle = None, None
-                if args.steer_dirs_npz is not None and args.steer_class_units:
+                steer_target, handle, sstats, class_unit = None, None, None, None
+                if args.steer_dirs_npz is not None and (args.steer_class_units or args.steer_norm_frac):
                     if args.steer_toward == "rotate":
                         others = [c for c in classes_present if c != cls]
                         steer_target = others[hk_i % len(others)] if others else cls
@@ -237,10 +293,15 @@ def main() -> int:
                                          f"output? (the legacy sidecar has no class-units)")
                     v = zz[vkey].astype(np.float64)
                     v = v / (np.linalg.norm(v) + 1e-12)
-                    dv = v * args.steer_class_units * float(zz[ukey])
+                    class_unit = float(zz[ukey])
+                    uvec = torch.tensor(v, dtype=torch.float32, device=args.device)
+                    sstats = {"n": 0,
+                              "h_sum": torch.zeros((), device=args.device),
+                              "d_sum": torch.zeros((), device=args.device)}
+                    scale = ({"norm_frac": args.steer_norm_frac} if args.steer_norm_frac
+                             else {"abs_norm": args.steer_class_units * class_unit})
                     handle = _install_generated_only_steer_hook(
-                        wrapper.model, args.steer_layer,
-                        torch.tensor(dv, dtype=torch.float32, device=args.device))
+                        wrapper.model, args.steer_layer, uvec, stats=sstats, **scale)
                 torch.manual_seed(args.seed)
                 try:
                     out = wrapper.generate(
@@ -264,8 +325,20 @@ def main() -> int:
                 rec["scored_span"] = "continuation_only"
                 rec["steer_target_class"] = steer_target
                 rec["steer_class_units"] = args.steer_class_units
+                rec["steer_norm_frac"] = args.steer_norm_frac
                 rec["steer_dir_prefix"] = args.steer_dir_prefix or "real"
                 rec["steer_layer"] = args.steer_layer if steer_target else None
+                # WHAT WAS ACTUALLY APPLIED, not what was requested. The beta titration had to
+                # re-derive its own doses from stderr logs after the fact; never again.
+                if sstats and sstats["n"]:
+                    mh = float(sstats["h_sum"]) / sstats["n"]
+                    md = float(sstats["d_sum"]) / sstats["n"]
+                    rec["steer_mean_h_norm"] = round(mh, 5)
+                    rec["steer_mean_delta_norm"] = round(md, 5)
+                    rec["steer_realized_norm_frac"] = round(md / mh, 6) if mh else None
+                    rec["steer_realized_class_units"] = (round(md / class_unit, 4)
+                                                         if class_unit else None)
+                    rec["steer_n_steered_positions"] = sstats["n"]
                 rec["class_tag"] = not args.no_class_tag
                 rec["seed_source"] = args.seed_source
                 rec["no_boundary_orf"] = bool(args.no_boundary_orf)
