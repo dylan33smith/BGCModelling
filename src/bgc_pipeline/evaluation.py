@@ -251,8 +251,14 @@ OBLIGATE_DOMAINS: dict[str, list[str]] = {
 # antiSMASH is the GOLD-STANDARD BGC detector/classifier (owns is_bgc +
 # correct_class). class_markers (Pfam) is the fast PROXY used when antiSMASH is
 # skipped (quick-eval). RETIRED: synthesis feasibility, Evo2 perplexity, BiG-SCAPE.
+# taxon_faithfulness REMOVED from the suite 2026-08-10. It produced no_verdict on 870/870
+# records for its entire history (a CWD-relative profile path plus a case-sensitive phylum
+# match), and once wired its dinucleotide sub-check rejects ~63% of REAL held-out cores, so it
+# cannot be passed even by a perfect model. It also measures taxon conditioning, which is not
+# what this project is testing. The check_taxon_faithfulness FUNCTION is retained for
+# evo2/scripts/conditioning_experiment.py, which uses it deliberately for that other question.
 CHECKS = ("coding_sanity", "antismash", "class_markers", "kmer_novelty",
-          "protein_homology", "module_architecture", "taxon_faithfulness")
+          "protein_homology", "module_architecture")
 OPTIONAL_CHECKS = ("protein_foldability",)   # ESMFold: GPU-expensive, opt-in only
 
 QUESTIONS = {
@@ -261,7 +267,6 @@ QUESTIONS = {
     "novel":                 {"gate": True},   # not memorized from training
     "proteins_plausible":    {"gate": False},  # proteins resemble known enzymes
     "complete":              {"gate": False},  # complete, correctly-ordered modules
-    "conditioning_faithful": {"gate": False},  # codon/GC faithful to conditioned taxon
 }
 GATE_QUESTIONS = tuple(q for q, m in QUESTIONS.items() if m["gate"])
 DIAGNOSTIC_QUESTIONS = tuple(q for q, m in QUESTIONS.items() if not m["gate"])
@@ -1444,7 +1449,6 @@ def derive_questions(results: dict[str, Any]) -> dict[str, str]:
     q["novel"] = _verdict_from_pass(g("kmer_novelty"))
     q["proteins_plausible"] = _verdict_from_pass(g("protein_homology"))
     q["complete"] = _verdict_from_pass(g("module_architecture"))
-    q["conditioning_faithful"] = _verdict_from_pass(g("taxon_faithfulness"))
     # Not a question — leading underscore keeps it out of any QUESTIONS-keyed tally.
     q["_verdict_source"] = prov
     return q

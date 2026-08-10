@@ -93,6 +93,8 @@ def main() -> None:
         default=ROOT / "data" / "mibig" / "mibig_gbk_4.0",
     )
     parser.add_argument("--mmseqs2-db", type=str, default=None, help="Path to MMseqs2 UniRef50 DB")
+    parser.add_argument("--antismash-db", type=str, default="/data2/ds85/antismash_db",
+                        help="antiSMASH prerequisite DB root. A getattr() fallback stood here for a\n                             flag this parser never defined, so the value was unreachable config.")
     parser.add_argument(
         "--skip-checks",
         nargs="*",
@@ -145,24 +147,13 @@ def main() -> None:
             print(f"WARNING: {_label}={_val} does not resolve; that check will DEGRADE",
                   file=sys.stderr)
 
-    # taxon_profiles was never wired here, so conditioning_faithful was `no_verdict` on EVERY
-    # row -- including the positive controls -- and the summary printed "?" for all of them.
-    _tp = Path(__file__).resolve().parents[1] / "data" / "processed" / "taxon_profiles.json"
-    _profiles = {}
-    if _tp.exists():
-        from bgc_pipeline.evaluation import load_taxon_profiles
-        _profiles = load_taxon_profiles(_tp)
-    else:
-        print(f"WARNING: taxon profiles not found at {_tp}; conditioning_faithful will have "
-              f"no verdict", file=sys.stderr)
 
     config = EvalConfig(
         pfam_hmm_path=args.pfam_hmm if args.pfam_hmm.exists() else None,
         mibig_gbk_dir=args.mibig_gbk_dir if args.mibig_gbk_dir.is_dir() else None,
         mmseqs2_db=args.mmseqs2_db,
         class_map=class_map,
-        taxon_profiles=_profiles,
-        antismash_db_dir=getattr(args, "antismash_db", None) or "/data2/ds85/antismash_db",
+        antismash_db_dir=args.antismash_db,
         skip_checks=args.skip_checks or [],
     )
 
@@ -199,7 +190,7 @@ def main() -> None:
     qkeys = list(QUESTIONS.keys())
     glyph = {"PASS": "✓", "FAIL": "✗", "skipped": "-", "no_verdict": "?"}
     abbr = {"is_bgc": "bgc", "correct_class": "cls", "novel": "nov",
-            "proteins_plausible": "prot", "complete": "cmpl", "conditioning_faithful": "tax"}
+            "proteins_plausible": "prot", "complete": "cmpl"}
     print("\n" + "=" * 90, file=sys.stderr)
     print(f"{'Accession':<20} {'Control':<12} "
           + " ".join(f"{abbr.get(q, q):>5}" for q in qkeys), file=sys.stderr)

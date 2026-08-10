@@ -179,12 +179,6 @@ def run_group(records: list[dict], novelty: dict[str, dict], skip_checks: list[s
               mibig_gbk: Optional[Path] = None, antismash_db: Optional[Path] = None) -> list[dict]:
     from bgc_pipeline.evaluation import evaluate_bgc, EvalConfig, load_taxon_profiles
     cfg = EvalConfig(skip_checks=skip_checks, run_protein_foldability=run_foldability)
-    # REPO-ANCHORED like the class map ten lines below. A CWD-relative path missed from every
-    # driver not run at the repo root, which is why taxon_faithfulness was no_verdict on all 870
-    # probe records while the one eval run FROM the repo root has it populated.
-    tp = _REPO_ROOT / "data" / "processed" / "taxon_profiles.json"
-    if tp.exists():
-        cfg.taxon_profiles = load_taxon_profiles(tp)
     # antismash class match: map antiSMASH product types -> our harmonised compound
     # classes (T1PKS->PKS, lanthipeptide->RIPP, ...). Without this the antismash check
     # does an exact string match and fails real BGCs (PKS != T1PKS).
