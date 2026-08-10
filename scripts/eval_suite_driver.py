@@ -174,7 +174,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_group(records: list[dict], novelty: dict[str, dict], skip_checks: list[str],
-              run_foldability: bool = False,
+              run_foldability: bool = False, probe_scores: Optional[dict[str, dict]] = None,
               pfam_hmm: Optional[Path] = None, mmseqs2_db: Optional[str] = None,
               mibig_gbk: Optional[Path] = None, antismash_db: Optional[Path] = None) -> list[dict]:
     from bgc_pipeline.evaluation import evaluate_bgc, EvalConfig, load_taxon_profiles
@@ -229,6 +229,7 @@ def run_group(records: list[dict], novelty: dict[str, dict], skip_checks: list[s
             expected_class=rec.get("compound_class", ""),
             expected_taxon=rec.get("taxonomic_tag", ""),
             config=cfg, novelty=nov,
+            probe_scores=(probe_scores or {}).get(sid),
         )
         results.append(res)
         if (i + 1) % 20 == 0:
@@ -244,6 +245,13 @@ def main() -> None:
                     default=_REPO_ROOT / "eval" / "positive_control_mibig.jsonl",
                     help="Real-BGC positive control JSONL. Repo-anchored: a CWD-relative default "
                          "silently missed from every driver not run at the repo root.")
+    ap.add_argument("--probe-scores", type=Path, default=None,
+                    help="Sidecar {record id -> {class: probability}} from "
+                         "evo2/scripts/probe_score_generations.py --emit-sidecar. Enables the "
+                         "CONTINUOUS `class_probe` diagnostic, which can see class shifts too "
+                         "small for the binary gates (class_markers TPR is 0.717 at 3 kb, and "
+                         "antiSMASH detects only ~1/3 of seeded 3 kb generations). It NEVER "
+                         "gates — see check_class_probe.")
     ap.add_argument("--novelty", type=Path, default=None,
                     help="memorization_check report (id -> max_containment) for Metric 9.")
     ap.add_argument("--include-foldability", "--include-gpu-metrics",
@@ -268,6 +276,17 @@ def main() -> None:
     dbs = {"pfam_hmm": args.pfam_hmm, "mmseqs2_db": args.mmseqs2_db,
            "mibig_gbk": args.mibig_gbk, "antismash_db": args.antismash_db}
     novelty = load_novelty_map(args.novelty)
+    # A SUPPLIED-but-unresolvable sidecar is a typo, not an omission: without this the check
+    # skips on every record and the report looks identical to never having asked for it.
+    probe_scores: dict[str, dict] = {}
+    if args.probe_scores:
+        if not args.probe_scores.exists():
+            raise SystemExit(f"eval_suite_driver: --probe-scores {args.probe_scores} does not "
+                             f"exist. Generate it with probe_score_generations.py --emit-sidecar.")
+        probe_scores = json.loads(args.probe_scores.read_text())
+        if not probe_scores:
+            raise SystemExit(f"eval_suite_driver: --probe-scores {args.probe_scores} is EMPTY — "
+                             f"the class_probe check would skip on every record.")
     gen = load_jsonl(args.gen)
     pos = load_jsonl(args.positive) if args.positive and args.positive.exists() else []
     # LOUD. Without a control, every rate is an uncalibrated fraction of an UNSTATED maximum:
@@ -295,7 +314,8 @@ def main() -> None:
     missing = [f"{name}(unresolved)" for name, v in dbs.items() if v and not _resolves(v)]
     enabled += missing
     print(f"Generated: {len(gen)} | positive control: {len(pos)} | "
-          f"novelty entries: {len(novelty)} | skip checks: {skip or 'none'} | "
+          f"novelty entries: {len(novelty)} | probe scores: {len(probe_scores)} | "
+          f"skip checks: {skip or 'none'} | "
           f"opt-in DBs: {', '.join(enabled) or 'none (checks self-skip)'}", file=sys.stderr)
     if not novelty:
         print("  WARNING: no --novelty map -> the 'novel' question is UNVERIFIED, "
@@ -305,10 +325,14 @@ def main() -> None:
         return
 
     report: dict[str, Any] = {}
-    g_res = run_group(gen, novelty, skip, run_foldability=args.include_foldability, **dbs)
+    g_res = run_group(gen, novelty, skip, run_foldability=args.include_foldability,
+                      probe_scores=probe_scores, **dbs)
     report["generated"] = summarize_group(g_res)
     if pos:
-        p_res = run_group(pos, novelty, skip, run_foldability=args.include_foldability, **dbs)
+        # The control gets the SAME instrument, probe included, or the ceiling it establishes
+        # would be for a different measurement than the one the generations got.
+        p_res = run_group(pos, novelty, skip, run_foldability=args.include_foldability,
+                          probe_scores=probe_scores, **dbs)
         report["positive_control"] = summarize_group(p_res)
     report["per_record"] = {"generated": g_res, "positive_control":
                             (p_res if pos else [])}

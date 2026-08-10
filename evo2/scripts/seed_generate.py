@@ -182,7 +182,15 @@ def main() -> int:
     # --- PHASE 3: cross-class override ---
     ap.add_argument("--steer-dirs-npz", type=Path, default=None,
                     help="build_steer_dirs.py output. Enables steering of the CONTINUATION.")
-    ap.add_argument("--steer-layer", type=int, default=16)
+    ap.add_argument("--steer-layer", default="16",
+                    help="Block to inject at. A COMMA LIST stacks the same class direction at "
+                         "every listed layer simultaneously (e.g. '10,12,14,16,18,20,22,24'). "
+                         "That is a different intervention from injecting once: measured, a "
+                         "single edit's influence on the output FALLS with depth (L16 0.0101 -> "
+                         "L27 0.0029), which is consistent with later blocks partially ERASING "
+                         "an added component. Re-asserting it at every layer is closer to "
+                         "clamping the class coordinate than nudging it, and spreads the "
+                         "coherence damage instead of concentrating it in one place.")
     ap.add_argument("--steer-class-units", type=float, default=0.0,
                     help="Dose in class-units (same scale as Phase 1 / Phase 2). 0 = unsteered arm.")
     ap.add_argument("--steer-norm-frac", type=float, default=0.0,
@@ -210,6 +218,12 @@ def main() -> int:
                  f"(got {args.steer_class_units} and {args.steer_norm_frac})")
     if (args.steer_class_units or args.steer_norm_frac) and args.steer_dirs_npz is None:
         ap.error("a nonzero steering dose requires --steer-dirs-npz")
+    try:
+        steer_layers = [int(x) for x in str(args.steer_layer).replace(",", " ").split()]
+    except ValueError:
+        ap.error(f"--steer-layer must be an int or a comma list of ints, got {args.steer_layer!r}")
+    if not steer_layers:
+        ap.error("--steer-layer is empty")
 
     args.out_jsonl.parent.mkdir(parents=True, exist_ok=True)
     adapter = args.adapter
@@ -277,7 +291,7 @@ def main() -> int:
                 prefix = tax if args.no_class_tag else build_prefix(tag_cls, tax)
                 prompt = prefix + seed
                 # --- Phase 3: pick the override target and install the generation-only hook ---
-                steer_target, handle, sstats, class_unit = None, None, None, None
+                steer_target, handles, sstats, class_unit = None, [], None, None
                 if args.steer_dirs_npz is not None and (args.steer_class_units or args.steer_norm_frac):
                     if args.steer_toward == "rotate":
                         others = [c for c in classes_present if c != cls]
@@ -285,23 +299,30 @@ def main() -> int:
                     else:
                         steer_target = args.steer_toward
                     zz = np.load(args.steer_dirs_npz)
-                    vkey = f"{args.steer_dir_prefix}L{args.steer_layer}_{steer_target}"
-                    ukey = f"classunit_L{args.steer_layer}_{steer_target}"
-                    if vkey not in zz or ukey not in zz:
-                        raise SystemExit(f"[seed-steer] missing {vkey} or {ukey} in "
-                                         f"{args.steer_dirs_npz} — is this a build_steer_dirs.py "
-                                         f"output? (the legacy sidecar has no class-units)")
-                    v = zz[vkey].astype(np.float64)
-                    v = v / (np.linalg.norm(v) + 1e-12)
-                    class_unit = float(zz[ukey])
-                    uvec = torch.tensor(v, dtype=torch.float32, device=args.device)
                     sstats = {"n": 0,
                               "h_sum": torch.zeros((), device=args.device),
                               "d_sum": torch.zeros((), device=args.device)}
-                    scale = ({"norm_frac": args.steer_norm_frac} if args.steer_norm_frac
-                             else {"abs_norm": args.steer_class_units * class_unit})
-                    handle = _install_generated_only_steer_hook(
-                        wrapper.model, args.steer_layer, uvec, stats=sstats, **scale)
+                    # Each layer gets ITS OWN direction and its own class-unit: the direction is
+                    # a different vector at every depth, and the class-unit spans 0.46 (L16) to
+                    # 2.05 (L27). Reusing one layer's vector or scale would make the stack a
+                    # different intervention at each block rather than the same one repeated.
+                    for _L in steer_layers:
+                        vkey = f"{args.steer_dir_prefix}L{_L}_{steer_target}"
+                        ukey = f"classunit_L{_L}_{steer_target}"
+                        if vkey not in zz or ukey not in zz:
+                            raise SystemExit(
+                                f"[seed-steer] missing {vkey} or {ukey} in {args.steer_dirs_npz} "
+                                f"— rebuild with build_steer_dirs.py --layers "
+                                f"{' '.join(str(x) for x in steer_layers)} (the legacy sidecar "
+                                f"has no class-units)")
+                        v = zz[vkey].astype(np.float64)
+                        v = v / (np.linalg.norm(v) + 1e-12)
+                        class_unit = float(zz[ukey])
+                        uvec = torch.tensor(v, dtype=torch.float32, device=args.device)
+                        scale = ({"norm_frac": args.steer_norm_frac} if args.steer_norm_frac
+                                 else {"abs_norm": args.steer_class_units * class_unit})
+                        handles.append(_install_generated_only_steer_hook(
+                            wrapper.model, _L, uvec, stats=sstats, **scale))
                 torch.manual_seed(args.seed)
                 try:
                     out = wrapper.generate(
@@ -310,8 +331,8 @@ def main() -> int:
                         cached_generation=True, verbose=0,
                     )
                 finally:
-                    if handle is not None:
-                        handle.remove()      # never leak a hook into the next sequence
+                    for _h in handles:
+                        _h.remove()          # never leak a hook into the next sequence
                 cont = extract_sequence(_gen_sequences(out)[0])   # generation-only (prompt stripped)
                 # compound_class = what we ASKED for (the tag) so correct_class measures
                 # tag-following; seed_class is recorded separately for seed-following.
@@ -327,7 +348,9 @@ def main() -> int:
                 rec["steer_class_units"] = args.steer_class_units
                 rec["steer_norm_frac"] = args.steer_norm_frac
                 rec["steer_dir_prefix"] = args.steer_dir_prefix or "real"
-                rec["steer_layer"] = args.steer_layer if steer_target else None
+                rec["steer_layer"] = (steer_layers[0] if len(steer_layers) == 1 else steer_layers) \
+                                     if steer_target else None
+                rec["steer_n_layers"] = len(steer_layers) if steer_target else 0
                 # WHAT WAS ACTUALLY APPLIED, not what was requested. The beta titration had to
                 # re-derive its own doses from stderr logs after the fact; never again.
                 if sstats and sstats["n"]:

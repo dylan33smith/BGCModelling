@@ -259,7 +259,10 @@ OBLIGATE_DOMAINS: dict[str, list[str]] = {
 # evo2/scripts/conditioning_experiment.py, which uses it deliberately for that other question.
 CHECKS = ("coding_sanity", "antismash", "class_markers", "kmer_novelty",
           "protein_homology", "module_architecture")
-OPTIONAL_CHECKS = ("protein_foldability",)   # ESMFold: GPU-expensive, opt-in only
+# Opt-in checks. `class_probe` needs per-record scores from a MODEL-SPECIFIC probe, which the
+# suite deliberately does not compute itself -- keeping evaluation.py model-agnostic is what lets
+# Evo2 and GenomeOcean be graded on one instrument.
+OPTIONAL_CHECKS = ("protein_foldability", "class_probe")
 
 QUESTIONS = {
     "is_bgc":                {"gate": True},   # real coding DNA + a biosynthetic cluster
@@ -267,6 +270,10 @@ QUESTIONS = {
     "novel":                 {"gate": True},   # not memorized from training
     "proteins_plausible":    {"gate": False},  # proteins resemble known enzymes
     "complete":              {"gate": False},  # complete, correctly-ordered modules
+    # CONTINUOUS class readout. Diagnostic by construction and never a gate: the probe has no
+    # "not a BGC" class, reads the generator's own hidden states rather than biology, and is fit
+    # on val+test. It exists to see effects too small for a threshold gate, not to judge validity.
+    "class_probe_agrees":    {"gate": False},  # the class probe's argmax == the conditioned class
 }
 GATE_QUESTIONS = tuple(q for q, m in QUESTIONS.items() if m["gate"])
 DIAGNOSTIC_QUESTIONS = tuple(q for q, m in QUESTIONS.items() if not m["gate"])
@@ -445,6 +452,101 @@ def _resource_missing(result: dict[str, Any], reason: str, *, gating: bool = Tru
     result["skipped"] = True
     result["skip_kind"] = "resource"
     result["reason"] = reason
+    return result
+
+
+def check_class_probe(
+    probe_scores: Optional[dict[str, float]],
+    expected_class: str = "",
+    min_margin: float = 0.0,
+) -> dict[str, Any]:
+    """CONTINUOUS class readout: what a linear class probe makes of this sequence.
+
+    WHY THIS CHECK EXISTS. Every other class readout in the suite is BINARY -- antiSMASH called a
+    cluster of type X, or a class-defining Pfam domain was found. Both are threshold instruments
+    and both are insensitive at the lengths we generate. Measured 2026-08-10:
+
+        class_markers TPR on real class DNA at 3 kb : 0.717   (NRPS .867 PKS .600 TERP .867 RIPP .533)
+        antiSMASH is_bgc on seeded 3 kb generations : ~0.33   (so a steering arm's CEILING is 0.33)
+
+    Against instruments like that an intervention can move the model substantially toward a class
+    and still score exactly 0.000, because "somewhat more PKS-like" is not a domain. A null from a
+    threshold gate bounds a LARGE effect and is silent on a small one -- which is precisely where a
+    weak-but-real conditioning effect would live. This check reports a PROBABILITY instead, so a
+    partial shift is visible.
+
+    IT IS A DIAGNOSTIC AND MUST NEVER GATE. Three independent reasons, all load-bearing:
+
+      1. NO NEGATIVE CLASS. The probe is trained on BGC classes only, so it has no way to say
+         "this is not a BGC at all" -- it always returns a distribution over BGC classes and
+         always has an argmax. MEASURED 2026-08-10 (evo2/scripts/calibrate_class_probe.py) on 25
+         real non-BGC genomic windows vs 60 real cores, both at 3 kb:
+
+             argmax == true class on real cores  : 0.900   (the marker gate manages 0.717)
+             mean argmax confidence, real cores  : 0.986
+             mean argmax confidence, NON-BGC DNA : 0.900   <-- 24/25 are >= 0.5 confident
+             where non-BGC DNA lands             : RIPP 14, NRPS 5, BETALACTONE 4, PHOSPHONATE 2
+
+         It is nearly as confident on ordinary bacterial DNA as on real clusters. It measures
+         "which class does this most RESEMBLE", never "is this a cluster". Note also that RIPP
+         is the default attractor for unremarkable DNA, so an arm targeting RIPP gets an
+         inflated p_expected -- harmless in a paired comparison, misleading as a bare number.
+      2. IT READS THE MODEL, NOT BIOLOGY. The scores come from the generator's own hidden states.
+         A model can write DNA its own probe calls PKS while antiSMASH finds nothing. antiSMASH
+         is the ground truth for validity; this is a sensitivity instrument, not a verdict.
+      3. LEAKAGE. The probe in use is fit on val+test (the standing debt in decisions.md).
+
+    Its real power is PAIRED comparison -- same seed exemplar, steered vs unsteered vs
+    shuffled-label -- where the shared bias cancels and only the difference is read.
+
+    `probe_scores` maps class name -> probability and is computed UPSTREAM by the model-specific
+    scorer (`evo2/scripts/probe_score_generations.py`), which keeps this suite model-agnostic:
+    each track supplies scores from its own probe and is graded here identically.
+    """
+    result: dict[str, Any] = {"check": "class_probe"}
+    if not probe_scores:
+        # Diagnostic, so a missing score SKIPS rather than raising -- but it is tagged
+        # `resource`, never silently folded into a FAIL.
+        return _resource_missing(
+            result,
+            "no probe scores supplied for this record (run "
+            "evo2/scripts/probe_score_generations.py --emit-sidecar and pass --probe-scores)",
+            gating=False)
+
+    scores = {str(k): float(v) for k, v in probe_scores.items()}
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    result["n_classes"] = len(scores)
+    result["argmax"] = ranked[0][0]
+    result["argmax_p"] = ranked[0][1]
+    result["top3"] = [{"class": c, "p": p} for c, p in ranked[:3]]
+    # Entropy in bits, normalised by log2(n): 0 = certain, 1 = uniform. A probe that is uniform
+    # on everything is not reading anything, and that is invisible if only argmax is reported.
+    n = max(len(scores), 2)
+    ent = -sum(p * math.log2(p) for _, p in ranked if p > 0)
+    result["entropy_norm"] = ent / math.log2(n)
+
+    if not expected_class:
+        result["pass"] = None
+        result["no_expected_class"] = True
+        result["p_expected"] = None
+        return result
+    if expected_class not in scores:
+        # An OOV class cannot be scored. Say so rather than reporting p=0, which reads as
+        # "the probe is certain it is not this class".
+        result["unknown_class"] = expected_class
+        result["pass"] = None
+        result["p_expected"] = None
+        result["reason"] = (f"{expected_class} is not one of the probe's {len(scores)} classes "
+                            f"— not scoreable, which is not the same as scoring zero")
+        return result
+
+    p_exp = scores[expected_class]
+    best_other = max((p for c, p in scores.items() if c != expected_class), default=0.0)
+    result["p_expected"] = p_exp
+    result["p_chance"] = 1.0 / len(scores)
+    result["margin"] = p_exp - best_other          # >0 iff the expected class is the argmax
+    result["argmax_matches"] = result["argmax"] == expected_class
+    result["pass"] = bool(result["argmax_matches"] and result["margin"] >= min_margin)
     return result
 
 
@@ -1449,6 +1551,9 @@ def derive_questions(results: dict[str, Any]) -> dict[str, str]:
     q["novel"] = _verdict_from_pass(g("kmer_novelty"))
     q["proteins_plausible"] = _verdict_from_pass(g("protein_homology"))
     q["complete"] = _verdict_from_pass(g("module_architecture"))
+    q["class_probe_agrees"] = _verdict_from_pass(g("class_probe"))
+    if q["class_probe_agrees"] != "skipped":
+        prov["class_probe_agrees"] = "class_probe_DIAGNOSTIC_never_a_gate"
     # Not a question — leading underscore keeps it out of any QUESTIONS-keyed tally.
     q["_verdict_source"] = prov
     return q
@@ -1461,6 +1566,7 @@ def evaluate_bgc(
     config: Optional[EvalConfig] = None,
     expected_taxon: str = "",
     novelty: Optional[dict[str, Any]] = None,
+    probe_scores: Optional[dict[str, float]] = None,
 ) -> dict[str, Any]:
     """Run the eval CHECKS on a BGC sequence and derive the QUESTION verdicts.
 
@@ -1507,6 +1613,11 @@ def evaluate_bgc(
         results["kmer_novelty"] = check_kmer_novelty(
             novelty, config.novelty_fail_threshold, config.novelty_warn_threshold,
         )
+    # class_probe_agrees: CONTINUOUS class readout. Opt-in and diagnostic-only -- it runs when
+    # the caller supplies scores from a model-specific probe, and it never gates (see
+    # check_class_probe for why: no negative class, reads the model not biology, leakage debt).
+    if "class_probe" not in skip and probe_scores is not None:
+        results["class_probe"] = check_class_probe(probe_scores, expected_class)
     # complete: module architecture, derived from class_markers domain positions.
     if "module_architecture" not in skip:
         results["module_architecture"] = check_module_architecture(

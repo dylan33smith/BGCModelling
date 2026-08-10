@@ -219,6 +219,74 @@ def test_headline_funnel_is_monotone_and_still_reports_when_novelty_skipped():
     print("PASS headline: funnel monotone AND per-metric rates survive a skipped gate")
 
 
+def test_class_probe_is_a_diagnostic_and_cannot_gate():
+    """The continuous class readout must never influence a GATE.
+
+    It has no "not a BGC" class (so on real non-BGC DNA it still returns a confident BGC class),
+    it reads the generator's own hidden states rather than biology, and it is fit on val+test.
+    Any of those alone disqualifies it from deciding is_bgc / correct_class / novel. Measured
+    2026-08-10 on 25 real non-BGC genomic windows: the probe is 0.900 confident in its argmax
+    (24/25 at >= 0.5), against 0.986 on real cores -- i.e. almost as sure about ordinary
+    bacterial DNA as about a genuine cluster.
+    """
+    from bgc_pipeline.evaluation import (check_class_probe, derive_questions,
+                                         GATE_QUESTIONS, QUESTIONS)
+    p = {"NRPS": 0.70, "PKS": 0.20, "TERPENE": 0.07, "RIPP": 0.03}
+    hit, miss = check_class_probe(p, "NRPS"), check_class_probe(p, "PKS")
+    assert hit["pass"] is True and abs(hit["p_expected"] - 0.70) < 1e-9, hit
+    assert miss["pass"] is False and miss["margin"] < 0, miss
+    # continuous fields the binary gates cannot express
+    assert 0.0 <= hit["entropy_norm"] <= 1.0 and hit["margin"] == hit["p_expected"] - 0.20
+
+    # unscoreable inputs must be distinguishable from a confident negative
+    assert check_class_probe(p, "")["no_expected_class"] is True
+    oov = check_class_probe(p, "ECTOINE")
+    assert oov["pass"] is None and oov["p_expected"] is None, oov   # NOT p=0.0
+    missing = check_class_probe(None, "NRPS")
+    assert missing["skipped"] and missing["skip_kind"] == "resource", missing
+
+    # THE GUARD: a confidently WRONG probe must not move any gate.
+    base = {"coding_sanity": {"pass": True}, "antismash": {"detected": True, "class_match": True}}
+    q0 = derive_questions(dict(base))
+    q1 = derive_questions({**base, "class_probe": check_class_probe(p, "PKS")})
+    for g in GATE_QUESTIONS:
+        assert q0[g] == q1[g], f"class_probe changed the gate {g}: {q0[g]} -> {q1[g]}"
+    assert q1["class_probe_agrees"] == "FAIL"
+    assert QUESTIONS["class_probe_agrees"]["gate"] is False
+    # and when it never ran, it is `skipped`, not a silent FAIL
+    assert q0["class_probe_agrees"] == "skipped", q0
+    print("PASS class_probe: continuous, diagnostic-only, cannot move a gate")
+
+
+def test_class_probe_reaches_evaluate_bgc_and_the_driver():
+    """Wiring test: scores supplied to evaluate_bgc must actually reach the check, and the
+    driver's sidecar join must use the same id precedence (`accession or id or str(i)`) as
+    novelty — a mismatched key would skip every record while looking like it ran."""
+    from bgc_pipeline.evaluation import evaluate_bgc, EvalConfig
+    seq = _real_core()["sequence"][:2500]
+    cfg = EvalConfig(skip_checks=["antismash", "protein_homology", "kmer_novelty",
+                                  "class_markers", "module_architecture"])
+    r = evaluate_bgc(seq, "ACC1", "NRPS", cfg,
+                     probe_scores={"NRPS": 0.8, "PKS": 0.2})
+    assert r["class_probe"]["pass"] is True, r["class_probe"]
+    assert r["questions"]["class_probe_agrees"] == "PASS"
+    # absent scores => the check simply does not appear, and the question is `skipped`
+    r2 = evaluate_bgc(seq, "ACC1", "NRPS", cfg)
+    assert "class_probe" not in r2, r2.keys()
+    assert r2["questions"]["class_probe_agrees"] == "skipped"
+
+    import eval_suite_driver as D
+    recs = [{"accession": "ACC1", "sequence": seq, "compound_class": "NRPS"}]
+    out = D.run_group(recs, {}, list(cfg.skip_checks),
+                      probe_scores={"ACC1": {"NRPS": 0.8, "PKS": 0.2}})
+    assert out[0]["questions"]["class_probe_agrees"] == "PASS", out[0]["questions"]
+    # a sidecar keyed on something else must SKIP, never quietly pass or fail
+    out2 = D.run_group(recs, {}, list(cfg.skip_checks),
+                       probe_scores={"WRONG_KEY": {"NRPS": 0.8, "PKS": 0.2}})
+    assert out2[0]["questions"]["class_probe_agrees"] == "skipped", out2[0]["questions"]
+    print("PASS class_probe: reaches evaluate_bgc and joins in the driver by accession")
+
+
 def main() -> int:
     for t in (test_coding_sanity_and_gene_caller,
               test_class_markers_needs_pfam_and_works_with_it,
@@ -230,7 +298,9 @@ def main() -> int:
               test_adherence_returns_none_rates_when_nothing_scored,
               test_positive_control_pairs_class_with_length,
               test_antismash_scores_every_unscoreable_input_kind,
-              test_headline_funnel_is_monotone_and_still_reports_when_novelty_skipped):
+              test_headline_funnel_is_monotone_and_still_reports_when_novelty_skipped,
+              test_class_probe_is_a_diagnostic_and_cannot_gate,
+              test_class_probe_reaches_evaluate_bgc_and_the_driver):
         t()
     print("\nALL EVAL SMOKE TESTS PASSED")
     return 0

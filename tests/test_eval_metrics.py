@@ -230,7 +230,10 @@ def test_gate_keyed_headline():
     import eval_suite_driver as D
     from bgc_pipeline.evaluation import GATE_QUESTIONS, DIAGNOSTIC_QUESTIONS
     assert set(GATE_QUESTIONS) == {"is_bgc", "correct_class", "novel"}
-    assert set(DIAGNOSTIC_QUESTIONS) == {"proteins_plausible", "complete"}
+    # `class_probe_agrees` joined the DIAGNOSTICS on 2026-08-10 and must never migrate into the
+    # gates: the probe has no "not a BGC" class, reads the generator's own hidden states rather
+    # than biology, and is fit on val+test. Pinning the gate set here is the guard.
+    assert set(DIAGNOSTIC_QUESTIONS) == {"proteins_plausible", "complete", "class_probe_agrees"}
     recs = [
         {"questions": {"is_bgc": "PASS", "correct_class": "PASS", "novel": "PASS"}},        # ACCEPT
         {"questions": {"is_bgc": "FAIL", "correct_class": "PASS", "novel": "PASS"}},        # not a BGC

@@ -152,6 +152,39 @@ def test_ambiguous_or_absent_dose_is_refused():
     print("PASS hook: refuses no dose and refuses two doses")
 
 
+def test_stacked_hooks_all_fire_and_share_one_stats_sink():
+    """MULTI-LAYER steering installs one hook per layer with a SHARED stats dict.
+
+    Two ways that silently goes wrong: only the last hook survives (each install overwriting the
+    previous), or the shared sink counts one layer's applications as if they were the whole
+    stack. Either would make a stacked arm quietly identical to a single-layer one -- an arm that
+    looks like it ran and tests nothing.
+    """
+    from seed_generate import _install_generated_only_steer_hook as install
+    m = _Model(n=6)
+    layers = [1, 3, 5]
+    st = {"n": 0, "h_sum": torch.zeros(()), "d_sum": torch.zeros(())}
+    hs = [install(m, L, _unit(10 + L), abs_norm=1.0, stats=st) for L in layers]
+    try:
+        out = _run(m, torch.zeros(1, 1, D))
+    finally:
+        for h in hs:
+            h.remove()
+    assert st["n"] == len(layers), f"{st['n']} applications for {len(layers)} hooks"
+    # three DIFFERENT unit vectors of norm 1 each: the sum cannot be a single one of them
+    assert 0.5 < float(out.norm()) < 3.0, float(out.norm())
+    assert float(st["d_sum"]) == len(layers) * 1.0
+    # and each layer really used its OWN direction
+    single = _Model(n=6)
+    h1 = install(single, 1, _unit(11), abs_norm=1.0)
+    try:
+        one = _run(single, torch.zeros(1, 1, D))
+    finally:
+        h1.remove()
+    assert not torch.allclose(out, one), "the stack collapsed to a single layer's edit"
+    print("PASS stacked hooks: every layer fires, each with its own direction, one shared sink")
+
+
 def test_causal_test_hooks_gate_on_start_pos():
     """steer_causal_tests.py scores a continuation under an intervention applied ONLY to the
     scored positions. If the gate leaks into the context, the measurement is of a different
@@ -186,6 +219,7 @@ def main() -> int:
               test_norm_relative_dose_tracks_the_local_residual,
               test_recorded_stats_match_what_was_applied,
               test_ambiguous_or_absent_dose_is_refused,
+              test_stacked_hooks_all_fire_and_share_one_stats_sink,
               test_causal_test_hooks_gate_on_start_pos):
         t()
     print("\nALL STEERING HOOK TESTS PASSED")
