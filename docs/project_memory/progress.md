@@ -203,6 +203,53 @@ better substrate for a *conditioned retrain* (class token + throughput) if steer
 > `scripts/eval_suite_driver.py::summarize_group`. This same defect is the leading
 > explanation for the 12.5%-vs-4.3% gap above.
 
+## ★★★ PHASE 6 (2026-08-10): the direction DELETES class but cannot INSTALL it — found only by
+## the new continuous readout, which every binary gate reported as a flat zero.
+
+**Multi-layer steering** (`run_steer_stack.sh`): the class direction re-asserted at 9 layers
+(L10-L27, each with its own direction and class-unit) simultaneously, 3 per-layer doses, each
+with a shuffled-label twin, seeded cross-class design, n=12/arm. Rationale: falling single-layer
+reach with depth is what downstream ERASURE of an added component looks like, and re-asserting at
+every layer is closer to *clamping* than nudging — a mechanism no single-layer run can test.
+
+Binary gates: **0/12 target markers in every arm**, real and shuffled alike. Uninformative — the
+marker gate's TPR is 0.717 at this length.
+
+The CONTINUOUS readout (`class_probe`, TPR 0.900) on the same sequences, paired real vs
+shuffled-label on the same exemplars:
+
+| per-layer dose | ΔP(target) | p | **ΔP(seed)** | **p** |
+|---|---|---|---|---|
+| 0.027 | +0.075 | 0.065 | −0.175 | 0.549 |
+| 0.082 | +0.007 | 1.000 | −0.090 | 0.388 |
+| **0.16** | +0.107 | 0.146 | **−0.308 (1/12 up)** | **0.0063** |
+
+**The real direction strips the SEED's class identity 3x harder than an equal-magnitude random
+direction** (Bonferroni over all 6 tests: 0.038, still significant). It never significantly
+installs the TARGET's.
+
+**Not explained by damage.** At frac 0.16 the real arm is more incoherent (coding 0.706 vs 0.834),
+but corr(Δcoding, ΔP(seed)) = **+0.002** — no relationship. On the 7 exemplars where the real
+direction did NO more coding damage than the shuffled one, ΔP(seed) = **−0.393** (same direction,
+larger; n=7, p=0.125 — underpowered, not contradicting).
+
+⇒ **ABLATION WORKS, INJECTION DOES NOT.** The vector genuinely carries class information — enough
+to delete a class that is present — but adding it does not make the generator write the target's
+machinery. This reproduces Phase 1's pattern (ablation z=4.8 strong, nudge marginal) in
+GENERATION rather than teacher-forced scoring. Mechanistically coherent: erasing a coordinate the
+model already uses is easy; writing one it does not consume achieves nothing downstream.
+
+⇒ Multi-layer is now tested and closed too, on a SENSITIVE instrument. The inference-time family
+is exhausted. Next spend remains **training-time coupling** (per-class adapters, or a
+class-prediction loss forcing the last blocks to read the class coordinate).
+
+**New eval check `class_probe`** (continuous, diagnostic-only, never gates) is what made this
+visible. Calibrated at both ends: TPR 0.900 on real cores at 3 kb (vs 0.717 for the Pfam marker
+gate), but mean argmax confidence **0.900 on real NON-BGC DNA** vs 0.986 on real cores — it has
+no negative class and cannot abstain, so it measures RESEMBLANCE, not validity, and is
+trustworthy ONLY in paired comparisons. RIPP is its default attractor for unremarkable DNA
+(14/25 negatives). See `evo2/scripts/calibrate_class_probe.py`.
+
 ## ★★★ PHASE 5 (2026-08-10): dilution is NOT the constraint. Inference-time steering is CLOSED.
 
 The last standing excuse for Phase 3's null was **dilution** — the edit is made 16 blocks from the

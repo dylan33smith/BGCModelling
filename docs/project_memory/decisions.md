@@ -8,6 +8,30 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-10] The class direction can DELETE a class but not INSTALL one — and binary gates could not see it
+Multi-layer steering (9 layers, own direction + class-unit each, 3 doses, shuffled-label twins)
+returned 0/12 target markers everywhere — the same flat zero every binary gate has produced all
+program. The new CONTINUOUS readout (`class_probe`) on the identical sequences found something the
+gates cannot express: paired real vs shuffled-label on the same exemplars, at the top dose,
+**ΔP(seed class) = −0.308, 1/12 up, sign p = 0.0063** (Bonferroni over 6 tests: 0.038), while
+ΔP(target) never reached significance (best +0.107, p=0.146, non-monotone). Controlled for
+coherence damage: corr(Δcoding, ΔP(seed)) = +0.002, and on the 7 exemplars where the real arm was
+NOT more damaged the effect is larger (−0.393).
+
+**Interpretation: ablation works, injection does not.** The vector carries genuine class
+information — enough to specifically erase a class that is present — but adding it does not make
+the generator write the target's machinery. Erasing a coordinate the model already uses is easy;
+writing one it does not consume changes nothing downstream. This reproduces Phase 1's asymmetry
+(ablation z=4.8 strong, nudge marginal) in GENERATION rather than teacher-forced scoring, and it
+is the mechanistic reason the whole inference-time family fails.
+
+**Methodological consequence, which generalises past steering:** a threshold gate bounds a LARGE
+effect and is silent on a small one. Every class readout in this project was binary until now
+(marker TPR 0.717 at 3 kb; antiSMASH detects ~1/3 of seeded 3 kb generations), so a real effect of
+this size was invisible by construction. `class_probe` is now a permanent DIAGNOSTIC check — never
+a gate, because calibration showed it is 0.900 confident on real non-BGC DNA vs 0.986 on real
+cores: it has no negative class and measures resemblance, not validity.
+
 ### [2026-08-10] Dilution is NOT why steering failed — injecting later gives LESS influence, not more
 After Phase 3 killed layer-16 steering, the leading remaining excuse was that the edit is made 16
 blocks from the output and never survives — the residual stream grows 11 orders of magnitude in
