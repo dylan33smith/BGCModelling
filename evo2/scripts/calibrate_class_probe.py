@@ -60,7 +60,8 @@ def main() -> int:
                     default=Path("/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768"
                                  "/checkpoints/step_1200"))
     ap.add_argument("--acts-npz", type=Path,
-                    default=Path("/data2/ds85/bgcmodel_runs/class_probe_sweep/acts_valtest_fit.npz"))
+                    default=Path("/data2/ds85/bgcmodel_runs/class_probe_sweep/acts_v2_train500.npz"),
+                    help="Train-only activations; provenance is enforced by _fit_probe.")
     ap.add_argument("--cores", type=Path,
                     default=Path("/data2/ds85/bgcmodel_data/splits_core/test.jsonl"))
     ap.add_argument("--negative", type=Path,

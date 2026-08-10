@@ -8,6 +8,16 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-10] ⚠️ RETRACTED IN PART — "the class direction DELETES class" was a leakage artefact
+The finding below was produced by a class probe fit on **val+test** and applied to generations
+**seeded from val+test cores**. Refit train-only, ΔP(seed) at the top dose goes from −0.308
+(p = 0.0063) to **−0.177 (p = 0.146)** and the lowest dose changes sign. The generation-level
+deletion claim is **withdrawn**; what remains is a non-significant negative trend at the two
+higher doses. Phase 1's teacher-forced ablation asymmetry (z = 4.8) is independent of the probe
+and still stands, as does the null on ΔP(target) — steering installs nothing, which was never the
+contested part. Enforcement added: every activation cache now carries a `.provenance.json` and
+`_fit_probe` REFUSES a non-train fit set. Original entry retained below, unedited.
+
 ### [2026-08-10] The class direction can DELETE a class but not INSTALL one — and binary gates could not see it
 Multi-layer steering (9 layers, own direction + class-unit each, 3 doses, shuffled-label twins)
 returned 0/12 target markers everywhere — the same flat zero every binary gate has produced all

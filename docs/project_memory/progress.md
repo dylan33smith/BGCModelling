@@ -218,26 +218,34 @@ marker gate's TPR is 0.717 at this length.
 The CONTINUOUS readout (`class_probe`, TPR 0.900) on the same sequences, paired real vs
 shuffled-label on the same exemplars:
 
-| per-layer dose | ΔP(target) | p | **ΔP(seed)** | **p** |
-|---|---|---|---|---|
-| 0.027 | +0.075 | 0.065 | −0.175 | 0.549 |
-| 0.082 | +0.007 | 1.000 | −0.090 | 0.388 |
-| **0.16** | +0.107 | 0.146 | **−0.308 (1/12 up)** | **0.0063** |
+| per-layer dose | ΔP(target) | p | ΔP(seed) — **leaky probe** | ΔP(seed) — **CLEAN (train-only)** | p |
+|---|---|---|---|---|---|
+| 0.027 | +0.015 | 1.000 | −0.175 | **+0.056** (sign flips) | 0.549 |
+| 0.082 | −0.082 | 0.774 | −0.090 | −0.138 | 0.774 |
+| 0.16 | +0.065 | 0.388 | **−0.308, p=0.0063** | **−0.177 (3/12 up)** | **0.146** |
 
-**The real direction strips the SEED's class identity 3x harder than an equal-magnitude random
-direction** (Bonferroni over all 6 tests: 0.038, still significant). It never significantly
-installs the TARGET's.
+### ⚠️ CORRECTED 2026-08-10 — the seed-deletion result did NOT survive the leakage fix
 
-**Not explained by damage.** At frac 0.16 the real arm is more incoherent (coding 0.706 vs 0.834),
-but corr(Δcoding, ΔP(seed)) = **+0.002** — no relationship. On the 7 exemplars where the real
-direction did NO more coding damage than the shuffled one, ΔP(seed) = **−0.393** (same direction,
-larger; n=7, p=0.125 — underpowered, not contradicting).
+The first pass reported ΔP(seed) = **−0.308, p = 0.0063** and concluded "ABLATION WORKS,
+INJECTION DOES NOT" as a *generation-level* finding. That probe was fit on **val+test** and then
+applied to generations **seeded from val+test cores** — it had seen the seeds. Refit train-only
+(22 classes, balanced acc 0.933, chance 0.045), the effect **halves to −0.177 and loses
+significance (p = 0.146)**, and at the lowest dose it changes sign. The damage-control analysis
+built on it (corr +0.002, −0.393 on damage-matched pairs) is void with it.
 
-⇒ **ABLATION WORKS, INJECTION DOES NOT.** The vector genuinely carries class information — enough
-to delete a class that is present — but adding it does not make the generator write the target's
-machinery. This reproduces Phase 1's pattern (ablation z=4.8 strong, nudge marginal) in
-GENERATION rather than teacher-forced scoring. Mechanistically coherent: erasing a coordinate the
-model already uses is easy; writing one it does not consume achieves nothing downstream.
+**What still stands:**
+- **ΔP(target) is null at every dose under both probes** — steering does not install the target
+  class. This was never the contested part and the leakage fix does not touch it.
+- **Phase 1's teacher-forced ablation asymmetry (z = 4.8, p = 0.040)** is independent of the probe
+  entirely — it is raw model log-likelihood — and stands.
+
+**What does not:** the claim that the ablation asymmetry was confirmed *in generation*. The clean
+numbers are a consistent negative trend at the two higher doses (−0.138, −0.177) that does not
+reach significance at n=12. Suggestive, not a result. Do not cite −0.308 or p=0.0063.
+
+**Why this matters beyond one number:** the leaky probe manufactured a significant finding from a
+non-significant one, in the direction the analyst expected. It is the strongest argument in this
+project's history for clearing instrument debt BEFORE reading results off the instrument.
 
 ⇒ Multi-layer is now tested and closed too, on a SENSITIVE instrument. The inference-time family
 is exhausted. Next spend remains **training-time coupling** (per-class adapters, or a

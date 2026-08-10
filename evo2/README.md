@@ -81,13 +81,12 @@ The LoRA adds BGC-likeness (coding density 0.61 → 0.89) but nothing about clas
 (`correct_class` 0.013 at n=75; the class probe reads 0.906 on the adapter vs **0.911 on base
 Evo2**, so the adapter installed no class representation).
 
-**The mechanism, established 2026-08-10.** The model *represents* class (probe 0.911, chance
-0.091) but the generator does not *consume* it. Multi-layer steering showed the asymmetry
-directly: the class direction reliably **deletes** a class that is present (ΔP(seed) −0.308
-against a shuffled-label control on the same exemplars, sign p = 0.0063, not explained by
-coherence damage) and never significantly **installs** the target's. Erasing a coordinate the
-model already uses is easy; writing one it does not consume changes nothing downstream. Two
-supporting measurements: an injected edit's influence on the output *falls* with depth
+**The mechanism, established 2026-08-10.** The model *represents* class (probe 0.911–0.933,
+chance 0.091/0.045) but the generator does not *consume* it. ΔP(target) is null in every arm on
+every instrument. A companion claim that the direction reliably **deletes** a class (ΔP(seed)
+−0.308, p = 0.0063) was **retracted** the same day as a probe-leakage artefact — refit train-only
+it is −0.177 at p = 0.146. Phase 1's teacher-forced ablation asymmetry (z = 4.8) is independent
+of the probe and stands. Two supporting measurements: an injected edit's influence on the output *falls* with depth
 (L16 0.0101 → L27 0.0029), so "inject later / inject everywhere" cannot help; and the
 continuous `class_probe` readout — 10× more sensitive than any binary gate — finds no
 class-specific movement toward the target at any dose or layer.

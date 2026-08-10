@@ -2,11 +2,16 @@
 
 > ## ⛔ CLOSED 2026-08-10 — do not run another steering variant
 >
-> **The class direction can DELETE a class but cannot INSTALL one.** Re-asserted across 9 layers
-> it strips the seed's class identity 3× harder than an equal-magnitude random direction
-> (ΔP(seed) −0.308, sign p = 0.0063, not explained by coherence damage) and never significantly
-> installs the target's. Erasing a coordinate the model already uses is easy; writing one it does
-> not consume changes nothing downstream.
+> **Steering does not install a class, at any layer, dose, or geometry.** ΔP(target) is null in
+> every arm on every instrument — binary and continuous, single-layer and 9-layer stacked, at
+> doses from 0.15 to 11.9 class-units. The generator represents class (probe 0.93) and does not
+> consume it, which is a training-time fact no inference-time intervention reaches.
+>
+> **Retracted 2026-08-10:** a companion claim that the direction reliably *deletes* a class
+> (ΔP(seed) −0.308, p = 0.0063) was a **leakage artefact** — the probe had been fit on val+test
+> and applied to val/test-seeded generations. Refit train-only it is −0.177 at p = 0.146: a
+> consistent negative trend at the two higher doses, not a result. Phase 1's teacher-forced
+> ablation asymmetry (z = 4.8) is independent of the probe and does stand.
 >
 > Not dose, not depth, not geometry — all three were tested after the early defects were fixed.
 > Jump to [Verdict](#verdict--the-programme-is-closed-2026-08-10) for the full table and what to
@@ -406,6 +411,14 @@ exemplars (the only comparison that isolates the class direction from generic pe
 | 0.082 | +0.007 (6/12) | 1.000 | −0.090 | 0.388 |
 | **0.16** | +0.107 (9/12) | 0.146 | **−0.308 (1/12 up)** | **0.0063** |
 
+> **⚠️ CORRECTED 2026-08-10.** The table above used a probe fit on val+test and applied to
+> val/test-SEEDED generations — it had seen the seeds. Refit train-only: ΔP(seed) at frac 0.16
+> becomes **−0.177 (3/12 up, p = 0.146)**, not −0.308 at p = 0.0063, and the 0.027 cell changes
+> sign to +0.056. **The generation-level deletion claim is withdrawn**, along with the damage
+> control built on it. ΔP(target) remains null at every dose under both probes — steering
+> installs nothing — and Phase 1's teacher-forced ablation asymmetry (z = 4.8) is independent of
+> the probe and unaffected.
+
 **The real direction strips the SEED's class identity 3x harder than an equal-magnitude random
 direction** (Bonferroni over all 6 tests: 0.038, still significant). It never significantly
 installs the TARGET's.
@@ -415,7 +428,7 @@ installs the TARGET's.
 where the real direction did NO more coding damage than the shuffled one, ΔP(seed) = **−0.393**
 (same direction, larger; n=7, p=0.125 — underpowered, not contradicting).
 
-### ⇒ ABLATION WORKS, INJECTION DOES NOT
+### ⇒ ABLATION WORKS, INJECTION DOES NOT  — *(the deletion half is RETRACTED; see the correction above)*
 
 The vector carries genuine class information — enough to specifically erase a class that is
 present — but adding it does not make the generator write the target's machinery. Erasing a
@@ -451,7 +464,7 @@ then tested properly and failed:
 | P2 dose | damage-free band established |
 | P3 generation @ L16 | **null** — 2/140 vs 1/142 shuffled, chance 3/144 |
 | P5 depth | **reach FALLS with depth** (L16 0.0101 → L27 0.0029); 0/48 at L27 |
-| P6 multi-layer | **deletes class (p=0.0063), never installs it**; 0/12 target everywhere |
+| P6 multi-layer | **never installs class**; 0/12 target everywhere. (A "deletes class" result at p=0.0063 was retracted 2026-08-10 as a probe-leakage artefact; clean p = 0.146.) |
 
 **Do not run another steering variant.** Not other layers, not other dose schedules, not other
 direction recipes. The mechanism is identified and it is none of those.

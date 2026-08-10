@@ -213,6 +213,46 @@ def test_causal_test_hooks_gate_on_start_pos():
     print("PASS causal hooks: add and ablate both respect start_pos")
 
 
+def test_soft_prefix_replaces_only_the_prefix_positions():
+    """SOFT PREFIX: overwrite the first P embeddings, touch nothing else, and never fire
+    during incremental decoding.
+
+    Two silent failure modes this pins. (1) If the hook also rewrote later positions it would
+    be corrupting the taxonomy tag and the nucleotides -- the run would train, converge on
+    something, and mean nothing. (2) If it fired on single-token steps it would re-stamp the
+    prefix onto every GENERATED position, which is a completely different intervention from
+    a prompt prefix and would make generation incomparable to training.
+    """
+    import torch as T
+    from train_soft_prefix import install_soft_prefix
+
+    class Emb(T.nn.Module):
+        def forward(self, ids):
+            return T.zeros(ids.shape[0], ids.shape[1], D)
+
+    class M(T.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embedding_layer = Emb()
+
+    m, P = M(), 4
+    pref = T.nn.Parameter(T.arange(P * D, dtype=T.float32).reshape(P, D))
+    h = install_soft_prefix(m, pref, P)
+    try:
+        out = m.embedding_layer(T.zeros(1, 9, dtype=T.long))
+        assert T.allclose(out[0, :P], pref), "prefix positions not written"
+        assert float(out[0, P:].abs().max()) == 0.0, "hook modified NON-prefix positions"
+        # incremental decoding: one token at a time must be left alone
+        step = m.embedding_layer(T.zeros(1, 1, dtype=T.long))
+        assert float(step.abs().max()) == 0.0, "hook fired during single-token decoding"
+        # batch broadcast
+        b = m.embedding_layer(T.zeros(3, 9, dtype=T.long))
+        assert T.allclose(b[2, :P], pref), "prefix not broadcast across the batch"
+    finally:
+        h.remove()
+    print("PASS soft prefix: writes exactly the first P positions, silent during decoding")
+
+
 def main() -> int:
     for t in (test_prefill_is_never_steered,
               test_absolute_dose_applies_exactly_that_norm,
@@ -220,7 +260,8 @@ def main() -> int:
               test_recorded_stats_match_what_was_applied,
               test_ambiguous_or_absent_dose_is_refused,
               test_stacked_hooks_all_fire_and_share_one_stats_sink,
-              test_causal_test_hooks_gate_on_start_pos):
+              test_causal_test_hooks_gate_on_start_pos,
+              test_soft_prefix_replaces_only_the_prefix_positions):
         t()
     print("\nALL STEERING HOOK TESTS PASSED")
     return 0

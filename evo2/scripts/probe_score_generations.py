@@ -81,17 +81,56 @@ def _embed(wrapper, seqs: list[str], layers: list[int], device: str, max_nt: int
     return {i: np.stack(v) for i, v in X.items()}
 
 
-def _fit_probe(acts_npz: Path, layer: int, seed: int):
+def _fit_probe(acts_npz: Path, layer: int, seed: int, allow_leaky: bool = False):
     """Multinomial logistic on real cores. Returns (predict_proba, classes, held-out accuracy).
+
+    THE FIT SET MUST BE TRAIN-ONLY. Until 2026-08-10 this probe was fit on `acts_valtest_fit.npz`
+    — activations of val+test cores — and then used to score generations SEEDED FROM those very
+    cores. The probe had seen the seeds. Every number it produced was contaminated, which is the
+    standing leakage debt recorded in decisions.md.
+
+    Provenance is checked, not assumed: each activation cache carries a `.provenance.json`
+    declaring its split, and a cache that is not train-only is refused. `--allow-leaky-probe`
+    exists only for deliberately reproducing a historical number.
 
     The accuracy is reported because a probe that does not work is not a readout: if it cannot
     separate real cores it cannot detect a shift in generated ones, and the whole measurement
     would be vacuous in a way that looks like a null.
     """
+    prov_p = acts_npz.with_name(acts_npz.stem + ".provenance.json")
+    if not prov_p.exists():
+        raise SystemExit(
+            f"[probe] ABORT: no provenance sidecar at {prov_p}.\n"
+            f"        A probe fit on val/test and applied to val/test-seeded generations has "
+            f"seen its own evaluation data. Declare the split explicitly:\n"
+            f'        {{"split": "train", "fit_safe_for_val_test_evaluation": true, ...}}')
+    prov = json.loads(prov_p.read_text())
+    if not prov.get("fit_safe_for_val_test_evaluation"):
+        msg = (f"[probe] ABORT: {acts_npz.name} is split={prov.get('split')!r} — fitting the "
+               f"probe on it and scoring val/test-seeded generations LEAKS.\n"
+               f"        Use acts_v2_train500.npz (train-only), or pass --allow-leaky-probe to "
+               f"reproduce a historical number knowing it is contaminated.\n"
+               f"        {prov.get('note', '')}")
+        if not allow_leaky:
+            raise SystemExit(msg)
+        print(msg.replace("ABORT", "WARNING (--allow-leaky-probe)"), file=sys.stderr)
+    print(f"[probe] fit set: {acts_npz.name}  split={prov.get('split')}  n={prov.get('n')}  "
+          f"classes={prov.get('n_classes')}")
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
     from sklearn.model_selection import cross_val_score, StratifiedKFold
+
+    # CACHE THE FIT. Five-fold multinomial logistic on 10,022 x 4096 takes tens of minutes, and
+    # an eval check that costs half an hour per invocation will quietly stop being run. Keyed on
+    # (cache file, layer, seed) so a different fit set or layer never silently reuses a probe.
+    cache_p = acts_npz.with_name(f"{acts_npz.stem}.probe_L{layer}_s{seed}.joblib")
+    if cache_p.exists():
+        import joblib
+        blob = joblib.load(cache_p)
+        print(f"[probe] reusing fitted probe {cache_p.name}: balanced acc "
+              f"{blob['acc']:.3f} (chance {1/len(blob['classes']):.3f})")
+        return blob["pipe"], list(blob["classes"]), float(blob["acc"])
 
     z = np.load(acts_npz)
     y = z["y"]
@@ -108,6 +147,14 @@ def _fit_probe(acts_npz: Path, layer: int, seed: int):
         raise SystemExit(f"[probe] ABORT: probe accuracy {acc:.3f} is near chance {chance:.3f} — "
                          f"it cannot detect a shift in generations either, and a null from it "
                          f"would be vacuous rather than informative.")
+    try:
+        import joblib
+        joblib.dump({"pipe": pipe, "classes": list(pipe.classes_), "acc": acc,
+                     "acts": str(acts_npz), "layer": layer, "seed": seed,
+                     "provenance": prov}, cache_p)
+        print(f"[probe] cached fitted probe -> {cache_p.name}")
+    except Exception as e:                       # caching is an optimisation, never a blocker
+        print(f"[probe] (could not cache the fit: {e})", file=sys.stderr)
     return pipe, list(pipe.classes_), acc
 
 
@@ -119,7 +166,12 @@ def main() -> int:
                     default=Path("/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768"
                                  "/checkpoints/step_1200"))
     ap.add_argument("--acts-npz", type=Path,
-                    default=Path("/data2/ds85/bgcmodel_runs/class_probe_sweep/acts_valtest_fit.npz"))
+                    default=Path("/data2/ds85/bgcmodel_runs/class_probe_sweep/acts_v2_train500.npz"),
+                    help="Activations the probe is fit on. MUST be train-only: the default was "
+                         "acts_valtest_fit.npz until 2026-08-10, which had seen the very cores "
+                         "used as generation seeds. Provenance is checked.")
+    ap.add_argument("--allow-leaky-probe", action="store_true",
+                    help="Permit a non-train fit set. Only for reproducing a historical number.")
     ap.add_argument("--layer", type=int, default=16, help="Layer the probe reads (peak: 16).")
     ap.add_argument("--baseline-arm", default=None,
                     help="Arm stem to treat as the unsteered reference for the PAIRED delta "
@@ -160,7 +212,8 @@ def main() -> int:
         raise SystemExit("no scoreable records")
     print(f"[probe] {len(recs)} generations over {len(args.jsonl)} arms")
 
-    pipe, classes, acc = _fit_probe(args.acts_npz, args.layer, args.seed)
+    pipe, classes, acc = _fit_probe(args.acts_npz, args.layer, args.seed,
+                                    allow_leaky=args.allow_leaky_probe)
 
     # Cache the embeddings: they are the only GPU cost here, and re-analysis (a different
     # pairing, a different statistic) should not require another model load.

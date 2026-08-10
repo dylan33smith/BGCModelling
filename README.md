@@ -29,10 +29,12 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 - **Class conditioning: the model REPRESENTS class but the generator does not CONSUME it.**
   A linear probe reads compound class off mid-network activations at 0.911 (chance 0.091),
   in *base* Evo2 as well as ours. But every attempt to write that variable at inference
-  time fails, and the 2026-08-10 multi-layer result shows why: the class direction reliably
-  **deletes** a class that is present (ΔP(seed) −0.308 vs a shuffled-label control,
-  p = 0.0063) and never **installs** the target's. Ablation works; injection does not.
+  time fails: ΔP(target) is null in every arm on every instrument — binary and continuous,
+  single-layer and 9-layer stacked, from 0.15 to 11.9 class-units.
   ⇒ The next spend is **training-time coupling**, not another inference-time trick.
+  *(A companion claim that the direction reliably DELETES a class, ΔP(seed) −0.308 at
+  p = 0.0063, was **retracted** the same day: the probe behind it had been fit on val+test and
+  applied to val/test-seeded generations. Train-only it is −0.177 at p = 0.146.)*
 - **What does work today:** *exemplar-conditioned* generation. Seed a real core and the
   continuation is correct-class 0.283 vs a 0.067 floor, with memorization ruled out and all
   four pre-registered controls passed. The class comes from the **seed**, never the label.
