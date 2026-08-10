@@ -43,7 +43,7 @@ if   [[ -d "$CKPT_IN/adapter" ]]; then CKPT="$CKPT_IN"
 elif [[ -d "$CKPT_IN/checkpoints/best/adapter" ]]; then CKPT="$CKPT_IN/checkpoints/best"
 else echo "Could not find adapter/ under $CKPT_IN" >&2; exit 2; fi
 
-mkdir -p "$OUT"; : > "$OUT/_nopos.jsonl"
+mkdir -p "$OUT"
 PY() { micromamba run -n "$ENV_NAME" python "$@"; }
 echo "[diag-stoch] ckpt=$CKPT  grid={$CLASSES} x $N_TAXA taxa x $N_SAMPLES samples  top_k=$TOP_K max_new=$MAX_NEW"
 
@@ -71,7 +71,12 @@ PY evo2/scripts/generate_bgc.py --adapter "$CKPT" --from-jsonl "$OUT/grid.jsonl"
   --out-fasta "$OUT/gen.fasta" --out-jsonl "$OUT/gen.jsonl"
 
 # 3. domain scan (M2)
-PY scripts/eval_suite_driver.py --gen "$OUT/gen.jsonl" --positive "$OUT/_nopos.jsonl" \
+# POSITIVE CONTROL: real held-out cores truncated to THIS run's own length distribution
+# and class mix. Until 2026-08-10 every probe driver passed an empty `_nopos.jsonl`, so
+# 0 of 25 reports had a ceiling and every rate was an uncalibrated fraction of an
+# unstated maximum. Generated per-eval because the ceiling depends on generation length.
+PY scripts/make_positive_control.py --gen "$OUT/gen.jsonl" --out "$OUT/positive_control.jsonl" || true
+PY scripts/eval_suite_driver.py --gen "$OUT/gen.jsonl" --positive "$OUT/positive_control.jsonl" \
   --skip-checks antismash protein_homology kmer_novelty --pfam-hmm "$PFAM" --output "$OUT/diag_eval.json"
 
 # 4. parse: within vs cross divergence + class×obligate + verdict

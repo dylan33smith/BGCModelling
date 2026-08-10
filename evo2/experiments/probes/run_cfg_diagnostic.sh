@@ -38,7 +38,6 @@ keep=[r for r in (json.loads(l) for l in open(val)) if r.get("compound_class") i
 open(out,"w").write("".join(json.dumps(r)+"\n" for r in keep))
 print(f"[cfg] prompt pool: {len(keep)} records across {len(classes)} classes")
 PYEOF
-: > "$ROOT/_nopos.jsonl"
 
 wait_for_idle(){ local hold=0 proc free
   while true; do
@@ -74,7 +73,12 @@ for f in "$ROOT"/cfg_w*.jsonl; do
   [ -s "$f" ] || continue
   w=$(basename "$f" .jsonl | sed 's/^cfg_w//')
   echo "[cfg] $(date) scoring w=$w ..."
-  PY scripts/eval_suite_driver.py --gen "$f" --positive "$ROOT/_nopos.jsonl" \
+  # POSITIVE CONTROL: real held-out cores truncated to THIS run's own length distribution
+  # and class mix. Until 2026-08-10 every probe driver passed an empty `_nopos.jsonl`, so
+  # 0 of 25 reports had a ceiling and every rate was an uncalibrated fraction of an
+  # unstated maximum. Generated per-eval because the ceiling depends on generation length.
+  PY scripts/make_positive_control.py --gen "$f" --out "$ROOT/positive_control.jsonl" || true
+  PY scripts/eval_suite_driver.py --gen "$f" --positive "$ROOT/positive_control.jsonl" \
      --skip-checks protein_homology kmer_novelty \
      --pfam-hmm "$PFAM" --antismash-db "$ASDB" --output "$ROOT/report_w$w.json" \
      > "$ROOT/eval_w$w.log" 2>&1

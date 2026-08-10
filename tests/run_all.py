@@ -19,6 +19,12 @@ TESTS = [
     "test_generation.py",        # C3 generation post-processing (EOS trim, FASTA, prompts)
     "test_memorization.py",      # nucleotide memorization/novelty similarity core
     "test_conditioning_experiment.py",  # controlled class/taxon conditioning logic
+    "test_generation_batched.py",       # batched generation matches the sequential path
+    # The two guards below exist because the 2026-07-31 hardening pass shipped two regressions
+    # to main while every test above passed. They were added and then NOT wired here, which is
+    # the same failure one level up: a guard that does not run is not a guard.
+    "test_eval_smoke.py",               # eval paths EXECUTE on real cores (not just logic)
+    "test_shell_embedded_python.py",    # every PYEOF heredoc in the shell drivers compiles
 ]
 
 

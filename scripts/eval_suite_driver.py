@@ -218,8 +218,9 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--gen", type=Path, required=True, help="Generated sequences JSONL.")
     ap.add_argument("--positive", type=Path,
-                    default=Path("eval/positive_control_mibig.jsonl"),
-                    help="Real-BGC positive control JSONL.")
+                    default=_REPO_ROOT / "eval" / "positive_control_mibig.jsonl",
+                    help="Real-BGC positive control JSONL. Repo-anchored: a CWD-relative default "
+                         "silently missed from every driver not run at the repo root.")
     ap.add_argument("--novelty", type=Path, default=None,
                     help="memorization_check report (id -> max_containment) for Metric 9.")
     ap.add_argument("--include-foldability", "--include-gpu-metrics",
@@ -246,6 +247,19 @@ def main() -> None:
     novelty = load_novelty_map(args.novelty)
     gen = load_jsonl(args.gen)
     pos = load_jsonl(args.positive) if args.positive and args.positive.exists() else []
+    # LOUD. Without a control, every rate is an uncalibrated fraction of an UNSTATED maximum:
+    # antiSMASH scores real curated BGCs at only 0.55 correct_class, and real splits_core cores
+    # truncated to 2048 nt score is_bgc 0.680 -- so a generation at 0.10 is 16% of achievable,
+    # not 10% of perfect. Measured 2026-08-10: 0 of 25 reports on disk had a control, because
+    # six drivers passed a deliberately-EMPTY `_nopos.jsonl` (which exists, so an exists() check
+    # never fired). Warn on empty as well as missing, and say how to fix it.
+    if not pos:
+        why = ("does not exist" if not (args.positive and args.positive.exists())
+               else "is EMPTY")
+        print(f"WARNING: positive control {args.positive} {why} — every rate in this report will "
+              f"be UNCALIBRATED (no ceiling to compare against). Generate one with:\n"
+              f"    python scripts/make_positive_control.py --gen {args.gen} "
+              f"--out <dir>/positive_control.jsonl", file=sys.stderr)
 
     # Report what actually RESOLVED. Listing a DB as enabled because the flag was merely set
     # made the run log assert a configuration that run_group had silently dropped.

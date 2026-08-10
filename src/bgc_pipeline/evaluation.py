@@ -594,10 +594,22 @@ def check_antismash(
                 result["class_match"] = False
                 result["pass"] = False
 
-    # Default: ran but no verdict set → not detected / not matching.
+    # Default: ran but no verdict set → not detected. `pass` is the class_match alias, so it is
+    # only meaningful when a class was REQUESTED.
+    #
+    # `setdefault("pass", False)` fabricated a measured NEGATIVE for unconditional runs: with
+    # expected_class="" a genuinely DETECTED cluster reported pass=False -> verdict FAIL.
+    # Measured in shipped reports (GenomeOcean zero-shot, expected_class empty on every record):
+    # per_check antismash 0 PASS / 216 FAIL / pass_rate 0.000 while antismash.detected was True
+    # on 27/216 -- and class_markers in the SAME report correctly reported no_verdict, so two
+    # rows of one report contradicted each other. Mirror class_markers instead.
     if not result.get("skipped"):
         result.setdefault("detected", False)
-        result.setdefault("pass", False)
+        if expected_class:
+            result.setdefault("pass", False)
+        else:
+            result["pass"] = None
+            result["no_expected_class"] = True
 
     return result
 

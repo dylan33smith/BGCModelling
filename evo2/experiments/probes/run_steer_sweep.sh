@@ -42,7 +42,7 @@ LAYERS="${LAYERS:-16 12 20}"          # L16 first so the alpha curve lands early
 ALPHAS="${ALPHAS:-1 2 4}"
 SEED="${SEED:-42}"
 ROOT="${ROOT:-/data2/ds85/bgcmodel_runs/steer_sweep}"
-mkdir -p "$ROOT"; : > "$ROOT/_nopos.jsonl"
+mkdir -p "$ROOT"
 
 # EXCLUSIVE=0 shares the GPU (memory check only) — safe here since these metrics are not
 # timing-sensitive. Default 1 keeps the project's exclusive-device convention.
@@ -80,7 +80,12 @@ for f in "$ROOT"/a0_control.jsonl $(for L in $LAYERS; do for A in $ALPHAS; do ec
   [ -s "$f" ] || continue
   name=$(basename "$f" .jsonl)
   echo "[steer] $(date) EVAL $name"
-  PY scripts/eval_suite_driver.py --gen "$f" --positive "$ROOT/_nopos.jsonl" \
+  # POSITIVE CONTROL: real held-out cores truncated to THIS run's own length distribution
+  # and class mix. Until 2026-08-10 every probe driver passed an empty `_nopos.jsonl`, so
+  # 0 of 25 reports had a ceiling and every rate was an uncalibrated fraction of an
+  # unstated maximum. Generated per-eval because the ceiling depends on generation length.
+  PY scripts/make_positive_control.py --gen "$f" --out "$ROOT/positive_control.jsonl" || true
+  PY scripts/eval_suite_driver.py --gen "$f" --positive "$ROOT/positive_control.jsonl" \
      --skip-checks protein_homology kmer_novelty \
      --pfam-hmm "$PFAM" --antismash-db "$ASDB" --output "$ROOT/report_$name.json" \
      > "$ROOT/eval_$name.log" 2>&1

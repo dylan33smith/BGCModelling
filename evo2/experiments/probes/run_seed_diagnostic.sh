@@ -23,7 +23,7 @@ SEED_NT="${SEED_NT:-2000}"
 MAX_NEW="${MAX_NEW:-6000}"
 SEED="${SEED:-42}"
 ROOT="${ROOT:-/data2/ds85/bgcmodel_runs/seed_diagnostic}"
-mkdir -p "$ROOT"; : > "$ROOT/_nopos.jsonl"
+mkdir -p "$ROOT"
 SUM="$ROOT/seed_summary.tsv"
 printf "arm\tclass\tcorrect\tis_bgc\tmarkers\tn\tcoding_density_mean\n" > "$SUM"
 
@@ -44,7 +44,12 @@ run_arm(){
      --top-k 4 --top-p 1.0 --temperature 1.0 --seed "$SEED" $extra \
      --out-jsonl "$ROOT/$name.jsonl" > "$ROOT/gen_$name.log" 2>&1
   [ -s "$ROOT/$name.jsonl" ] || { echo "[seed] $name GEN FAILED (see gen_$name.log)"; return; }
-  PY scripts/eval_suite_driver.py --gen "$ROOT/$name.jsonl" --positive "$ROOT/_nopos.jsonl" \
+  # POSITIVE CONTROL: real held-out cores truncated to THIS run's own length distribution
+  # and class mix. Until 2026-08-10 every probe driver passed an empty `_nopos.jsonl`, so
+  # 0 of 25 reports had a ceiling and every rate was an uncalibrated fraction of an
+  # unstated maximum. Generated per-eval because the ceiling depends on generation length.
+  PY scripts/make_positive_control.py --gen "$ROOT/$name.jsonl" --out "$ROOT/positive_control.jsonl" || true
+  PY scripts/eval_suite_driver.py --gen "$ROOT/$name.jsonl" --positive "$ROOT/positive_control.jsonl" \
      --skip-checks protein_homology kmer_novelty \
      --pfam-hmm "$PFAM" --antismash-db "$ASDB" --output "$ROOT/report_$name.json" \
      > "$ROOT/eval_$name.log" 2>&1
