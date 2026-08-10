@@ -459,6 +459,29 @@ def check_antismash(
     """
     result: dict[str, Any] = {"check": "antismash"}
 
+    # PREFLIGHT. Decide input validity HERE, not by pattern-matching antiSMASH's stderr after
+    # the fact. The first attempt at this matched only the "smaller than minimum length" message,
+    # so all-N and non-nucleotide generations -- both real model failure modes -- still raised
+    # EvalResourceError, and with the misleading text "prerequisite DBs missing" even when the
+    # databases were supplied and fine. Classifying the input up front makes the rule exact:
+    #   invalid input  -> a MEASURED negative (the model produced something unscoreable)
+    #   valid input, non-zero exit -> a genuine CONFIG/exec failure -> raise
+    _seq = (sequence or "").upper()
+    _acgt = sum(_seq.count(b) for b in "ACGT")
+    _why = None
+    if len(_seq) < 1000:
+        _why = f"sequence is {len(_seq)} nt; antiSMASH requires >= 1000"
+    elif _acgt < 0.8 * len(_seq):
+        _why = (f"only {_acgt}/{len(_seq)} = {_acgt / max(len(_seq), 1):.0%} of characters are "
+                f"A/C/G/T (all-N or non-nucleotide output)")
+    if _why:
+        result.update({"detected": False, "class_match": False if expected_class else None,
+                       "pass": False if expected_class else None,
+                       "input_rejected": True, "reason": f"not scoreable: {_why}"})
+        if not expected_class:
+            result["no_expected_class"] = True
+        return result
+
     with tempfile.TemporaryDirectory() as tmp:
         fasta = Path(tmp) / f"{accession}.fasta"
         fasta.write_text(f">{accession}\n{sequence}\n")

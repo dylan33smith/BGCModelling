@@ -123,6 +123,9 @@ def test_metric1_skips_when_tool_cannot_run():
     import subprocess as _sp
     import bgc_pipeline.evaluation as ev
 
+    # NOTE 2026-08-10: the sequence must be >=1000 nt and >=80% ACGT to clear check_antismash's
+    # input PREFLIGHT; otherwise it is scored as an unscoreable MODEL output and the mocked
+    # subprocess is never reached, so this test would silently stop testing what it names.
     class _Proc:
         def __init__(self, rc): self.returncode = rc; self.stdout = ""; self.stderr = "db missing"
 
@@ -133,7 +136,7 @@ def test_metric1_skips_when_tool_cannot_run():
         # one afternoon produced tables indistinguishable from real negative results.
         _sp.run = lambda *a, **k: _Proc(1)         # tool present but exits 1, writes no JSON
         try:
-            ev.check_antismash("ACGT" * 50, expected_class="NRPS")
+            ev.check_antismash("ACGT" * 400, expected_class="NRPS")
             raise AssertionError("expected EvalResourceError for a tool that could not run")
         except ev.EvalResourceError:
             pass
@@ -141,13 +144,13 @@ def test_metric1_skips_when_tool_cannot_run():
         # partially-provisioned host.
         os.environ["BGC_EVAL_STRICT"] = "0"
         try:
-            r = ev.check_antismash("ACGT" * 50, expected_class="NRPS")
+            r = ev.check_antismash("ACGT" * 400, expected_class="NRPS")
             assert r.get("skipped") is True and "pass" not in r, r
             assert r.get("skip_kind") == "resource", r
         finally:
             os.environ.pop("BGC_EVAL_STRICT", None)
         _sp.run = lambda *a, **k: _Proc(0)         # ran cleanly, still no region found
-        r0 = ev.check_antismash("ACGT" * 50, expected_class="NRPS")
+        r0 = ev.check_antismash("ACGT" * 400, expected_class="NRPS")
         assert r0.get("skipped") is not True and r0.get("pass") is False, r0
         assert r0.get("detected") is False, r0     # clean run, no cluster -> not a BGC
     finally:

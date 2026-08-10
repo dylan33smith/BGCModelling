@@ -48,8 +48,13 @@ def main() -> int:
     gens = [json.loads(l) for l in args.gen.open() if l.strip()]
     if not gens:
         raise SystemExit(f"{args.gen} is empty")
-    lengths = sorted(len(g.get("sequence", "") or "") for g in gens)
-    classes = [g.get("compound_class") for g in gens if g.get("compound_class")]
+    # PAIR length WITH class, per generation. Sorting lengths and indexing them by i while
+    # taking classes from a separate list assigned generation i's CLASS to the i-th SMALLEST
+    # LENGTH, destroying the joint distribution: an ECTOINE control could be handed an NRPS
+    # generation's 8 kb length and vice versa. antiSMASH's verdict depends on BOTH, so a
+    # control mismatched on either axis calibrates a different question than the one asked.
+    spec = [(len(g.get("sequence", "") or ""), g.get("compound_class")) for g in gens]
+    lengths = [L for L, _ in spec]
     want = args.n or len(gens)
 
     byc: dict[str, list] = {}
@@ -61,18 +66,24 @@ def main() -> int:
 
     rng = random.Random(args.seed)
     out = []
-    # Mirror the generations' CLASS mix as well as their length mix: a control drawn from a
-    # different class distribution calibrates a different question.
-    pool_classes = classes or [c for c in byc]
+    used: set[int] = set()
     for i in range(want):
-        cls = pool_classes[i % len(pool_classes)]
+        target_len, cls = spec[i % len(spec)]      # the SAME generation's length AND class
+        if not cls:
+            cls = rng.choice(list(byc)) if byc else None
         cand = byc.get(cls) or []
-        target_len = lengths[i % len(lengths)]
         # need a core at least as long as the generation it stands in for
         usable = [r for r in cand if len(r["sequence"]) >= target_len] or cand
-        if not usable:
+        # WITHOUT replacement: sampling with replacement let one unusually easy (or hard) core
+        # appear several times, so the ceiling was an average over fewer distinct BGCs than n
+        # suggested.
+        fresh = [r for r in usable if id(r) not in used]
+        if not fresh:
+            fresh = usable
+        if not fresh:
             continue
-        r = rng.choice(usable)
+        r = rng.choice(fresh)
+        used.add(id(r))
         out.append({
             "sequence": r["sequence"][:target_len] if target_len else r["sequence"],
             "compound_class": cls,
@@ -89,8 +100,10 @@ def main() -> int:
 
     ol = sorted(len(r["sequence"]) for r in out)
     print(f"[posctrl] {len(out)} real held-out cores -> {args.out}")
+    # min()/max(), not [0]/[-1]: `lengths` is in GENERATION order now (it must be, to stay
+    # paired with class), so indexing the ends printed an arbitrary pair as the range.
     print(f"[posctrl]   generation lengths: median {st.median(lengths):.0f} "
-          f"[{lengths[0]}..{lengths[-1]}]")
+          f"[{min(lengths)}..{max(lengths)}]")
     print(f"[posctrl]   control    lengths: median {st.median(ol):.0f} [{ol[0]}..{ol[-1]}]")
     print(f"[posctrl]   classes matched to the generation mix "
           f"({len(set(r['compound_class'] for r in out))} distinct)")

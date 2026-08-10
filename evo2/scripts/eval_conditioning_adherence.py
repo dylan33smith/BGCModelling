@@ -56,6 +56,14 @@ def balanced_sample(
     return out
 
 
+def _fmt(v, nd: int = 3) -> str:
+    """Format a rate that may be None. summarize_adherence returns None for every rate when
+    NOTHING was scored (rather than a fabricated 0.000), and main() formatted those with
+    `:.3f` -- which raises TypeError: unsupported format string passed to NoneType.__format__.
+    The reporting path crashed on exactly the case the None was introduced to represent."""
+    return "n/a" if v is None else f"{v:.{nd}f}"
+
+
 def summarize_adherence(per_record: list[dict], classes: list[str]) -> dict[str, Any]:
     """Aggregate ranking metrics. Pure function (unit-tested).
 
@@ -100,7 +108,13 @@ def summarize_adherence(per_record: list[dict], classes: list[str]) -> dict[str,
             "n_classes": len(classes),
             "random_baseline_top1": round(1.0 / max(len(classes), 1), 4),
             "top1_acc": None, "top3_acc": None, "top5_acc": None,
-            "mrr": None, "mean_margin": None,
+            # SCHEMA PARITY with the normal return below. A divergent shape means every
+            # downstream consumer needs a special case, and `mean_margin` (invented here) was
+            # not even a key the normal path emits -- it is `mean_per_token_margin`.
+            "mrr": None,
+            "mean_per_token_margin": None,
+            "per_class_recall": {},
+            "confusion_top1": {},
             "reason": "no record produced a score (sequence_loglik returned None for all)",
         }
     denom = n
@@ -223,8 +237,8 @@ def main() -> None:
     for key in ("base", "finetuned"):
         if key in report:
             s = report[key]
-            print(f"  [{key:9s}] top1={s['top1_acc']:.3f} top3={s['top3_acc']:.3f} "
-                  f"mrr={s['mrr']:.3f} margin={s['mean_per_token_margin']:+.4f} "
+            print(f"  [{key:9s}] top1={_fmt(s['top1_acc'], 3)} top3={_fmt(s['top3_acc'], 3)} "
+                  f"mrr={_fmt(s['mrr'], 3)} margin={s['mean_per_token_margin']:+.4f} "
                   f"(random top1={s['random_baseline_top1']:.3f})", file=sys.stderr)
     if "delta" in report:
         d = report["delta"]

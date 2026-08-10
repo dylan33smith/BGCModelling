@@ -147,6 +147,74 @@ def test_adherence_returns_none_rates_when_nothing_scored():
     print("PASS adherence: no fabricated 0.000 when nothing scored")
 
 
+def test_positive_control_pairs_class_with_length():
+    """The control must match the generations on class AND length JOINTLY.
+
+    A first version sorted lengths and indexed them by i while taking classes from a separate
+    list, so generation i's CLASS was paired with the i-th SMALLEST length -- an ECTOINE control
+    could be handed an NRPS generation's 8 kb length. antiSMASH's verdict depends on both, so a
+    control mismatched on either axis calibrates a different question than the one asked.
+    """
+    import subprocess, tempfile, collections, statistics
+    gen = Path("/data2/ds85/bgcmodel_runs/steer_phase2/d0.jsonl")
+    if not gen.exists():
+        print("SKIP positive control (no generations on this host)")
+        return
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "pc.jsonl"
+        subprocess.run([sys.executable, str(REPO / "scripts" / "make_positive_control.py"),
+                        "--gen", str(gen), "--out", str(out)], check=True, capture_output=True)
+        g = collections.defaultdict(list); c = collections.defaultdict(list)
+        for line in gen.open():
+            r = json.loads(line); g[r["compound_class"]].append(len(r["sequence"]))
+        ctl = [json.loads(l) for l in out.open()]
+        for r in ctl:
+            c[r["compound_class"]].append(len(r["sequence"]))
+        for cls in g:
+            if cls not in c:
+                continue
+            gm, cm = statistics.median(g[cls]), statistics.median(c[cls])
+            assert abs(gm - cm) <= max(0.1 * gm, 50), (
+                f"{cls}: control median {cm} vs generation median {gm} — class/length de-paired")
+        accs = [r["accession"] for r in ctl]
+        assert len(set(accs)) == len(accs), "control sampled WITH replacement"
+    print("PASS positive control: class and length matched per class, sampled without replacement")
+
+
+def test_antismash_scores_every_unscoreable_input_kind():
+    """Every way a model can emit unscoreable output must be SCORED, not raised.
+
+    The first fix pattern-matched only antiSMASH's length-rejection message, so all-N and
+    non-nucleotide generations still raised EvalResourceError -- with the misleading text
+    'prerequisite DBs missing' even when the databases were fine.
+    """
+    from bgc_pipeline.evaluation import check_antismash, EvalResourceError
+    from bgc_pipeline.class_map import load_class_map
+    if not Path(ASDB).is_dir():
+        print("SKIP antismash input kinds (no DB)")
+        return
+    cmap, _ = load_class_map(REPO / "config" / "compound_class_map.yaml")
+    for name, seq in (("short", "ATGC" * 54), ("all-N", "N" * 2000),
+                      ("non-nucleotide", "XZQ" * 700), ("empty", "")):
+        r = check_antismash(seq, expected_class="NRPS", databases_dir=ASDB, class_map=cmap)
+        assert r.get("input_rejected") and r.get("detected") is False, (name, r)
+    print("PASS antismash: short / all-N / non-nucleotide / empty all SCORED, not raised")
+
+
+def test_headline_funnel_is_monotone_and_still_reports_when_novelty_skipped():
+    """Both properties at once — fixing one broke the other on the first attempt."""
+    from eval_suite_driver import summarize_group
+    mixed = ([{"questions": {"is_bgc": "PASS", "correct_class": "PASS", "novel": "PASS"}}] * 2 +
+             [{"questions": {"is_bgc": "FAIL", "correct_class": "no_verdict", "novel": "PASS"}}] * 8)
+    f = summarize_group(mixed)["funnel"]
+    assert f["generates_bgc"] >= f["biological_valid"] >= f["accept"], f
+    skipped = [{"questions": {"is_bgc": "PASS", "correct_class": "PASS", "novel": "skipped"}}] * 4
+    h = summarize_group(skipped)["headline"]
+    assert h["generates_bgc"]["rate"] == 1.0, h        # measurable, must not collapse to None
+    assert h["biological_valid_and_novel"]["rate"] is None, h   # genuinely unmeasured
+    print("PASS headline: funnel monotone AND per-metric rates survive a skipped gate")
+
+
 def main() -> int:
     for t in (test_coding_sanity_and_gene_caller,
               test_class_markers_needs_pfam_and_works_with_it,
@@ -155,7 +223,10 @@ def main() -> int:
               test_taxon_profile_resolves_from_a_real_gtdb_tag,
               test_derive_questions_records_its_source,
               test_driver_rates_are_none_not_zero_when_unmeasured,
-              test_adherence_returns_none_rates_when_nothing_scored):
+              test_adherence_returns_none_rates_when_nothing_scored,
+              test_positive_control_pairs_class_with_length,
+              test_antismash_scores_every_unscoreable_input_kind,
+              test_headline_funnel_is_monotone_and_still_reports_when_novelty_skipped):
         t()
     print("\nALL EVAL SMOKE TESTS PASSED")
     return 0

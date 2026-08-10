@@ -85,6 +85,7 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
     # quick-eval ever run, regardless of how good the generations were.
     gen_bgc = correct_class = bio_valid = accept = no_gate_fail = 0
     d_bgc = d_cls = d_bio = d_acc = d_gate = 0
+    d_funnel = f_bgc = f_cls = f_bio = 0
 
     def _evaluated(v) -> bool:
         return v in ("PASS", "FAIL")
@@ -106,7 +107,20 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
         # counted as clean passes, inflating it exactly when the instrument was least configured.
         no_gate_fail += int(all(s.get(q) == "PASS" for q in GATE_QUESTIONS))
         d_gate += int(all(_evaluated(s.get(q)) for q in GATE_QUESTIONS))
+        # Funnel numerators, counted ONLY on records where every funnel gate was evaluated, so
+        # generates_bgc >= biological_valid >= ACCEPT holds by construction.
+        if _evaluated(s.get("is_bgc")) and _evaluated(s.get("correct_class")) and _evaluated(s.get("novel")):
+            d_funnel += 1
+            f_bgc += int(g_bgc); f_cls += int(c_cls); f_bio += int(bio)
 
+    # ONE DENOMINATOR FOR THE WHOLE FUNNEL. Per-metric `evaluated` counts fixed the
+    # divide-by-unmeasured bug but broke MONOTONICITY: generates_bgc >= biological_valid >=
+    # ACCEPT must hold by construction (each stage is a strict subset of the previous), yet
+    # with d_bgc=10 and d_bio=2 a run scored generates_bgc 0.20 and biological_valid 1.00 --
+    # a subset outscoring its superset, which is not interpretable as a funnel at all.
+    # The funnel denominator is therefore the records where EVERY gate it depends on was
+    # evaluated (d_acc), so all stages are comparable; each metric still reports its own
+    # `evaluated` count so a reader can see how much was measurable.
     def rate(k: int, d: Optional[int] = None) -> Optional[float]:
         """None when nothing was evaluated — NEVER 0.0, which reads as a measured total failure."""
         d = n if d is None else d
@@ -124,6 +138,13 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
 
     return {
         "n": n, "per_question": per_q, "per_check": per_c,
+        # The monotone view: every stage on the SAME records (all funnel gates evaluated), so
+        # generates_bgc >= biological_valid >= accept is guaranteed and the stages are comparable.
+        "funnel": {"denominator": d_funnel,
+                   "generates_bgc": rate(f_bgc, d_funnel),
+                   "correct_class": rate(f_cls, d_funnel),
+                   "biological_valid": rate(f_bio, d_funnel),
+                   "accept": rate(accept, d_funnel)},
         "verdict_source": src_tally,
         "verdict_source_warning": (
             f"gate(s) {proxy_warn} were derived from a PROXY, not antiSMASH — the Pfam proxy has "
@@ -131,6 +152,14 @@ def summarize_group(results: list[dict]) -> dict[str, Any]:
             f"comparable to antiSMASH-derived ones" if proxy_warn else None),
         "roles": {"gates": list(GATE_QUESTIONS), "diagnostics": list(DIAGNOSTIC_QUESTIONS)},
         "headline": {
+            # TWO VIEWS, because one denominator cannot serve both purposes:
+            #   * these per-metric rates use each metric's OWN evaluable records, so
+            #     generates_bgc still reports when novelty was skipped (which quick_eval
+            #     always does) instead of collapsing the whole block to None;
+            #   * `funnel` below re-computes the same stages on the COMMON subset, where
+            #     bgc >= valid >= accept holds by construction.
+            # Reporting only the common-subset view hid measurable numbers; reporting only the
+            # per-metric view produced a subset outscoring its superset (0.20 vs 1.00).
             "generates_bgc": {"n": gen_bgc, "evaluated": d_bgc, "rate": rate(gen_bgc, d_bgc)},
             "correct_class": {"n": correct_class, "evaluated": d_cls, "rate": rate(correct_class, d_cls)},
             "biological_valid": {"n": bio_valid, "evaluated": d_bio, "rate": rate(bio_valid, d_bio)},
