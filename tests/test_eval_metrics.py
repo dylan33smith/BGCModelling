@@ -108,7 +108,7 @@ def test_novelty_gate_wired():
     assert check_kmer_novelty(None)["skipped"] is True                      # unverified, not pass
     # skip every check except kmer_novelty -> the 'novel' question reflects it alone
     cfg = EvalConfig(skip_checks=["coding_sanity", "antismash", "class_markers",
-                                  "protein_homology", "module_architecture", "taxon_faithfulness"])
+                                  "protein_homology", "module_architecture"])
     s = evaluate_bgc("ACGT" * 100, config=cfg, novelty={"max_containment": 0.99})["questions"]
     assert s["novel"] == "FAIL", s
     assert evaluate_bgc("ACGT" * 100, config=cfg)["questions"]["novel"] == "skipped"
@@ -195,13 +195,13 @@ def test_eval_suite_aggregation():
     import eval_suite_driver as D
     results = [
         {"expected_class": "NRPS",
-         "questions": {"is_bgc": "PASS", "conditioning_faithful": "FAIL", "novel": "PASS"},
+         "questions": {"is_bgc": "PASS", "complete": "FAIL", "novel": "PASS"},
          "checks": {"coding_sanity": "PASS", "class_markers": "PASS"}},
         {"expected_class": "NRPS",
-         "questions": {"is_bgc": "PASS", "conditioning_faithful": "PASS", "novel": "FAIL"},
+         "questions": {"is_bgc": "PASS", "complete": "PASS", "novel": "FAIL"},
          "checks": {"coding_sanity": "PASS", "class_markers": "FAIL"}},
         {"expected_class": "PKS",
-         "questions": {"is_bgc": "skipped", "conditioning_faithful": "PASS", "novel": "no_verdict"},
+         "questions": {"is_bgc": "skipped", "complete": "PASS", "novel": "no_verdict"},
          "checks": {"coding_sanity": "skipped", "class_markers": "PASS"}},
     ]
     s = D.summarize_group(results)
@@ -209,11 +209,13 @@ def test_eval_suite_aggregation():
     pq = s["per_question"]
     assert pq["is_bgc"]["PASS"] == 2 and pq["is_bgc"]["skipped"] == 1
     assert pq["is_bgc"]["pass_rate"] == 1.0                          # 2 PASS / 2 scored
-    assert pq["conditioning_faithful"]["pass_rate"] == round(2 / 3, 3)
+    assert pq["complete"]["pass_rate"] == round(2 / 3, 3)
     assert pq["novel"]["FAIL"] == 1 and pq["novel"]["pass_rate"] == 0.5
-    # role tags: is_bgc/novel are gates, conditioning_faithful is a diagnostic
+    # role tags: is_bgc/novel are gates, `complete` is a diagnostic
+    # (conditioning_faithful was removed from QUESTIONS 2026-08-10 -- it produced
+    #  no_verdict on 870/870 records and measures taxon conditioning, not class)
     assert pq["is_bgc"]["role"] == "gate" and pq["novel"]["role"] == "gate"
-    assert pq["conditioning_faithful"]["role"] == "diagnostic"
+    assert pq["complete"]["role"] == "diagnostic"
     # per-check tally is independent of questions
     assert s["per_check"]["class_markers"]["PASS"] == 2
     print("PASS: driver aggregation (per-question + per-check pass rates incl. skipped)")
@@ -228,7 +230,7 @@ def test_gate_keyed_headline():
     import eval_suite_driver as D
     from bgc_pipeline.evaluation import GATE_QUESTIONS, DIAGNOSTIC_QUESTIONS
     assert set(GATE_QUESTIONS) == {"is_bgc", "correct_class", "novel"}
-    assert set(DIAGNOSTIC_QUESTIONS) == {"proteins_plausible", "complete", "conditioning_faithful"}
+    assert set(DIAGNOSTIC_QUESTIONS) == {"proteins_plausible", "complete"}
     recs = [
         {"questions": {"is_bgc": "PASS", "correct_class": "PASS", "novel": "PASS"}},        # ACCEPT
         {"questions": {"is_bgc": "FAIL", "correct_class": "PASS", "novel": "PASS"}},        # not a BGC

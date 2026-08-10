@@ -105,6 +105,10 @@ def test_novelty_gate_can_actually_fail():
 
 
 def test_taxon_profile_resolves_from_a_real_gtdb_tag():
+    """Retained even though taxon_faithfulness left the SUITE on 2026-08-10: the function is
+    still used by evo2/scripts/conditioning_experiment.py, and the case-sensitivity bug this
+    pins (lowercase GTDB tags vs uppercase profile keys) would silently return None there too.
+    """
     from bgc_pipeline.evaluation import load_taxon_profiles, resolve_taxon_profile
     tp = REPO / "data" / "processed" / "taxon_profiles.json"
     if not tp.exists():
@@ -113,7 +117,7 @@ def test_taxon_profile_resolves_from_a_real_gtdb_tag():
     prof = load_taxon_profiles(tp)
     tag = _real_core().get("taxonomic_tag", "")
     assert resolve_taxon_profile(tag, prof) is not None, (
-        f"real GTDB tag {tag[:60]} did not resolve -- conditioning_faithful would be null")
+        f"real GTDB tag {tag[:60]} did not resolve -- conditioning_experiment would see None")
     print("PASS taxon profiles: real lowercase GTDB tag resolves")
 
 
