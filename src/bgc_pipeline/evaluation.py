@@ -1337,6 +1337,11 @@ def _verdict_from_pass(r: Optional[dict[str, Any]]) -> str:
     return "PASS" if p else "FAIL"
 
 
+# Union of every class's obligate markers: the Pfam accessions that actually indicate
+# biosynthetic machinery, as opposed to any protein domain whatsoever.
+_BIOSYNTHETIC_PFAMS = {a for _v in OBLIGATE_DOMAINS.values() for a in (_v or [])}
+
+
 def derive_questions(results: dict[str, Any]) -> dict[str, str]:
     """Combine CHECK results into question-level verdicts (PASS/FAIL/no_verdict/
     skipped). antiSMASH owns is_bgc + correct_class; class_markers is the fast
@@ -1365,7 +1370,15 @@ def derive_questions(results: dict[str, Any]) -> dict[str, str]:
         q["is_bgc"] = "PASS" if asr["detected"] else "FAIL"
         prov["is_bgc"] = "antismash"
     elif cm_ran:
-        detected = cm.get("domain_count", 0) > 0           # proxy: has biosynthetic domains
+        # The proxy must count BIOSYNTHETIC domains, not ANY Pfam hit -- the comment said the
+        # former, the code did the latter. The false positives were generic housekeeping families
+        # (AMP-binding, DAO, Amino_oxidase, adh_short, NAD_binding_8...). Measured on the 768
+        # records where antiSMASH also ran:
+        #     any Pfam >= 1  (old):  sens 1.000  spec 0.598  PPV 0.330
+        #     biosynth >= 2  (new):  sens 0.882  spec 0.878  PPV 0.589
+        # Free -- the scan already ran; we just stop counting irrelevant hits.
+        _bio = set(cm.get("unique_domain_accessions") or []) & _BIOSYNTHETIC_PFAMS
+        detected = len(_bio) >= 2
         if cs and not cs.get("skipped"):
             q["is_bgc"] = "PASS" if (detected and sane) else "FAIL"
         else:

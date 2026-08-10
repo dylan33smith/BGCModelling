@@ -96,9 +96,22 @@ PY evo2/scripts/generate_bgc.py --adapter "$CKPT" --from-jsonl "$OUT/prompts.jso
   --max-windows "$MAX_WINDOWS" --chunk-overlap "$CHUNK_OVERLAP" \
   --out-fasta "$OUT/gen.fasta" --out-jsonl "$OUT/gen.jsonl"
 
+# 2b. POSITIVE CONTROL — real held-out cores, truncated to the SAME length distribution and drawn
+# to the SAME class mix as the generations. Until 2026-08-10 every driver passed
+# `--positive "$OUT/_nopos.jsonl"`, a path chosen not to exist: 0 of 25 probe reports had a
+# control, so every correct_class number was an uncalibrated fraction of an unstated maximum.
+# It matters a lot. antiSMASH scores real curated BGCs at only 0.55 correct_class, and real
+# splits_core cores truncated to 2048 nt score is_bgc 0.680 / correct_class 0.640 — so a
+# generation at 0.10 is 16% of achievable, not 10% of perfect. It also separates "the model got
+# worse" from "the instrument changed", which this project has twice confused.
+POSCTRL="${POSCTRL:-$OUT/positive_control.jsonl}"
+PY scripts/make_positive_control.py --gen "$OUT/gen.jsonl" --out "$POSCTRL" \
+   --cores "${POSCTRL_CORES:-/data2/ds85/bgcmodel_data/splits_core/test.jsonl}" \
+   || echo "[quick_eval] !! positive control generation failed; rates will be uncalibrated"
+
 # 3. cheap checks (coding_sanity, antismash, class_markers, module_architecture,
 #    taxon_faithfulness); skip the DB-bound/slow ones (protein_homology, kmer_novelty).
-PY scripts/eval_suite_driver.py --gen "$OUT/gen.jsonl" --positive "$OUT/_nopos.jsonl" \
+PY scripts/eval_suite_driver.py --gen "$OUT/gen.jsonl" --positive "$POSCTRL" \
   --skip-checks protein_homology kmer_novelty \
   --pfam-hmm "$PFAM" --antismash-db "$ASDB" --output "$OUT/quick_eval.json"
 

@@ -203,6 +203,39 @@ better substrate for a *conditioned retrain* (class token + throughput) if steer
 > `scripts/eval_suite_driver.py::summarize_group`. This same defect is the leading
 > explanation for the 12.5%-vs-4.3% gap above.
 
+## ★★ PHASE 3 FINAL (2026-07-31): steering does NOT control generated class. Program answered.
+
+Cross-class override — seed a real class-A core, steer the continuation toward class B, ask
+whether B's machinery appears. Three paired arms, all three doses, `valtest_eval` seeds:
+
+| dose | A real | B shuffled-label | seed markers (A) | seed markers (unsteered) |
+|---|---|---|---|---|
+| 1 | 0/48 | 0/47 | 0.375 | 0.396 |
+| 2 | 2/46 | 0/47 | 0.457 | 0.396 |
+| 4 | 0/46 | 1/48 | 0.326 | 0.396 |
+| **pooled** | **2/140 = 0.014** | **1/142 = 0.007** | — | — |
+
+Unsteered base rate of cross-class markers arising by chance: **3/144 = 0.021**.
+`P(≥2 | p=0.021, n=140) = 0.79`. **Real and shuffled arms are indistinguishable from each other
+and from chance, at every dose.** Steering slightly *perturbs* the seed's own class at dose 4
+(0.326 vs 0.396) without installing the target's — degradation, not redirection.
+
+**This is the plan's kill criterion**: arm A does not beat the shuffled-label arm B, properly
+paired and nuisance-matched, across the entire dose range Phase 2 showed to be damage-free.
+
+**The coherent picture across phases.** The model *does* use class in its next-token distribution
+(Phase 1: p=0.040 on two independent interventions, ablation z=4.8) — but that effect is far too
+weak to redirect 3,000 sequential sampling decisions. Exactly the gap flagged at the outset:
+teacher-forced scoring can only ever give good news.
+
+**Power, stated honestly:** this rules out a lift to ≥10% (we would have seen it with p≈0.994).
+It does not rule out a lift to ≤5%. A 5%-of-generations effect is not a useful conditioning
+mechanism, so this is a decision-grade negative, not a proof of zero.
+
+⇒ **Next spend is per-class LoRA adapters**, the fallback the plan named. See decisions.md
+"The seed does TWO jobs" — an adapter can install BOTH (BGC-ness and class), which is what
+taxonomy-only generation needs and what steering could never supply.
+
 ## ★ PHASE 1 RESULT (2026-07-30): the model DOES use class — steering has something to act on
 
 `evo2/scripts/steer_causal_tests.py`, layer 16, directions from a genome-disjoint half of

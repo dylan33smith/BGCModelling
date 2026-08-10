@@ -314,11 +314,23 @@ def test_derive_questions():
     q2 = derive_questions({"coding_sanity": {"pass": True},
                            "antismash": {"detected": False, "class_match": False}})
     assert q2["is_bgc"] == "FAIL" and q2["correct_class"] == "FAIL", q2
-    # antiSMASH skipped (e.g. parse error) -> PROXY: domains present + coding floor.
+    # antiSMASH skipped -> PROXY: >=2 BIOSYNTHETIC domains + coding floor.
+    # CONTRACT CHANGED 2026-08-10: the proxy counts biosynthetic Pfams (the union of
+    # OBLIGATE_DOMAINS), not ANY Pfam hit. Measured on 768 records where antiSMASH also ran,
+    # "any Pfam >= 1" gave spec 0.598 / PPV 0.330 because generic housekeeping families
+    # (AMP-binding, DAO, adh_short...) fired; ">=2 biosynthetic" gives spec 0.878 / PPV 0.589.
     q3 = derive_questions({"coding_sanity": {"pass": True},
                            "antismash": {"skipped": True},
-                           "class_markers": {"pass": True, "domain_count": 5}})
+                           "class_markers": {"pass": True, "domain_count": 5,
+                                             "unique_domain_accessions": ["PF00668", "PF00501"]}})
     assert q3["is_bgc"] == "PASS" and q3["correct_class"] == "PASS", q3
+    # generic (non-biosynthetic) Pfam hits must NOT clear the proxy, however many there are.
+    q3b = derive_questions({"coding_sanity": {"pass": True},
+                            "antismash": {"skipped": True},
+                            "class_markers": {"pass": True, "domain_count": 12,
+                                              "unique_domain_accessions": ["PF00005", "PF13561"]}})
+    assert q3b["is_bgc"] == "FAIL", q3b
+    assert q3["_verdict_source"]["is_bgc"] == "class_markers_proxy", q3
     # proxy with no domains -> not a BGC.
     q4 = derive_questions({"coding_sanity": {"pass": True},
                            "antismash": {"skipped": True},
