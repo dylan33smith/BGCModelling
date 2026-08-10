@@ -285,6 +285,22 @@ nucleotides per micro-step, 51 kb context, unconditional megasynthase output, vL
 Those are real and they matter for a *conditioned retrain*. They are no longer decisive on
 their own.
 
+> ### ⛔ UPDATE 2026-08-10 — the steering experiment above was run, and it FAILED
+>
+> Phases 0–6 of `docs/steering_program.md`: corrected length-stripped directions, dose in
+> class-units, layer treated as a variable (16/20/24/27), multi-layer stacking, all with
+> shuffled-label controls and a continuous readout 10x more sensitive than any binary gate.
+> **Null throughout.** The mechanism is now identified: the class direction reliably **deletes**
+> a class that is present (ΔP(seed) −0.308 vs a shuffled control, p = 0.0063) and never
+> **installs** the target's. The model *represents* class; the generator does not *consume* it.
+>
+> "If that moves `correct_class` off the floor, no migration is needed" — it did not. So the
+> conditional resolves the other way, and **GenomeOcean's remaining axes are decisive again**,
+> the trainable class token above all: it is precisely the handle Evo2's byte-level tokenizer
+> cannot provide, and "install a class handle from scratch through a low-rank bottleneck" is
+> exactly what failed. Ranked against the Evo2 alternatives (per-class soft prefixes, per-class
+> adapters) in `docs/project_memory/progress.md` → NEXT ACTIONS (2026-08-10).
+
 ### Recommendation (superseded in part by §5.1 — read that first)
 Do **not** discard the Evo2 track — it is the incumbent with a full negative result and the
 eval instrument is shared, so a head-to-head is cheap. But **run the next diagnostic on

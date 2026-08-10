@@ -52,6 +52,17 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
 
 - Goal: fine-tune a genome foundation model for BGC sequence generation/evaluation.
 - Current production host focus: `gputee` (single H100 80 GB).
+- **STATE OF THE CENTRAL PROBLEM (2026-08-10).** Evo2 *represents* compound class (linear probe
+  0.911, chance 0.091 — and 0.911 in **base** Evo2, so the LoRA installed nothing) but the
+  generator does not *consume* it. Every inference-time conditioning lever is now closed:
+  prefix labels (inert), CFG (no amplifiable signal), and activation steering (all variants,
+  2026-08-10). The decisive finding: the class direction reliably **deletes** a class that is
+  present but never **installs** the target's — ablation works, injection does not.
+  ⇒ The next spend is **training-time coupling** (per-class soft prefixes → per-class LoRA
+  adapters → GenomeOcean's real trainable class token), NOT another inference-time trick.
+  ⇒ **What works today:** exemplar conditioning (seed a real core → correct_class 0.283 vs a
+  0.067 floor, memorization ruled out). The class comes from the seed, never the label.
+  See `docs/steering_program.md` and `docs/project_memory/progress.md` → NEXT ACTIONS.
 - **Evo2 track:** LoRA adapters on Evo2 7B (not full-parameter FT); DeepSpeed + PEFT +
   PyTorch (bf16); env `bgcmodel` (torch 2.5.1+cu124, transformers 4.46.3). This env also
   carries **antiSMASH 8.0.4 + Pfam**, so both tracks run the eval suite here.
@@ -144,16 +155,38 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
 - Metric 7 (organism compatibility) no longer hardcodes E. coli: it grades
   faithfulness vs the conditioned taxon (`scripts/build_taxon_profiles.py`,
   `data/processed/taxon_profiles.json`) and reports E. coli expressibility
-  separately. (Now the `taxon_faithfulness` check — see the 2026-06-17 note.)
+  separately. (Became the `taxon_faithfulness` check; **REMOVED from the suite 2026-08-10** —
+  it returned `no_verdict` on 870/870 records and grades taxon conditioning, not class. The
+  function is retained only for `evo2/scripts/conditioning_experiment.py`.)
 
 ### Eval suite rewrite + v2 data (2026-06-17 — see docs/archive/REDESIGN_PLAN.md / docs/archive/EVAL_RUNBOOK.md)
 
 - The eval suite was rewritten from the flat `metric_1..metric_11` numbering to two
   named layers: **CHECKS** (`coding_sanity`, `antismash`, `class_markers`,
-  `kmer_novelty`, `protein_homology`, `module_architecture`, `taxon_faithfulness`;
-  optional `protein_foldability`) combined into **QUESTIONS** via `derive_questions()`.
-  GATES = `is_bgc`, `correct_class`, `novel`; diagnostics = `proteins_plausible`,
-  `complete`, `conditioning_faithful`. (`src/bgc_pipeline/evaluation.py`.)
+  `kmer_novelty`, `protein_homology`, `module_architecture`; optional
+  `protein_foldability`, `class_probe`) combined into **QUESTIONS** via
+  `derive_questions()`. GATES = `is_bgc`, `correct_class`, `novel`; diagnostics =
+  `proteins_plausible`, `complete`, `class_probe_agrees`.
+  (`src/bgc_pipeline/evaluation.py`.)
+- **`taxon_faithfulness` / `conditioning_faithful` were REMOVED (2026-08-10)** — it
+  returned `no_verdict` on 870/870 records and measures taxon conditioning, not class.
+  The function is retained solely for `evo2/scripts/conditioning_experiment.py`.
+- **`class_probe` (2026-08-10) is the only CONTINUOUS class readout and NEVER gates.**
+  Scores are a per-class probability dict supplied by a model-specific scorer
+  (`evo2/scripts/probe_score_generations.py --emit-sidecar` →
+  `eval_suite_driver.py --probe-scores`), which keeps `evaluation.py` model-agnostic.
+  Calibrated: TPR 0.900 on real cores at 3 kb (vs 0.717 for `class_markers`), but
+  **0.900 mean confidence on real NON-BGC DNA** vs 0.986 on real cores — it has no
+  negative class and cannot abstain, so it measures resemblance, not validity.
+  Valid only in PAIRED comparisons. Do not promote it to a gate; three tests pin this.
+- **Fail-loud resources.** `EvalResourceError` + `BGC_EVAL_STRICT` (default on): a
+  missing resource for a GATING check RAISES; opt-in diagnostics skip with
+  `skip_kind="resource"`. A missing tool must never become a silent negative.
+- **Controls are mandatory, not optional.** `scripts/make_positive_control.py` (ceiling:
+  real cores at the generations' own length *and* class mix) and
+  `scripts/make_negative_control.py` (floor: real non-BGC windows; it REFUSES to
+  substitute shuffled sequence). Measured FPR: antiSMASH `is_bgc` 0.000; the retired
+  any-Pfam proxy 0.960.
 - **antiSMASH is the gold-standard `is_bgc`/`correct_class` gate**, recalibrated
   ~0.15 → ~0.97 on real cores by completing the product→class map
   (`scripts/build_class_map.py` → `config/compound_class_map.yaml`). `class_markers`

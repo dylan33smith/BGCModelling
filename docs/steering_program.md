@@ -1,4 +1,21 @@
-# Steered class-specific generation — the plan
+# Steered class-specific generation — the plan, and how it ended
+
+> ## ⛔ CLOSED 2026-08-10 — do not run another steering variant
+>
+> **The class direction can DELETE a class but cannot INSTALL one.** Re-asserted across 9 layers
+> it strips the seed's class identity 3× harder than an equal-magnitude random direction
+> (ΔP(seed) −0.308, sign p = 0.0063, not explained by coherence damage) and never significantly
+> installs the target's. Erasing a coordinate the model already uses is easy; writing one it does
+> not consume changes nothing downstream.
+>
+> Not dose, not depth, not geometry — all three were tested after the early defects were fixed.
+> Jump to [Verdict](#verdict--the-programme-is-closed-2026-08-10) for the full table and what to
+> spend on next (training-time coupling: soft prefixes → per-class adapters → GenomeOcean class
+> token).
+>
+> **Everything below is preserved as written**, including predictions that turned out wrong, so
+> the reasoning can be audited against the results. Corrections are marked inline and in
+> "How that assessment held up".
 
 **Written 2026-07-29.** Every geometric number here was recomputed directly from
 `class_probe_sweep/acts_v2.npz` and reproduces exactly. A denser, more technical version of the
@@ -359,7 +376,106 @@ live competing explanation. A positive result would not have had that problem.
 
 ---
 
-## When to give up
+## Phase 6 — Multi-layer: the direction DELETES class but cannot INSTALL it (2026-08-10)
+
+Phase 5 measured ONE injection point at a time, and that does not close the multi-layer case.
+Two mechanisms make a stack different in kind, not just in dose:
+
+1. **Re-assertion.** Nothing obliges the blocks after L16 to preserve an added component — it is
+   not a state the model would have produced itself, so downstream computation can overwrite it.
+   *Falling reach with depth is exactly what such erasure looks like.* Re-adding at every layer is
+   closer to CLAMPING the class coordinate than nudging it once, and no single-layer measurement
+   can see that difference. (Phase 5 originally called multi-layer closed on this evidence. That
+   was wrong: the evidence was consistent with the mechanism it was meant to rule out.)
+2. **Damage is per-layer; effect may be cumulative.** Coherence collapses when ONE edit gets
+   large. Nine small edits can sum to a much larger total push while each stays in the safe band.
+
+`evo2/experiments/probes/run_steer_stack.sh`: 9 layers (L10-L27, each with its OWN direction and
+its OWN class-unit), 3 per-layer doses, every dose with a shuffled-label twin, seeded cross-class
+design, n=12/arm.
+
+**Binary gates: 0/12 target markers in every arm, real and shuffled alike.** Uninformative by
+construction — the marker gate's TPR is 0.717 at this length.
+
+**The continuous readout on the identical sequences**, paired real vs shuffled-label on the same
+exemplars (the only comparison that isolates the class direction from generic perturbation):
+
+| per-layer dose | ΔP(target) | p | **ΔP(seed)** | **p** |
+|---|---|---|---|---|
+| 0.027 | +0.075 (9/11) | 0.065 | −0.175 | 0.549 |
+| 0.082 | +0.007 (6/12) | 1.000 | −0.090 | 0.388 |
+| **0.16** | +0.107 (9/12) | 0.146 | **−0.308 (1/12 up)** | **0.0063** |
+
+**The real direction strips the SEED's class identity 3x harder than an equal-magnitude random
+direction** (Bonferroni over all 6 tests: 0.038, still significant). It never significantly
+installs the TARGET's.
+
+**Not an artefact of damage.** At frac 0.16 the real arm is more incoherent (coding 0.706 vs
+0.834), but corr(Δcoding, ΔP(seed)) = **+0.002** — no relationship. Restricted to the 7 exemplars
+where the real direction did NO more coding damage than the shuffled one, ΔP(seed) = **−0.393**
+(same direction, larger; n=7, p=0.125 — underpowered, not contradicting).
+
+### ⇒ ABLATION WORKS, INJECTION DOES NOT
+
+The vector carries genuine class information — enough to specifically erase a class that is
+present — but adding it does not make the generator write the target's machinery. Erasing a
+coordinate the model already uses is easy; writing one it does not consume changes nothing
+downstream. This reproduces Phase 1's asymmetry (ablation z=4.8 strong, nudge marginal) in
+GENERATION rather than teacher-forced scoring, and it is the mechanistic reason the entire
+inference-time family fails.
+
+**A capability that falls out of the negative result:** class *suppression* works. "Generate a
+BGC that is NOT an NRPS" is achievable with what is already built.
+
+### The methodological finding, which outlives the steering programme
+
+Until 2026-08-10 **every class readout in this project was binary**. A threshold gate bounds a
+LARGE effect and is silent on a small one, and the thresholds here are not tight:
+`class_markers` TPR 0.717 at 3 kb, antiSMASH detecting ~1/3 of seeded 3 kb generations. An effect
+of the size found above was **invisible by construction** in every experiment we ran. The
+continuous `class_probe` check (now permanent, diagnostic-only, calibrated at both ends) is the
+fix; see README.md.
+
+---
+
+## Verdict — the programme is closed (2026-08-10)
+
+Every original kill criterion was met, and the three defects that made the early nulls
+uninterpretable (wrong axis, toxic dose, floor-bound readout) were all fixed first. Steering was
+then tested properly and failed:
+
+| stage | result |
+|---|---|
+| P0 directions | corrected, length-stripped, admissible; L16 arrays reproduce byte-identically |
+| P1 teacher-forced | the model DOES use class — ablation z=4.8, nudge p=0.040 |
+| P2 dose | damage-free band established |
+| P3 generation @ L16 | **null** — 2/140 vs 1/142 shuffled, chance 3/144 |
+| P5 depth | **reach FALLS with depth** (L16 0.0101 → L27 0.0029); 0/48 at L27 |
+| P6 multi-layer | **deletes class (p=0.0063), never installs it**; 0/12 target everywhere |
+
+**Do not run another steering variant.** Not other layers, not other dose schedules, not other
+direction recipes. The mechanism is identified and it is none of those.
+
+**Next spend is training-time coupling**, in this order:
+1. **Per-class soft prefixes** — cheapest discriminating test (~1 GPU-day). Labels fail and
+   exemplars work, so *learn a synthetic exemplar* in embedding space rather than assert a byte
+   string with no pretrained prior. Needs hook-based plumbing: Evo2 is not an HF
+   `PreTrainedModel`, so peft prompt-tuning will not drop in.
+2. **Per-class LoRA adapters** — no conditioning interface to fail; class is which weights you
+   load. Does not scale past a handful of classes; do 3-4 as proof.
+3. **GenomeOcean + a real trainable class token** — removes the structural obstacle (Evo2's
+   byte-level tokenizer gives the class tag no pretrained prior), and scales.
+
+**Bank now:** exemplar-conditioned generation is a validated capability (0.283 vs a 0.067 floor,
+memorization ruled out, four pre-registered controls passed).
+
+**Standing debt:** directions AND the class probe are fit on val+test. Refit train-only before
+any externally reported number.
+
+---
+
+## When to give up  — *(the criteria as written 2026-07-29; all of them fired. Retained
+## because the programme's decisions should be readable against the rules set BEFORE the data.)*
 
 **Stop and switch to per-class adapters if:**
 
@@ -384,3 +500,29 @@ class carries ~2% of the variance, the network discards it before the output, an
 class prior reads it just as well. If Phase 1 comes back flat, the honest reading is that class
 at layer 16 is a readout of the input rather than a control variable, and per-class adapters are
 the correct next spend.
+
+### How that assessment held up (2026-08-10)
+
+**Right about the outcome, wrong about the route.** Per-class adapters *are* the correct next
+spend, and the reason is close to the one anticipated — but Phase 1 did **not** come back flat.
+It came back positive (ablation z=4.8, nudge p=0.040), and the programme correctly proceeded on
+that basis. The kill came at Phase 3, from the criterion written above: arm A did not beat the
+shuffled-label arm B.
+
+**What the plan did not anticipate**, and what took three extra phases to establish:
+
+1. **Teacher-forced good news does not transfer to generation.** The plan flagged this as a
+   caution; it turned out to be the whole story. A per-base effect far too small to redirect
+   3,000 sequential sampling decisions still registers clearly in log-likelihood.
+2. **"Present but unused" was too coarse.** The real finding is directional: the class coordinate
+   can be **deleted** but not **installed**. Phase 1's own asymmetry (ablation strong, nudge
+   marginal) was the tell, and nobody read it that way at the time.
+3. **The readout ceiling was itself unmeasured.** Every gate in this programme was binary, and
+   their sensitivities (marker TPR 0.717, antiSMASH ~0.33 on 3 kb generations) were only measured
+   on 2026-08-10 — *after* the negative results they had produced. The programme reached the right
+   verdict, but for most of its life it could not have distinguished a small real effect from
+   zero. The continuous `class_probe` check exists because of that gap.
+
+**The rule worth carrying forward:** an instrument's sensitivity and false-positive rate are part
+of the experiment, not housekeeping to do later. A null is only as strong as the measured ceiling
+it is read against.

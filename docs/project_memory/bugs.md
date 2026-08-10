@@ -21,6 +21,24 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
   (`steer_mean_h_norm`, `steer_realized_norm_frac`, `steer_realized_class_units`) so no analysis
   ever has to re-derive a dose from stderr again — which the β-titration had to.
   Guarded by `tests/test_steer_hooks.py`.
+- **[2026-08-10] Three "looks like a measurement, is an artefact of my own code" bugs, all found
+  by reading a table that was about to be reported.** Same family; worth recognising on sight.
+  1. *Comparing against `None` and printing the result as a rate.* The unsteered control arm has
+     no `steer_target_class` by construction, so `argmax == target` compared to `None`, was False
+     every time, and printed **0.000** — indistinguishable from "unsteered never hits the target",
+     which is exactly the claim the column appeared to support. *Fix:* print `--` when an arm has
+     no target; store the FULL probability vector so a baseline can be scored against the STEERED
+     record's class.
+  2. *A pairing predicate that silently drops every pair.* The same `None` also made the paired
+     join require `target == None`, so all 48 pairs were dropped and the table read "too few
+     matched pairs" — a null presented as a shortage of data.
+  3. *Inferring a bucket instead of tagging it.* `marker_sensitivity.py` selected its
+     "full-length" rows with `length == nt`; a core LONGER than the truncation has
+     `nt == length == 3000`, so 29 truncated rows leaked into the full-length bucket and inflated
+     it from 60 to 89. *Fix:* tag the bucket explicitly at write time, never re-derive it.
+  **The pattern:** each produced a plausible number rather than an error. Guard by asking of every
+  printed rate "what is the denominator, and can this cell be produced by a missing value?"
+
 - **[2026-08-10] A z-score against 3 permutation controls is not a z-score.** `steer_reach.py`
   reported z = 16.5 at L24 — from a control sd of 0.00003 estimated off three points, on an
   effect of 0.00017. With few controls the sd is mostly noise, so a small spread manufactures a

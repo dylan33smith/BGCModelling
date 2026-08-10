@@ -20,25 +20,39 @@ drivers `../scripts/eval_suite_driver.py`, `../scripts/evaluate_bgc.py`,
 
 | Path | Contents |
 |---|---|
-| `scripts/` | Training (`finetune_evo2_lora.py`), generation (`generate_bgc.py`), conditioning probes (`cfg_generate.py`, `seed_generate.py`, `conditioning_experiment.py`), the class probe + steering pair (`class_probe_sweep.py`, `steer_generate.py`), chunk indexing, the `queue_h100_*.sh` wrappers, `quick_eval.sh` / `run_eval.sh`. |
-| `experiments/probes/` | The 2026-07 probe programme (capability chain, rank sweep, gene-aware A/B, concentration, CFG, seeding) and the 2026-07-29 steering titrations (`run_steer_magnitude.sh` — current; `run_steer_titration.sh` — superseded β sweep). |
+| `scripts/` | Training (`finetune_evo2_lora.py`), generation (`generate_bgc.py`), conditioning probes (`cfg_generate.py`, `seed_generate.py`, `conditioning_experiment.py`), the class probe + steering stack (`class_probe_sweep.py`, `build_steer_dirs.py`, `steer_generate.py`, `steer_causal_tests.py`, `steer_reach.py`), the continuous class readout (`probe_score_generations.py`, `calibrate_class_probe.py`), chunk indexing, the `queue_h100_*.sh` wrappers, `quick_eval.sh` / `run_eval.sh`. |
+| `experiments/probes/` | The 2026-07 probe programme (capability chain, rank sweep, gene-aware A/B, concentration, CFG, seeding) and the steering programme (`run_steer_phase2.sh`, `run_steer_phase3.sh`, `run_steer_l27.sh`, `run_steer_stack.sh`; `run_steer_magnitude.sh` / `run_steer_titration.sh` are superseded). |
 | `experiments/quartz/` | Multi-GPU long-context staging for IU Quartz (blocked on an RT Project allocation). |
 | `docs/` | `evo2_lora_and_hyena.md` (why the long-range pathway is untrained), `quartz_setup.md`. |
 
 ### Activation steering — strength flags
 
-`steer_generate.py` adds a class direction to the residual stream at layer L. Class direction
-norms span **17×** at layer 16, so there is no single strength knob; pick the one matching the
-question (see `docs/project_memory/decisions.md`):
+> **Steering is CLOSED as of 2026-08-10.** These flags are documented because the code and the
+> negative results are worth preserving, not because another sweep is warranted. See
+> "Where this track stands" below.
+
+`steer_generate.py` / `seed_generate.py` add a class direction to the residual stream. Class
+direction norms span **17×** at layer 16, so there is no single strength knob; pick the one
+matching the question (see `../docs/project_memory/decisions.md`):
 
 | flag | holds constant | use for |
 |---|---|---|
-| `--delta-norm` | absolute ‖delta‖ | **coherence titration** — damage tracks magnitude |
-| `--alpha` | ‖delta‖ / mean‖h‖ | same, in ref-norm units (older runs) |
-| `--beta` | class-mean offsets | class-effect comparisons |
+| `--steer-norm-frac` | ‖delta‖ / **live, per-position** ‖h‖ | **anything where the LAYER varies** — the only dose comparable across depths |
+| `--delta-norm` | absolute ‖delta‖ | coherence titration within one layer |
+| `--class-units` | class-mean offsets | class-effect comparisons within one layer |
+| `--alpha` | ‖delta‖ / **pooled-cache** mean‖h‖ | legacy; see the warning below |
 
-Exactly one is required. Each record carries `steer_v_norm` / `steer_applied_norm` /
-`steer_beta_equiv`, so either axis is recoverable after the fact.
+Exactly one is required. Every record carries the **realized** `steer_mean_h_norm` /
+`steer_applied_norm` / `steer_realized_norm_frac` / `steer_realized_class_units`, so the dose
+never has to be re-derived from logs (the β-titration had to).
+
+**Never derive a dose from the mean-POOLED activation cache.** Pooling averages vectors that
+point different ways and shrinks ‖h‖ by a depth-dependent factor — measured, cache vs live:
+6.69 vs 8.95 at L16 (0.75×) but **31.97 vs 11.25 at L27 (2.84×)**. A cache-derived dose is
+mis-scaled, and increasingly so with depth. `--steer-norm-frac` measures ‖h‖ at the hook.
+
+`--steer-layer` accepts a **comma list** (`10,12,14,16,18,20,22,24,27`) to stack the direction
+at every listed layer, each using its own direction and its own class-unit.
 
 ## Environment
 
@@ -52,8 +66,39 @@ eval suite.
 
 ## Where this track stands
 
-Prefix class-conditioning on Evo2 is closed as a dead end — see
-`../docs/project_memory/progress.md` and the 2026-07-21 entry in
-`../docs/project_memory/decisions.md`. The LoRA adds BGC-likeness (coding density
-0.61 → 0.89) but nothing about class (`correct_class` 0.013 at n=75). CFG found no
-amplifiable class signal; LoRA capacity and chunking were both ruled out.
+**Every inference-time conditioning lever is now closed.** The full arc, with the instrument
+defects each stage exposed, is in [`../docs/steering_program.md`](../docs/steering_program.md).
+
+| lever | verdict | date |
+|---|---|---|
+| prefix / label conditioning | dead — the tag is provably inert (`v2_notag` == `v2_tag`) | 2026-07-21 |
+| CFG | dead — no amplifiable signal; coherence collapses first | 2026-07-22 |
+| LoRA capacity (rank, coverage) | not the limiter | 2026-07-13 |
+| data (whole-core, chunking, class concentration) | moves DOMAINS, never the gate | 2026-07-12 |
+| activation steering — all variants | **dead** | 2026-08-10 |
+
+The LoRA adds BGC-likeness (coding density 0.61 → 0.89) but nothing about class
+(`correct_class` 0.013 at n=75; the class probe reads 0.906 on the adapter vs **0.911 on base
+Evo2**, so the adapter installed no class representation).
+
+**The mechanism, established 2026-08-10.** The model *represents* class (probe 0.911, chance
+0.091) but the generator does not *consume* it. Multi-layer steering showed the asymmetry
+directly: the class direction reliably **deletes** a class that is present (ΔP(seed) −0.308
+against a shuffled-label control on the same exemplars, sign p = 0.0063, not explained by
+coherence damage) and never significantly **installs** the target's. Erasing a coordinate the
+model already uses is easy; writing one it does not consume changes nothing downstream. Two
+supporting measurements: an injected edit's influence on the output *falls* with depth
+(L16 0.0101 → L27 0.0029), so "inject later / inject everywhere" cannot help; and the
+continuous `class_probe` readout — 10× more sensitive than any binary gate — finds no
+class-specific movement toward the target at any dose or layer.
+
+**What works today: exemplar conditioning.** Seed a real core and the continuation is
+correct-class 0.283 vs a 0.067 floor, memorization ruled out, all four pre-registered controls
+passed. The class comes from the **seed**, never the label.
+
+**Next spend is training-time coupling**, not another inference-time trick: per-class soft
+prefixes (cheapest discriminating test), per-class LoRA adapters (no conditioning interface to
+fail), or GenomeOcean with a real trainable class token.
+
+**Standing debt:** steering directions and the class probe are fit on **val+test**; refit
+train-only before reporting any number externally.

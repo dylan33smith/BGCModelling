@@ -365,9 +365,47 @@ class direction costs 3.1x more than deleting a shuffled one.
 
 ## What is running right now
 
-- **Re-embed for Phase 0** (`class_probe_sweep.py --from-jsonl train.jsonl --per-class 500`,
-  10,022 cores, ~35 min, launched 15:15). Reason: the learning curve below shows the direction's
-  *orientation* has not converged at the sample sizes we had.
+**Nothing.** The GPU is idle and the steering programme is closed (see Phase 6 above).
+
+## NEXT ACTIONS (2026-08-10)
+
+Ranked. The diagnosis is *the generator does not CONSUME the class coordinate*, which is a
+training-time fact — so every candidate below changes training, not inference.
+
+1. **Per-class soft prefixes — ~1 GPU-day, do this first.** The cheapest experiment that
+   discriminates, and it sits exactly in the gap between the two established facts: labels fail,
+   exemplars work ⇒ *learn a synthetic exemplar* in embedding space instead of asserting a byte
+   string with no pretrained prior. If the generator can consume a learned content-like handle,
+   this shows it for a fraction of an adapter's cost; if it cannot, that is strong confirmation
+   and you skip to (2)/(3) without doubt.
+   *Plumbing caveat:* Evo2 is not an HF `PreTrainedModel`, so peft prompt-tuning will not drop
+   in — implement as a hook at the embedding layer (same pattern as the steering hooks).
+2. **Per-class LoRA adapters.** Strongest prior of working because there is **no conditioning
+   interface to fail** — class becomes which weights you load. We know a LoRA can learn a
+   distribution (coding density 0.61 → 0.89); a per-class adapter's whole objective is that
+   distribution for one class. Does not scale past a handful of classes; do 3–4 as proof.
+3. **GenomeOcean + a real trainable class token.** Removes the structural obstacle — Evo2's
+   byte-level tokenizer gives the class tag no pretrained prior, so LoRA must install
+   class→sequence from scratch through a low-rank bottleneck. `[CLS_NRPS]` is a single atomic
+   trainable id at ~zero cost, plus 12.8× more nt/micro-step and 74% megasynthase output
+   unconditioned. See `docs/model_comparison_evo2_vs_genomeocean.md`.
+4. **Trained-null CFG** — only as a rider on a retrain. Its 2026-07-22 failure is currently
+   attributed to a known confound (v2 was never trained with class dropout, so the high-w
+   collapse is the expected untrained-null mode), which makes it the one older lever whose
+   negative is not clean.
+
+**Bank now (no further work needed):** exemplar-conditioned generation is a validated capability
+— correct_class 0.283 vs a 0.067 floor, memorization ruled out, all four pre-registered controls
+passed. Framed as "extend and diversify a known cluster", not "generate class X de novo".
+Also available for free: **class suppression** ("generate a BGC that is NOT an NRPS"), which is
+what the Phase 6 ablation result actually delivers.
+
+**Clear first — leakage debt.** Steering directions AND the class probe are fit on **val+test**.
+Refit train-only before any externally reported number; the next programme will lean on the probe
+as its readout, so clear it before rather than after.
+
+**Do NOT run:** another steering variant (layer, dose, or direction recipe). The mechanism is
+identified and it is none of those.
 
 ### Phase 0 + Phase 1 (2026-07-29) — directions rebuilt; instrument found broken
 
@@ -846,7 +884,9 @@ degrades *gene structure specifically*, not sequence statistics.
 - **Documentation consolidated** into this `README.md` + `docs/project_memory/`; detailed
   runbooks/plans/audits archived under `docs/archive/`.
 
-## Next actions (in order) — updated 2026-07-21
+## Next actions (in order) — updated 2026-07-21  ⚠️ **SUPERSEDED — see "NEXT ACTIONS (2026-08-10)" near the top.**
+Retained for history. Its ranking put activation steering first; steering was then run to
+completion and closed on 2026-08-10 (Phases 0–6). Do not work from this list.
 
 1. **[DONE 2026-07-21] Simple-class n=15 confirmation + base control + CFG.** Conditioning fails
    generally (v2 correct_class 0.013, base 0.0); LoRA adds coherence not class (coding_density

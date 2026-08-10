@@ -9,8 +9,8 @@ Two model tracks share one dataset and one eval instrument:
 
 | Track | Model | Status |
 |---|---|---|
-| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; prefix class-conditioning **closed as a dead end** (2026-07-21) |
-| [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | under evaluation since 2026-07-27 |
+| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; **every inference-time conditioning lever is closed** — prefix labels (2026-07-21), CFG (2026-07-22), activation steering (2026-08-10) |
+| [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | under evaluation since 2026-07-27; can take a **real trainable class token**, which is the capability Evo2's byte-level tokenizer cannot provide |
 
 See [`docs/model_comparison_evo2_vs_genomeocean.md`](docs/model_comparison_evo2_vs_genomeocean.md)
 for the head-to-head and the recommendation.
@@ -21,15 +21,32 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 ---
 
-## Current status (snapshot)
+## Current status (snapshot, 2026-08-10)
 
-- **v2 LoRA training in progress** on `gputee` (1× H100 80 GB), tmux `bgc_v2`, run dir
-  `/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768`, context
-  `L=32768`. First checkpoint at step 50.
-- **Eval suite rewritten** from first principles to named **checks → questions** with
-  antiSMASH as the recalibrated `is_bgc`/`correct_class` gate (≈0.97 on real cores).
+- **v2 LoRA is trained and stopped at `step_1200`** (run dir
+  `/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768`, `L=32768`,
+  `bs=1 ga=128`). It is the checkpoint every downstream experiment uses.
+- **Class conditioning: the model REPRESENTS class but the generator does not CONSUME it.**
+  A linear probe reads compound class off mid-network activations at 0.911 (chance 0.091),
+  in *base* Evo2 as well as ours. But every attempt to write that variable at inference
+  time fails, and the 2026-08-10 multi-layer result shows why: the class direction reliably
+  **deletes** a class that is present (ΔP(seed) −0.308 vs a shuffled-label control,
+  p = 0.0063) and never **installs** the target's. Ablation works; injection does not.
+  ⇒ The next spend is **training-time coupling**, not another inference-time trick.
+- **What does work today:** *exemplar-conditioned* generation. Seed a real core and the
+  continuation is correct-class 0.283 vs a 0.067 floor, with memorization ruled out and all
+  four pre-registered controls passed. The class comes from the **seed**, never the label.
+- **Eval suite** is named **checks → questions**, antiSMASH the gold-standard gate, and as of
+  2026-08-10 it is calibrated at **both** ends — a real negative control (false-positive rate
+  0.000 for antiSMASH `is_bgc`) and a positive control, plus a new **continuous** class
+  readout (`class_probe`) that can see effects the binary gates round to zero.
 - The live, detailed state is in **[`docs/project_memory/progress.md`](docs/project_memory/progress.md)**
-  — read that first when resuming work.
+  — read that first when resuming work. The steering program's full arc, including its
+  negative results and the instrument fixes they forced, is in
+  [`docs/steering_program.md`](docs/steering_program.md).
+
+**Standing debt:** the steering directions and the class probe are fit on **val+test**.
+Both must be refit train-only before any externally reported number.
 
 ---
 
@@ -182,7 +199,28 @@ units, all sharing one gene caller — **pyrodigal/Prodigal**) combined into **Q
 | `novel` | `kmer_novelty` (anti-memorization vs training) | ✅ |
 | `proteins_plausible` | `protein_homology` (MMseqs2 vs known enzymes) | diag |
 | `complete` | `module_architecture` (ordered NRPS/PKS modules) | diag |
-| `conditioning_faithful` | `taxon_faithfulness` (codon/GC vs conditioned taxon) | diag |
+| `class_probe_agrees` | `class_probe` — **continuous** class probability (opt-in) | diag |
+
+`taxon_faithfulness` / `conditioning_faithful` were **removed** on 2026-08-10: it produced
+`no_verdict` on 870/870 records and measures taxon conditioning, which is not what this
+project tests. The function survives for `evo2/scripts/conditioning_experiment.py`.
+
+### Calibration — measured at both ends, 2026-08-10
+
+Every gate's false-positive rate used to be *asserted*. It is now measured, against 25 real
+non-BGC windows cut from the same genomes outside every annotated region
+(`scripts/make_negative_control.py`, which **refuses** to substitute shuffled sequence —
+shuffling destroys codon structure so every gate passes trivially):
+
+| instrument | false-positive rate | sensitivity (real class DNA @ 3 kb) |
+|---|---|---|
+| antiSMASH `is_bgc` | **0.000** (0/25) | 0.680 @ 2 kb |
+| `class_markers` biosynthetic ≥2 | 0.040 | **0.717** |
+| *(retired)* any-Pfam ≥1 proxy | **0.960** | — |
+| `class_probe` argmax | n/a — see below | **0.900** |
+
+The retired any-Pfam proxy would have called **96% of ordinary bacterial DNA** a BGC. Any
+historical number computed with antiSMASH skipped used it; see `progress.md`.
 
 - **antiSMASH is the gold-standard `is_bgc`/`correct_class` detector** (≈3 s/core),
   **recalibrated 0.15 → ≈0.97** on real held-out cores by completing the antiSMASH
@@ -192,10 +230,26 @@ units, all sharing one gene caller — **pyrodigal/Prodigal**) combined into **Q
   antiSMASH is skipped.
 - **Gene caller:** pyrodigal (Prodigal) everywhere — replaced the legacy six-frame ORF
   finder, which fragmented megasynthases.
-- **Retired:** synthesis feasibility, Evo2 perplexity, BiG-SCAPE. E. coli expressibility
-  is pruned from gating (the wet-lab axes are out of scope).
+- **`class_probe` — the one CONTINUOUS readout (added 2026-08-10, diagnostic only).** Every
+  other class instrument is binary, and a threshold gate bounds a *large* effect while saying
+  nothing about a small one. With `class_markers` at TPR 0.717 and antiSMASH detecting only
+  ~1/3 of seeded 3 kb generations, an intervention can move the model substantially toward a
+  class and still score exactly 0.000. `class_probe` reports a probability instead, and it
+  immediately found a p = 0.006 class-specific effect in sequences every binary gate scored
+  as a flat zero.
+  **It can never gate**, and the calibration is why: it is **0.900 confident on real non-BGC
+  DNA** versus 0.986 on real clusters. It has no negative class and cannot abstain, so it
+  measures *resemblance*, not validity — trustworthy only in **paired** comparisons where
+  that shared bias cancels. (RIPP is its default guess for unremarkable DNA, 14/25 negatives.)
+  Scores come from a model-specific scorer so the suite stays model-agnostic:
+  `evo2/scripts/probe_score_generations.py --emit-sidecar` → `eval_suite_driver --probe-scores`.
+  Calibrate with `evo2/scripts/calibrate_class_probe.py`, which **refuses to run without the
+  negative control**.
+- **Retired:** synthesis feasibility, Evo2 perplexity, BiG-SCAPE, `taxon_faithfulness`.
+  E. coli expressibility is pruned from gating (the wet-lab axes are out of scope).
 - Headline tiers: `generates_bgc` → `correct_class` → `biological_valid` (both) →
-  **accept** (+ `novel`).
+  **accept** (+ `novel`). Rates return `None`, never a fabricated `0.0`, when nothing was
+  evaluated; a separate `funnel` block reports the monotone view on the common subset.
 
 **Run it:**
 
@@ -213,8 +267,27 @@ python scripts/eval_suite_driver.py --gen gen.jsonl --positive pos.jsonl \
   --skip-checks protein_homology kmer_novelty --output eval.json
 ```
 
-Calibration validators: `scripts/validate_antismash_calibration.py` (is_bgc/correct_class)
-and `scripts/validate_m2_calibration.py` (class_markers).
+**Controls — build them, do not skip them.** Until 2026-08-10 every driver passed a
+deliberately-nonexistent `--positive`, so 0 of 25 reports on disk had a ceiling and every
+rate was a fraction of an unstated maximum:
+
+```bash
+# CEILING: real held-out cores at the generations' own length AND class mix
+python scripts/make_positive_control.py --gen gen.jsonl --out pos.jsonl
+
+# FLOOR: real non-BGC windows from the same genomes, outside every annotated region
+python scripts/make_negative_control.py --gen gen.jsonl --gbk-tar <genomes.tar> --out neg.jsonl
+
+# CONTINUOUS class readout (optional; paired comparisons only)
+python evo2/scripts/probe_score_generations.py gen.jsonl --emit-sidecar probe.json \
+  --out-json probe_scores.json
+python scripts/eval_suite_driver.py --gen gen.jsonl --probe-scores probe.json ...
+```
+
+Calibration validators: `scripts/validate_antismash_calibration.py` (is_bgc/correct_class),
+`scripts/validate_m2_calibration.py` (class_markers),
+`scripts/marker_sensitivity.py` (marker TPR/FPR at generation length),
+`evo2/scripts/calibrate_class_probe.py` (probe TPR + behaviour on non-BGC DNA).
 
 ---
 
