@@ -8,6 +8,38 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-11] The steering edit LANDED at every layer — "no more steering variants" is now evidence-backed, not assumed
+`evo2/scripts/direction_audit.py` (CPU-only, off the cached train activations) separates the two
+explanations that every steering null was compatible with and that we had never distinguished:
+the edit never landed (bad direction/dose ⇒ steering deserves another recipe), or it landed and
+was ignored (⇒ the model does not read that subspace ⇒ depth of injection is the axis).
+
+Take held-out **non-target** activations, add the same direction at the same doses, ask the probe
+what class it sees. Across **all nine layers (10–27)** and all five classes, the readout flips to
+the target at **1–2 class-units** — and the experiments dosed **2.8 / 5.7 / 11.4**. Real vs random
+direction at 2.8 units: **0.94–1.00 vs 0.005–0.19**. The edit was 1.5–10× larger than needed to
+completely convert a linear readout in the very layer it was applied to.
+
+⇒ **Explanation (ii) holds. The decision stands, now for a measured reason.** The representation
+moved exactly as intended at every depth we ever steered, and the output did not follow. The
+failure is downstream of the edit, which is what the depth hypothesis predicts and what Tier B
+tests. Had the flip needed >11.4 units, this would have REOPENED steering; it was written to be
+able to overturn our own conclusion, and did not.
+
+**The delete/install asymmetry is NOT geometric.** Ablation also works linearly (P(true class)
+0.80 → 0.09–0.41 at every layer). So in activation space *both* operations succeed; through the
+model only deletion survives to the output. The asymmetry is a property of how the model READS
+the space, not of where the classes sit in it. This kills "the install direction is somehow
+malformed" as an explanation.
+
+**Corrects a reading of the literature in `conditioning_next_steps.md` A4.** Detection and
+control directions being ~83° apart does NOT imply the detection direction is useless for
+control. We measure **58–86°** between the diff-of-means direction and the probe's logit
+direction — and the near-orthogonal direction still flips the readout completely at 2 units. A
+large angle and full causal efficacy on the readout coexist. A4's gradient-ascent half (a
+direction from the *model's output*, not the probe) is still unrun and still worth running; the
+angle alone was never the diagnostic.
+
 ### [2026-08-11] Every rate at 3 kb must be quoted against its measured ceiling, and hybrids at 3 kb are withdrawn
 Prompted by the question "aren't we failing because 3 kb is too short, not because conditioning
 doesn't work?" — a fair challenge that turned out to be right for some classes and wrong for

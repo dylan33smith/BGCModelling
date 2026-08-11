@@ -26,7 +26,8 @@ TESTS = [
     "test_eval_smoke.py",               # eval paths EXECUTE on real cores (not just logic)
     "test_shell_embedded_python.py",    # every PYEOF heredoc in the shell drivers compiles
     "test_steer_hooks.py",              # WHERE and HOW BIG the injected steering edit is
-    "test_guided_decoding.py",          # WHICH candidate guided decoding actually keeps
+    "test_guided_decoding.py",          # WHICH candidate guided decoding keeps + how Q1 is read
+    "test_direction_audit.py",          # the dose/angle arithmetic behind the steering verdict
 ]
 
 

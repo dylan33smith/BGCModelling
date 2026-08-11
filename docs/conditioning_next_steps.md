@@ -109,15 +109,30 @@ well-defined direction to amplify and simply pushed output OOD, exactly what we 
 - <https://arxiv.org/abs/2207.12598> · <https://arxiv.org/abs/2306.17806>
 
 ### A4. Diagnostic: measure the angle between our probe direction and a **causal** direction
-Derive a candidate injection direction by gradient ascent directly on `class_probe`'s output (a
-causal objective), then measure its cosine to our existing diff-of-means direction. Published
-measurements find detection and control directions can sit ~83° apart, with a ~15° rotation toward
-causally-verified examples recovering 60–73% of control.
+**PARTLY RUN 2026-08-11 — and it reframed the item. The angle half is answered and was not the
+diagnostic; the gradient-ascent half is still open.**
+
+`evo2/scripts/direction_audit.py` (CPU-only, off the cached train activations) measured the angle
+between our diff-of-means direction and the probe's own logit direction in raw activation space:
+**58–86°** across nine layers, reproducing the published ~83° separation. But the same run shows
+that direction **flipping the readout completely at 1–2 class-units**, against experiment doses of
+2.8–11.4 and a random-direction control at 0.005–0.19. **A large angle and full efficacy on the
+readout coexist**, so "detection and control directions are ~83° apart" cannot by itself explain
+our nulls — which is how this item was originally written.
+
+What it did establish, decisively: the edit **landed** at every layer we ever steered, so the
+generation null is downstream of the edit, not a dosing artifact. See `progress.md` → DIRECTION
+AUDIT and `decisions.md` 2026-08-11.
+
+*Still worth running:* the actual gradient-ascent direction — derived from the **model's output**
+rather than from a linear probe — which is a genuinely causal objective and needs a GPU. The
+audit compared two *detection* estimators to each other; that comparison is now done.
 
 - *Addresses:* **1**, **4**, **7**. Our steering vectors were diff-of-means — itself a *detection*
   estimator, exactly the kind these papers show is misaligned with the causal direction.
 - *Caveat:* explanatory, not a fix. Should **gate** any further steering spend rather than
-  justify it.
+  justify it. It did: the gate came back "the edit landed", which points at Tier B, not at
+  another steering recipe.
 - <https://arxiv.org/abs/2606.24952> · <https://arxiv.org/abs/2508.01892> ·
   AxBench <https://arxiv.org/abs/2501.17148>
 

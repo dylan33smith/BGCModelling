@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-08-11 (measurement-validity audit)._
+_Last updated: 2026-08-11 (direction audit: the steering edit landed at every layer)._
 
 ---
 
@@ -373,7 +373,68 @@ class direction costs 3.1x more than deleting a shuffled one.
 
 ## What is running right now
 
-**Nothing.** The GPU is idle and the steering programme is closed (see Phase 6 above).
+**GPU (busy, ~71/81 GB): A1 discriminator-guided decoding.** `evo2/experiments/probes/run_guided_decoding.sh`
+→ `/data2/ds85/bgcmodel_runs/guided_decoding/`, log `guided_decoding_run.log`. 4 classes
+(NRPS/PKS/TERPENE/RIPP — **no hybrids**, so it is unaffected by the 0.00 hybrid ceiling) × 3 arms
+(plain / random / best), n=10/class, N=4 candidates, 5 chunks × 600 nt, seeded regime (1000 nt
+seed). Report **Q1 and Q2 separately** per the driver's pre-registration.
+
+*Partial Q1 (NRPS only, 8 of 10 pairs — NOT the result):* selection raises the guide score both
+across chunks (+3.16, 8/8, p=0.0078) **and end-to-end on the finished sequence** (+0.39, 7/7,
+p=0.0156), and the best-vs-random gap **grows monotonically** with chunk index
+(+0.03 → +0.08 → +0.33 → +0.38 → +0.40). Myopia — the pre-registered reason Q2 could be
+inconclusive — is not what is happening here. Harness null-check (plain vs random, both unguided)
+is null as required (3/9, p=0.51).
+
+**CPU (idle, 64 cores): the cached-activation work needs no GPU.** `acts_v2_train500.npz` holds
+train-only pooled activations for 10,022 real cores at all 32 layers, so anything living in
+activation space runs alongside a GPU job. Used below for the direction audit; the same route is
+open for an offline Affine-Concept-Editing pre-check (A2).
+
+## ★★★ DIRECTION AUDIT (2026-08-11): the steering edit LANDED at every layer — the null is downstream
+
+`evo2/scripts/direction_audit.py` (CPU-only). Every steering null was compatible with two
+explanations we had never separated: **(i)** the edit never landed, so the nulls are a dosing
+artifact and steering deserves another recipe; **(ii)** it landed and was ignored, so the model
+does not read that subspace and depth of injection is the axis. We had assumed (ii) and written
+"do NOT run another steering variant" into NEXT ACTIONS on that assumption.
+
+Method: take held-out **non-target** activations, add the same direction at the same doses, ask
+the probe what class it now sees. Lowest dose reaching a 50% flip, in class-units — **the
+experiments dosed 2.8 / 5.7 / 11.4**:
+
+| layer | probe acc | NRPS | PKS | HYBRID | TERPENE | RIPP |
+|---|---|---|---|---|---|---|
+| 10 | 0.925 | 2.0 | 2.0 | 2.0 | 1.0 | 2.0 |
+| 16 | 0.926 | 2.0 | 2.0 | 2.0 | 1.0 | 1.0 |
+| 20 | 0.930 | 2.0 | 2.0 | 2.0 | 1.0 | 2.0 |
+| 24 | 0.920 | 2.0 | 2.0 | 2.0 | 1.0 | 2.0 |
+| 27 | 0.910 | 2.0 | 2.0 | 2.0 | 1.0 | 2.0 |
+
+(12/14/18/22 identical; all nine layers in `/data2/ds85/bgcmodel_runs/direction_audit.json`.)
+
+**Random-direction control at 2.8 units: real 0.94–1.00 vs random 0.005–0.19** — the effect is the
+direction, not the added norm. **⇒ Explanation (ii). The edit was 1.5–10× larger than needed to
+completely convert a linear readout in its own layer, at every depth we ever steered, and the
+output still did not follow.** The decision to stop varying steering recipes stands, now measured
+rather than assumed. Written so it could overturn our own conclusion (a flip needing >11.4 units
+would have reopened steering); it did not.
+
+**Two things this changes.**
+
+1. **The delete/install asymmetry is not geometric.** Ablation also works linearly — P(true class)
+   0.80 → 0.09–0.41 at every layer. Both operations succeed in activation space; only deletion
+   survives to the output. So the asymmetry is about how the model READS the space, not about
+   where the classes sit in it, and "the install direction is malformed" is dead as an explanation.
+2. **A4's angle framing was wrong** (corrected in `conditioning_next_steps.md`). Detection and
+   control directions sitting ~83° apart does not imply the detection direction cannot control:
+   we measure **58–86°**, and the near-orthogonal direction still flips the readout completely at
+   2 units. A4's *gradient-ascent* half — a direction derived from the model's output rather than
+   the probe — is still unrun and still the informative part.
+
+**Caveat, stated plainly.** A pass here is a *precondition*, not a proof. Moving a linear readout
+in one layer is necessary for steering to work and nowhere near sufficient. A failure would have
+been decisive; a pass only removes explanation (i).
 
 ## ★★★ SOFT PREFIXES (2026-08-10) — trained, tested, NEGATIVE. Next-action 1 is now closed.
 
@@ -493,11 +554,16 @@ Run in this order:
    specific to *static, context-insensitive* interventions. Needs no CFG null-branch and no
    architecture change. *Prerequisite:* retrain the probe on PARTIAL prefixes (FUDGE's design
    point) — ours has only ever scored finished sequences.
-2. **Two diagnostics, ~a day, before any further steering spend.** (a) Measure the angle between
-   our diff-of-means direction and a direction obtained by gradient ascent on `class_probe`;
-   published work finds detection and control directions can sit ~83° apart. (b) Activation
-   patching to find which components actually lie on the causal path — we located where class is
-   *decodable*, never which heads *write* it. Both gate whether steering deserves anything more.
+2. **Two diagnostics, ~a day, before any further steering spend.** (a) ~~Measure the angle between
+   our diff-of-means direction and a direction obtained by gradient ascent on `class_probe`~~
+   — **PARTLY DONE 2026-08-11, and the framing was wrong.** The angle is 58–86° and the direction
+   still flips the readout completely at 2 class-units, so a large angle does not imply weak
+   control (see DIRECTION AUDIT above). The remaining, informative half is a direction derived
+   from the **model's output** (gradient ascent through the model), not from the probe — that one
+   still needs a GPU and is still unrun. (b) Activation patching to find which components actually
+   lie on the causal path — we located where class is *decodable*, never which heads *write* it.
+   (b) now carries the whole diagnostic load: the audit shows the edit lands and is ignored, so
+   "which components read this subspace" is the open question.
 3. **ProCALM-style per-layer conditional adapters** on a frozen backbone. Weeks. The closest
    published precedent in the sweep — same task family, same compute scale — and its own
    controlled comparison found the token-conditioned baseline (structurally our finding 2)

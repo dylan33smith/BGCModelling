@@ -111,12 +111,50 @@ def test_objective_is_monotone_in_target_probability():
     print("PASS guided: objective increases with P(target) — guidance points toward, not away")
 
 
+def test_final_p_reads_the_last_chunk_not_the_mean():
+    """THE POINT OF THE SEPARATE ANALYZER. `mean_obj` averages across chunks; `final_p` reads the
+    finished sequence. Under myopia these diverge, and if `final_p` silently returned an average
+    the myopia check would be structurally unable to detect the thing it exists to detect."""
+    from analyze_guided_decoding import final_p, mean_obj
+
+    rec = {"guide_trace": [
+        {"chunk": 0, "guide_obj_chosen": -10.0, "guide_p_target_chosen": 0.90},
+        {"chunk": 1, "guide_obj_chosen": -2.0, "guide_p_target_chosen": 0.90},
+        {"chunk": 2, "guide_obj_chosen": -1.0, "guide_p_target_chosen": 0.01},  # ends BADLY
+    ]}
+    assert abs(final_p(rec) - 0.01) < 1e-12, (
+        f"final_p returned {final_p(rec)}, expected the LAST chunk's 0.01 — a sequence whose "
+        f"chunks looked good but which ended badly is exactly the myopia case")
+    assert abs(mean_obj(rec) - (-13.0 / 3)) < 1e-12
+    assert final_p({"guide_trace": []}) != final_p({"guide_trace": []}), "empty trace must be NaN"
+    print("PASS analyzer: final_p reads the last chunk, distinct from the across-chunk mean")
+
+
+def test_sign_test_matches_known_binomial_values():
+    """The p-value that decides whether Q1 passes. Ties must be DROPPED, not counted as support:
+    counting them would inflate n and shrink p, turning a null into a result."""
+    from analyze_guided_decoding import sign_test
+
+    up, n, p = sign_test([1, 1, 1, 1, 1, 1, 1, 1])            # 8/8 -> 2 * 0.5^8
+    assert (up, n) == (8, 8) and abs(p - 2 * 0.5 ** 8) < 1e-12, (up, n, p)
+    up, n, p = sign_test([1, 1, 1, -1])                        # 3/4 -> 2*(4+1)/16
+    assert (up, n) == (3, 4) and abs(p - 0.625) < 1e-12, (up, n, p)
+    up, n, p = sign_test([1, 1, 0, 0, -1])                     # ties dropped -> 2/3
+    assert (up, n) == (2, 3), f"ties were not dropped: got up={up}, n={n}"
+    assert sign_test([])[2] == 1.0 and sign_test([0, 0])[2] == 1.0, "no data must give p=1"
+    up, n, p = sign_test([-1, -1, -1, -1, -1, -1, -1, -1])     # two-sided: same p as 8/8 up
+    assert abs(p - 2 * 0.5 ** 8) < 1e-12, f"not two-sided: {p}"
+    print("PASS analyzer: sign test is two-sided, drops ties, matches binomial by hand")
+
+
 def main() -> int:
     for t in (test_best_picks_the_highest_scoring_candidate,
               test_usable_index_mapping_survives_dropped_candidates,
               test_random_rule_ignores_the_scores,
               test_margin_objective_penalises_ambiguity,
-              test_objective_is_monotone_in_target_probability):
+              test_objective_is_monotone_in_target_probability,
+              test_final_p_reads_the_last_chunk_not_the_mean,
+              test_sign_test_matches_known_binomial_values):
         t()
     print("\nALL GUIDED-DECODING TESTS PASSED")
     return 0

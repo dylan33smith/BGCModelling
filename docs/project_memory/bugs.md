@@ -6,6 +6,33 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ---
 
+## Analysis / tooling
+
+- **[2026-08-11] A missing input rendered as a null result: `direction_audit.py` pointed at a
+  directions file that had only 2 of the 9 layers.** `train500.steerdirs.npz` carries L16/L20;
+  `trainonly.steerdirs.npz` carries all nine (10,12,14,16,18,20,22,24,27) with class-units. Asking
+  for L27 skipped every class, then printed a full set of empty tables ending in the verdict
+  "0/0 classes landed" — which reads exactly like "the edit never landed". **Fix:** default to
+  `trainonly.steerdirs.npz`, and `SystemExit` when a requested layer yields zero usable classes.
+  The same fail-loud rule as `BGC_EVAL_STRICT`: a missing resource must never become a silent
+  negative. Note the `.report.json` sidecar records `acts`/`n`/`stripped`/`prefix_index` — check
+  it to confirm a directions file matches the activations you are scoring against.
+
+- **[2026-08-11] `git checkout <file>` silently does nothing for an UNTRACKED file, so mutation
+  tests accumulated instead of reverting.** Mutation-verifying a brand-new (uncommitted) script,
+  each `sed`-then-`git checkout` cycle left the previous mutation in place; every arm reported
+  "PASS 0" and looked like a clean kill when the file was in fact four mutations deep. **Fix:**
+  `cp` the file to the scratchpad first and restore from that copy, and assert the baseline
+  PASS count both before and after the sweep. A mutation sweep that never re-verifies the
+  restored baseline cannot tell a real kill from a corrupted file.
+
+- **[2026-08-11] A test asserting sklearn's multinomial coefficients are un-centred cannot fail.**
+  `LogisticRegression` with the multinomial solver returns coefficients already centred across
+  classes (measured max `|coef_.mean(axis=0)|` = 9e-16), so subtracting the other-class mean is a
+  no-op and an assertion against a fitted pipeline passes whether or not the code does it. **Fix:**
+  exercise the contract with a stub carrying deliberately un-centred coefficients. (The audit's
+  reported angles are unaffected — subtracting ~1e-16 changes nothing.)
+
 ## Evo2 / vortex / generation
 
 - **[2026-08-10] Training a prompt: AdamW's step is per-COORDINATE, so the update VECTOR is
