@@ -9,7 +9,7 @@ Two model tracks share one dataset and one eval instrument:
 
 | Track | Model | Status |
 |---|---|---|
-| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; **every inference-time conditioning lever is closed** — prefix labels (2026-07-21), CFG (2026-07-22), activation steering (2026-08-10) |
+| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; **every inference-time lever closed** — prefix labels (2026-07-21), CFG (2026-07-22), activation steering (2026-08-10) — and the cheap end of training-time coupling too (soft prefixes, 2026-08-10) |
 | [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | under evaluation since 2026-07-27; can take a **real trainable class token**, which is the capability Evo2's byte-level tokenizer cannot provide |
 
 See [`docs/model_comparison_evo2_vs_genomeocean.md`](docs/model_comparison_evo2_vs_genomeocean.md)
@@ -35,6 +35,15 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
   *(A companion claim that the direction reliably DELETES a class, ΔP(seed) −0.308 at
   p = 0.0063, was **retracted** the same day: the probe behind it had been fit on val+test and
   applied to val/test-seeded generations. Train-only it is −0.177 at p = 0.146.)*
+- **Training-time coupling: the cheap end is closed too (2026-08-10).** Per-class **soft
+  prefixes** (16 x 4096 = 65k learned floats per class, base + LoRA frozen) trained cleanly and
+  demonstrably learned something class-specific — all four initialised from a *provably
+  identical* vector and separated to pairwise cosine 0.85–0.92 — but bought only ~0.003 nats of
+  validation loss and did not transfer: `correct_class` **0/12 in every arm**, and the
+  continuous probe found no lift of a class's own prefix over the other three on identical
+  held-out taxa. Read narrowly: 65k parameters that change only the **input** do not install
+  class. This says nothing about per-class LoRA (28.7M params, modifies the *computation*) or a
+  substrate with a real trainable class token.
 - **What does work today:** *exemplar-conditioned* generation. Seed a real core and the
   continuation is correct-class 0.283 vs a 0.067 floor, with memorization ruled out and all
   four pre-registered controls passed. The class comes from the **seed**, never the label.
@@ -49,7 +58,9 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 **Leakage debt — CLEARED 2026-08-10.** The class probe and the steering directions had been fit
 on **val+test** and applied to val/test-seeded generations. Both are now refit **train-only**
-(`acts_v2_train500.npz`, provenance-verified), and `_fit_probe` **refuses** a non-train fit set —
+(`acts_v2_train500.npz`, provenance-verified; directions at 9 layers in
+`trainonly.steerdirs.npz`, probe cached at `acts_v2_train500.probe_L16_s0.joblib`), and
+`_fit_probe` **refuses** a non-train fit set —
 every activation cache carries a `.provenance.json` and the guard is tested in both directions.
 Clearing it cost one published finding: see the retraction above.
 
@@ -93,6 +104,8 @@ config/compound_class_map.yaml   # antiSMASH/MIBiG product → our 22-class voca
 tests/                           # GPU-free unit tests (run tests/run_all.py)
 docs/project_memory/             # decisions / bugs / progress (working memory)
 docs/model_comparison_evo2_vs_genomeocean.md   # the two-track head-to-head
+docs/conditioning_next_steps.md  # ranked plan + literature for what to try next
+docs/steering_program.md         # the closed steering programme, start to finish
 docs/archive/                    # archived runbooks, plans, and dated audits
 
 # ---- EVO2 TRACK ----  (see evo2/README.md)

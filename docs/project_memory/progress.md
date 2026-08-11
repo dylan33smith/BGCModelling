@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-08-10._
+_Last updated: 2026-08-11._
 
 ---
 
@@ -418,47 +418,64 @@ Binary readouts agree: **correct_class 0/12 in every arm**, antiSMASH is_bgc 0�
 LoRA (28.7M parameters, and it modifies the computation rather than the input) or for a substrate
 with a real trainable class token. Next actions 2 and 3 stand unaffected.
 
-## NEXT ACTIONS (2026-08-10)
+## NEXT ACTIONS — updated 2026-08-11 after a literature sweep
 
-Ranked. The diagnosis is *the generator does not CONSUME the class coordinate*, which is a
-training-time fact — so every candidate below changes training, not inference.
+**Full ranked list with citations and caveats: [`docs/conditioning_next_steps.md`](../conditioning_next_steps.md).**
+Summarised here; that document is the one to work from.
 
-1. ~~**Per-class soft prefixes**~~ — **DONE 2026-08-10, NEGATIVE** (see the section above).
-   Original rationale retained below.
-   **Per-class soft prefixes — ~1 GPU-day, do this first.** The cheapest experiment that
-   discriminates, and it sits exactly in the gap between the two established facts: labels fail,
-   exemplars work ⇒ *learn a synthetic exemplar* in embedding space instead of asserting a byte
-   string with no pretrained prior. If the generator can consume a learned content-like handle,
-   this shows it for a fraction of an adapter's cost; if it cannot, that is strong confirmation
-   and you skip to (2)/(3) without doubt.
-   *Plumbing caveat:* Evo2 is not an HF `PreTrainedModel`, so peft prompt-tuning will not drop
-   in — implement as a hook at the embedding layer (same pattern as the steering hooks).
-2. **Per-class LoRA adapters.** Strongest prior of working because there is **no conditioning
-   interface to fail** — class becomes which weights you load. We know a LoRA can learn a
-   distribution (coding density 0.61 → 0.89); a per-class adapter's whole objective is that
-   distribution for one class. Does not scale past a handful of classes; do 3–4 as proof.
-3. **GenomeOcean + a real trainable class token.** Removes the structural obstacle — Evo2's
-   byte-level tokenizer gives the class tag no pretrained prior, so LoRA must install
-   class→sequence from scratch through a low-rank bottleneck. `[CLS_NRPS]` is a single atomic
-   trainable id at ~zero cost, plus 12.8× more nt/micro-step and 74% megasynthase output
-   unconditioned. See `docs/model_comparison_evo2_vs_genomeocean.md`.
-4. **Trained-null CFG** — only as a rider on a retrain. Its 2026-07-22 failure is currently
-   attributed to a known confound (v2 was never trained with class dropout, so the high-w
-   collapse is the expected untrained-null mode), which makes it the one older lever whose
-   negative is not clean.
+**The organising hypothesis the sweep produced.** Every mechanism we have tried injects the class
+condition at ONE PLACE — one input token (label), one input position (soft prefix), an activation
+edit at a few hand-picked layers (steering). The model conditions perfectly well on content
+present at EVERY position (seeding, 0.283). Across nine independent search angles the recurring
+answer is that conditioning which works enters at EVERY LAYER, via a small gated, zero-initialised
+module trained end-to-end. **Depth of injection is the axis we have never varied.**
 
-**Bank now (no further work needed):** exemplar-conditioned generation is a validated capability
-— correct_class 0.283 vs a 0.067 floor, memorization ruled out, all four pre-registered controls
+Run in this order:
+
+1. **Discriminator-guided decoding** using our own `class_probe` (FUDGE / GeDi / PPLM;
+   ProteinGuide generalises the family to biological sequence models). Cheap, days. Structurally
+   different from every closed lever: recomputes guidance at EVERY step from what has been
+   generated so far, rather than injecting one static vector. Tests whether the steering null was
+   specific to *static, context-insensitive* interventions. Needs no CFG null-branch and no
+   architecture change. *Prerequisite:* retrain the probe on PARTIAL prefixes (FUDGE's design
+   point) — ours has only ever scored finished sequences.
+2. **Two diagnostics, ~a day, before any further steering spend.** (a) Measure the angle between
+   our diff-of-means direction and a direction obtained by gradient ascent on `class_probe`;
+   published work finds detection and control directions can sit ~83° apart. (b) Activation
+   patching to find which components actually lie on the causal path — we located where class is
+   *decodable*, never which heads *write* it. Both gate whether steering deserves anything more.
+3. **ProCALM-style per-layer conditional adapters** on a frozen backbone. Weeks. The closest
+   published precedent in the sweep — same task family, same compute scale — and its own
+   controlled comparison found the token-conditioned baseline (structurally our finding 2)
+   overfits while the per-layer adapter generalises. Tests the depth hypothesis directly.
+4. **Per-class LoRA routing.** Weeks. Highest prior of simply working: class becomes which adapter
+   is loaded, so the symbolic-conditioning problem is removed rather than solved.
+5. Cheap fill-in: **Affine Concept Editing** (ablate then reset to the real class mean, reusing our
+   validated ablation machinery); **CFG retrained with class-dropout** (closes a genuine gap in our
+   rigor — the null branch was never trained); **every-layer KV-prefix tuning** (what we built was
+   embedding-only Prompt-Tuning, not Prefix-Tuning).
+
+**One tension recorded deliberately.** Item 5's prefix-tuning upgrade sits against the sweep's
+theme that control tags only become load-bearing at full-model, large-scale exposure — every clean
+success (CTRL, ZymCTRL, ProGen) trained the tag through the whole model, every LoRA-scale attempt
+including ours failed. Worth ONE test because it changes the mechanism (every layer) not just the
+scale; a null there should end prefix-tuning work rather than prompt another variant.
+
+**Bank now (no further work needed):** exemplar-conditioned generation is a validated capability —
+correct_class 0.283 vs a 0.067 floor, memorization ruled out, all four pre-registered controls
 passed. Framed as "extend and diversify a known cluster", not "generate class X de novo".
-Also available for free: **class suppression** ("generate a BGC that is NOT an NRPS"), which is
-what the Phase 6 ablation result actually delivers.
 
-**Clear first — leakage debt.** Steering directions AND the class probe are fit on **val+test**.
-Refit train-only before any externally reported number; the next programme will lean on the probe
-as its readout, so clear it before rather than after.
+**Standing methodological bar**, which three weakened-or-retracted findings in this project have
+now paid for: a paired design with the control built in, a continuous readout alongside the binary
+gates, and an instrument whose sensitivity AND false-positive rate are measured BEFORE a result is
+read off it.
 
 **Do NOT run:** another steering variant (layer, dose, or direction recipe). The mechanism is
 identified and it is none of those.
+
+**Leakage debt: CLEARED 2026-08-10.** Probe and directions both refit train-only
+(`acts_v2_train500.npz`, provenance-verified; `trainonly.steerdirs.npz` at 9 layers; probe cached
+at `acts_v2_train500.probe_L16_s0.joblib`). `_fit_probe` now REFUSES a non-train fit set.
 
 ### Phase 0 + Phase 1 (2026-07-29) — directions rebuilt; instrument found broken
 
@@ -937,7 +954,7 @@ degrades *gene structure specifically*, not sequence statistics.
 - **Documentation consolidated** into this `README.md` + `docs/project_memory/`; detailed
   runbooks/plans/audits archived under `docs/archive/`.
 
-## Next actions (in order) — updated 2026-07-21  ⚠️ **SUPERSEDED — see "NEXT ACTIONS (2026-08-10)" near the top.**
+## Next actions (in order) — updated 2026-07-21  ⚠️ **SUPERSEDED — see "NEXT ACTIONS — updated 2026-08-11" near the top, and `docs/conditioning_next_steps.md`.**
 Retained for history. Its ranking put activation steering first; steering was then run to
 completion and closed on 2026-08-10 (Phases 0–6). Do not work from this list.
 

@@ -15,8 +15,8 @@
 >
 > Not dose, not depth, not geometry — all three were tested after the early defects were fixed.
 > Jump to [Verdict](#verdict--the-programme-is-closed-2026-08-10) for the full table and what to
-> spend on next (training-time coupling: soft prefixes → per-class adapters → GenomeOcean class
-> token).
+> spend on next. **Soft prefixes were then tried and also failed** (2026-08-10, `decisions.md`);
+> the ranked plan built from a literature sweep is `docs/conditioning_next_steps.md`.
 >
 > **Everything below is preserved as written**, including predictions that turned out wrong, so
 > the reasoning can be audited against the results. Corrections are marked inline and in
@@ -470,7 +470,11 @@ then tested properly and failed:
 direction recipes. The mechanism is identified and it is none of those.
 
 **Next spend is training-time coupling**, in this order:
-1. **Per-class soft prefixes** — cheapest discriminating test (~1 GPU-day). Labels fail and
+1. ~~**Per-class soft prefixes**~~ — **RUN 2026-08-10, NEGATIVE.** Trained cleanly and separated
+   per class from an identical init, but bought ~0.003 nats and gave `correct_class` 0/12 de novo.
+   The bound is narrow: 65k parameters changing only the INPUT. See `decisions.md`, and
+   `docs/conditioning_next_steps.md` for what replaced it at the top of the queue.
+   *Original rationale, retained:* cheapest discriminating test (~1 GPU-day). Labels fail and
    exemplars work, so *learn a synthetic exemplar* in embedding space rather than assert a byte
    string with no pretrained prior. Needs hook-based plumbing: Evo2 is not an HF
    `PreTrainedModel`, so peft prompt-tuning will not drop in.

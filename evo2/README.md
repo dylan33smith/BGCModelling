@@ -76,6 +76,7 @@ defects each stage exposed, is in [`../docs/steering_program.md`](../docs/steeri
 | LoRA capacity (rank, coverage) | not the limiter | 2026-07-13 |
 | data (whole-core, chunking, class concentration) | moves DOMAINS, never the gate | 2026-07-12 |
 | activation steering — all variants | **dead** | 2026-08-10 |
+| per-class soft prefixes (input-embedding only) | **dead at this scale** | 2026-08-10 |
 
 The LoRA adds BGC-likeness (coding density 0.61 → 0.89) but nothing about class
 (`correct_class` 0.013 at n=75; the class probe reads 0.906 on the adapter vs **0.911 on base
@@ -95,9 +96,17 @@ class-specific movement toward the target at any dose or layer.
 correct-class 0.283 vs a 0.067 floor, memorization ruled out, all four pre-registered controls
 passed. The class comes from the **seed**, never the label.
 
-**Next spend is training-time coupling**, not another inference-time trick: per-class soft
-prefixes (cheapest discriminating test), per-class LoRA adapters (no conditioning interface to
-fail), or GenomeOcean with a real trainable class token.
+**The cheap end of training-time coupling is now also closed.** Per-class soft prefixes
+(`evo2/scripts/train_soft_prefix.py`, 65k learned floats/class, frozen backbone) trained cleanly
+and separated per class from an identical initialisation, but moved validation loss only ~0.003
+nats and produced `correct_class` 0/12 in every generation arm. The bound is narrow and
+specific: **parameters that change only the INPUT do not install class**. It does not bound
+per-class LoRA (28.7M params, modifies the computation) or a real trainable class token.
+
+**Next spend** is ranked in `../docs/conditioning_next_steps.md` — a literature sweep (2026-08-11)
+found the recurring pattern is that conditioning must enter at **every layer**, via a small
+gated, zero-initialised, end-to-end-trained module, rather than at one input position or as a
+hand-computed activation edit.
 
 **Standing debt:** steering directions and the class probe are fit on **val+test**; refit
 train-only before reporting any number externally.

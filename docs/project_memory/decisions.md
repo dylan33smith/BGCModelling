@@ -8,6 +8,34 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-10] Soft prefixes fail too — the bound is "input-only conditioning", not "training-time coupling"
+Per-class continuous soft prefixes (`evo2/scripts/train_soft_prefix.py`): 16 x 4096 = 65k learned
+floats per class, base + v2 LoRA frozen and merged, trained on train-only data, evaluated de novo
+(taxonomy-only, no seed) on held-out taxa, with all four prefixes generated under an IDENTICAL
+taxonomy pool and seed so the only variable is which prefix is loaded.
+
+**The run is not vacuous, which is what makes the negative worth something.** An accident of
+string length gave a clean control: `|COMPOUND_CLASS:` is exactly 16 characters, so every prefix
+initialised from a *provably identical* vector (pairwise cosine 1.0000 by construction) and
+training moved them apart to 0.85–0.92 with norms 1.45 → 1.53. Class-specific learning
+demonstrably happened. It just bought ~0.003 nats and did not reach generation: `correct_class`
+**0/12 in every arm**, and the continuous probe's per-taxon paired test found no class beating the
+other three prefixes (TERPENE's apparent +0.173 fails four ways — not significant after
+Bonferroni, carried by 2 of 12 sequences with median +0.012, a coin flip against the no-prefix
+floor, and it is the class the probe already drifts toward on non-BGC DNA).
+
+**Why this is a narrow bound, stated deliberately.** The soft prefix changes only the model's
+INPUT and totals 65k parameters. Per-class LoRA has 28.7M and modifies the *computation*; a
+trainable class token in a model whose tokenizer supports one is different again. This result
+bounds the cheap, input-only end of training-time coupling and nothing beyond it — do not cite it
+as "training-time coupling failed".
+
+**Corollary for how we spend next:** the pattern across steering (activation-space edit at a few
+layers), label prefixes (one input token) and soft prefixes (one input position) is that every
+mechanism we have tried injects the condition at ONE PLACE. See
+`docs/conditioning_next_steps.md` for the literature review that makes this the organising
+hypothesis for the next programme.
+
 ### [2026-08-10] ⚠️ RETRACTED IN PART — "the class direction DELETES class" was a leakage artefact
 The finding below was produced by a class probe fit on **val+test** and applied to generations
 **seeded from val+test cores**. Refit train-only, ΔP(seed) at the top dose goes from −0.308

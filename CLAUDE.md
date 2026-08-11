@@ -58,8 +58,13 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   prefix labels (inert), CFG (no amplifiable signal), and activation steering (all variants,
   2026-08-10). The decisive finding: the class direction reliably **deletes** a class that is
   present but never **installs** the target's — ablation works, injection does not.
-  ⇒ The next spend is **training-time coupling** (per-class soft prefixes → per-class LoRA
-  adapters → GenomeOcean's real trainable class token), NOT another inference-time trick.
+  Per-class **soft prefixes** were then tried and also failed (2026-08-10): they trained cleanly
+  and separated per class from an identical init, but bought ~0.003 nats and gave `correct_class`
+  0/12 de novo. The bound is narrow — 65k params changing only the INPUT — and does NOT bound
+  per-class LoRA or a real trainable class token.
+  ⇒ Ranked next steps, with citations, are in `docs/conditioning_next_steps.md`. The organising
+  hypothesis from a 2026-08-11 literature sweep: every mechanism tried so far injects the
+  condition at ONE PLACE; what works in the literature enters at EVERY layer.
   ⇒ **What works today:** exemplar conditioning (seed a real core → correct_class 0.283 vs a
   0.067 floor, memorization ruled out). The class comes from the seed, never the label.
   See `docs/steering_program.md` and `docs/project_memory/progress.md` → NEXT ACTIONS.
@@ -85,6 +90,8 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   `README.md`
 - Live status + next actions:
   `docs/project_memory/progress.md`
+- Ranked plan for class conditioning after steering + soft prefixes closed (with citations):
+  `docs/conditioning_next_steps.md`
 - Evo2 vs GenomeOcean head-to-head (measured, not quoted):
   `docs/model_comparison_evo2_vs_genomeocean.md`
 - Per-track entry points:
