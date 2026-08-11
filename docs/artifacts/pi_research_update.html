@@ -1,0 +1,640 @@
+<title>BGC Generation — Research Update</title>
+<style>
+  :root{
+    --paper:#F4F6F3; --surface:#FFFFFF; --surface-2:#EDF1EC;
+    --ink:#16201B; --ink-2:#46534B; --ink-3:#6F7A73;
+    --accent:#14796A; --accent-2:#0D5A4E; --accent-wash:#E4EFEB;
+    --signal:#1C8A57; --null:#8B857A; --slate:#6A7480; --warn:#9C6B14;
+    --rule:#DCE3DC; --rule-2:#C9D2CA;
+    --shadow:0 1px 2px rgba(20,40,32,.05), 0 6px 22px rgba(20,40,32,.06);
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,Helvetica,Arial,sans-serif;
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,"Cascadia Code",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0E1412; --surface:#141C18; --surface-2:#18211C;
+      --ink:#E7ECE8; --ink-2:#A6B1AB; --ink-3:#77827B;
+      --accent:#38B49B; --accent-2:#5AC6AF; --accent-wash:#132420;
+      --signal:#43B37C; --null:#96A099; --slate:#94A0AC; --warn:#D6A24A;
+      --rule:#25302A; --rule-2:#2E3A33;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0E1412; --surface:#141C18; --surface-2:#18211C;
+    --ink:#E7ECE8; --ink-2:#A6B1AB; --ink-3:#77827B;
+    --accent:#38B49B; --accent-2:#5AC6AF; --accent-wash:#132420;
+    --signal:#43B37C; --null:#96A099; --slate:#94A0AC; --warn:#D6A24A;
+    --rule:#25302A; --rule-2:#2E3A33;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.28);
+  }
+  :root[data-theme="light"]{
+    --paper:#F4F6F3; --surface:#FFFFFF; --surface-2:#EDF1EC;
+    --ink:#16201B; --ink-2:#46534B; --ink-3:#6F7A73;
+    --accent:#14796A; --accent-2:#0D5A4E; --accent-wash:#E4EFEB;
+    --signal:#1C8A57; --null:#8B857A; --slate:#6A7480; --warn:#9C6B14;
+    --rule:#DCE3DC; --rule-2:#C9D2CA;
+    --shadow:0 1px 2px rgba(20,40,32,.05), 0 6px 22px rgba(20,40,32,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased;
+    font-feature-settings:"kern";}
+  .wrap{max-width:960px;margin:0 auto;padding:0 26px 120px;}
+  .prose{max-width:730px;}
+  a{color:var(--accent-2);text-decoration:none;border-bottom:1px solid var(--rule-2);}
+
+  /* ---- header ---- */
+  header.masthead{padding:64px 0 30px;border-bottom:1px solid var(--rule);margin-bottom:8px;}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--accent-2);margin:0 0 18px;}
+  h1{font-family:var(--serif);font-weight:600;font-size:clamp(30px,5vw,44px);line-height:1.08;
+    letter-spacing:-.01em;text-wrap:balance;margin:0 0 16px;}
+  .lede{font-family:var(--serif);font-size:clamp(18px,2.4vw,21px);line-height:1.5;color:var(--ink-2);
+    max-width:660px;text-wrap:pretty;margin:0 0 26px;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;}
+  .chip{font-family:var(--mono);font-size:11.5px;letter-spacing:.02em;color:var(--ink-2);
+    background:var(--surface-2);border:1px solid var(--rule);border-radius:100px;padding:5px 11px;}
+  .chip b{color:var(--ink);font-weight:600;}
+
+  /* ---- sections ---- */
+  section{padding:46px 0 6px;border-top:1px solid var(--rule);margin-top:38px;}
+  section:first-of-type{border-top:none;margin-top:14px;}
+  .sec-no{font-family:var(--mono);font-size:12px;color:var(--accent-2);letter-spacing:.1em;}
+  h2{font-family:var(--serif);font-weight:600;font-size:clamp(22px,3vw,28px);line-height:1.14;
+    letter-spacing:-.01em;text-wrap:balance;margin:6px 0 10px;}
+  h3{font-family:var(--sans);font-weight:650;font-size:16.5px;letter-spacing:.005em;
+    color:var(--ink);margin:30px 0 8px;}
+  p{margin:0 0 14px;} .prose p, section > p{max-width:730px;}
+  strong{font-weight:650;color:var(--ink);}
+  em{color:var(--ink-2);}
+  code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);
+    border:1px solid var(--rule);border-radius:5px;padding:1px 5px;color:var(--ink);}
+  ul{margin:0 0 16px;padding-left:0;list-style:none;max-width:730px;}
+  ul li{position:relative;padding-left:22px;margin:0 0 9px;}
+  ul li::before{content:"";position:absolute;left:2px;top:.66em;width:6px;height:6px;
+    border-radius:50%;background:var(--accent);}
+
+  /* ---- tables ---- */
+  .tablewrap{overflow-x:auto;margin:18px 0 8px;border:1px solid var(--rule);border-radius:12px;
+    background:var(--surface);box-shadow:var(--shadow);}
+  table{border-collapse:collapse;width:100%;font-size:14px;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule);vertical-align:top;}
+  thead th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-3);font-weight:600;background:var(--surface-2);white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.num,th.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+  .rowlab{font-weight:650;white-space:nowrap;}
+  tr.hi td{background:var(--accent-wash);}
+  .metric-lead{color:var(--signal);font-weight:700;}
+  .zero{color:var(--ink-3);}
+
+  /* ---- status pills ---- */
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+    letter-spacing:.02em;padding:3px 9px;border-radius:100px;border:1px solid var(--rule-2);
+    white-space:nowrap;color:var(--ink-2);background:var(--surface-2);}
+  .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--null);}
+  .pill.lever{color:var(--signal);border-color:color-mix(in srgb,var(--signal) 40%,transparent);
+    background:color-mix(in srgb,var(--signal) 12%,transparent);}
+  .pill.lever::before{background:var(--signal);}
+  .pill.out{color:var(--slate);} .pill.out::before{background:var(--slate);}
+  .pill.run{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,transparent);
+    background:color-mix(in srgb,var(--warn) 12%,transparent);}
+  .pill.run::before{background:var(--warn);animation:pulse 1.8s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.pill.run::before{animation:none}}
+
+  /* ---- callouts ---- */
+  .callout{border:1px solid var(--rule);border-left:3px solid var(--accent);background:var(--surface);
+    border-radius:10px;padding:18px 20px;margin:22px 0;box-shadow:var(--shadow);max-width:760px;}
+  .callout.verdict{border-left-color:var(--signal);}
+  .callout.caveat{border-left-color:var(--warn);}
+  .callout .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent-2);margin:0 0 7px;}
+  .callout.verdict .k{color:var(--signal);} .callout.caveat .k{color:var(--warn);}
+  .callout p{margin:0;max-width:none;}
+  .callout p + p{margin-top:9px;}
+
+  /* ---- definition grid (checks) ---- */
+  .defs{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:12px;
+    overflow:hidden;margin:18px 0;box-shadow:var(--shadow);}
+  .def{background:var(--surface);padding:15px 18px;display:grid;grid-template-columns:minmax(150px,190px) 1fr;gap:16px;}
+  @media(max-width:620px){.def{grid-template-columns:1fr;gap:4px}}
+  .def .name{font-family:var(--mono);font-size:13px;color:var(--accent-2);font-weight:600;}
+  .def .name small{display:block;color:var(--ink-3);font-weight:400;font-size:11px;margin-top:3px;letter-spacing:0;}
+  .def .desc{font-size:14px;color:var(--ink-2);line-height:1.55;}
+  .def .desc b{color:var(--ink);}
+
+  .foot{margin-top:60px;padding-top:22px;border-top:1px solid var(--rule);
+    font-size:13px;color:var(--ink-3);max-width:730px;}
+  .keyline{color:var(--ink-2);} .keyline b{color:var(--ink);}
+  .tag-gate{color:var(--accent-2);font-family:var(--mono);font-size:11px;letter-spacing:.04em;}
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Computational Biology · Research Update</p>
+    <h1>Conditioned generation of biosynthetic gene clusters with Evo2</h1>
+    <p class="lede">A fine-tuned 7B genome language model encodes compound class internally but will not generate one on request. A staged programme has now closed <em>every</em> inference-time route — labels, guidance, steering, soft prefixes — and the closures are mechanistic rather than merely empirical: we can say what fails and why. One thing does work. <strong>Seed the model with a real fragment and it extends it in the right class</strong>, at four times the mismatched floor.</p>
+    <div class="meta">
+      <span class="chip"><b>Model</b> · Evo2 7B + LoRA</span>
+      <span class="chip"><b>Data</b> · splits_core (47.5k / 22 classes)</span>
+      <span class="chip"><b>Updated</b> · Aug 11, 2026</span>
+      <span class="chip"><b>Status</b> · inference-time conditioning closed</span>
+      <span class="chip"><b>Works</b> · exemplar conditioning 0.283</span>
+    </div>
+  </header>
+
+  <div class="callout verdict">
+    <p class="k">The one-paragraph version</p>
+    <p>The fine-tuned model writes realistic bacterial DNA and reads the class tag, but never builds the requested machinery. A controlled probe sweep ruled out capacity, class imbalance, chunk labeling and gene-aware chunking; a real-scale whole-core run came back negative and <em>degraded</em> with more training. Two experiments then reframed the problem: a linear probe recovers compound class from untouched base-Evo2 activations at <strong>0.91 against 0.09 chance</strong>, and seeding with a real exemplar reaches <strong>0.283</strong> while the written label stays completely inert. <strong>The model knows the class and will not take a label.</strong></p>
+    <p>That launched a steering programme to write the class in directly. It is now <strong>closed, and closed mechanistically.</strong> An early diagnostic caught a serious instrument bug — the "class directions" were really the sequence-length axis — and after rebuilding them properly, steering still failed at every layer, dose and recipe. A continuous readout found the reason: <strong>the class direction reliably deletes a class but never installs one.</strong> The decisive test came last: the injected edit was <em>1.5–10× larger than needed</em> to completely flip a linear class readout in the very layer it was applied to, at all nine depths tried — <strong>the edit lands, and the model does not read it.</strong> Ablation succeeds in activation space too, so the delete/install asymmetry is about how the model reads that space, not about where the classes sit in it. A companion audit found we had also been <strong>overdosing by 3–20 standard deviations</strong>, pushing activations clean off the data distribution, which finally explains why larger doses bought damage instead of class.</p>
+    <p>Soft prefixes (65k trained parameters on the input) and affine concept editing are likewise closed, the latter for zero GPU hours by a pre-registered offline check. The newest idea — <strong>guided decoding</strong>, recomputing guidance at every step rather than injecting one static vector — <em>did</em> steer its own objective decisively (+5.71, 39/40 seeds, p&lt;10<sup>-10</sup>, compounding across chunks), but whether that produced better clusters is unanswerable from the run: 35 of 40 seeds gave identical outcomes across all arms, and the outcome metric turned out to agree with plain BGC-detection on <strong>117 of 120 records</strong> — it was measuring detectability, not class. Three separate measurement audits this month also withdrew the PKS/NRPS-hybrid results (ceiling 0.00 at the tested length) and re-based the PKS numbers.</p>
+    <p><strong>The through-line:</strong> every mechanism tried injects the condition <em>at one place</em>; the model conditions perfectly well on content present at <em>every</em> position, which is exactly what seeding provides. Depth of injection is the one axis never varied — and it is what the literature says actually works. Next: fix the continuation-scoped readout, then per-layer conditional adapters and per-class adapter routing. Meanwhile <strong>exemplar conditioning is a real, controlled, publishable capability</strong> — "extend and diversify a known cluster", not "generate class X de novo".</p>
+  </div>
+
+  <!-- ===================== 1. EVAL SUITE ===================== -->
+  <section>
+    <span class="sec-no">01</span>
+    <h2>How we evaluate a generated sequence</h2>
+    <p class="prose">Generation is scored by a pipeline of <strong>checks</strong> (independent biological measurements) that combine into <strong>questions</strong> (the pass/fail gates we actually care about). The gene caller is <strong>pyrodigal (Prodigal)</strong> throughout; <strong>antiSMASH 8</strong> is the gold-standard arbiter of whether something <em>is</em> a BGC and of <em>which class</em>. Implementation: <code>src/bgc_pipeline/evaluation.py</code>; a cheap subset runs per-checkpoint (<code>quick_eval.sh</code>), the full suite offline (<code>run_eval.sh</code>).</p>
+
+    <h3>Checks — what each one measures</h3>
+    <div class="defs">
+      <div class="def"><div class="name">antismash <small>gold standard</small></div><div class="desc">Runs antiSMASH on the generated DNA: does it <b>detect a BGC region</b>, and is the predicted product the <b>requested class</b>? Recalibrated from ~0.15 → <b>~0.97</b> on real held-out cores by completing the product→class map.</div></div>
+      <div class="def"><div class="name">coding_sanity</div><div class="desc">Is this plausible coding DNA? pyrodigal ORF calling + coding density, guarded by a <b>dinucleotide-entropy</b> check that rejects degenerate GC-repeat collapse (which fools a naive "≥1 complete gene" rule).</div></div>
+      <div class="def"><div class="name">class_markers <small>fast proxy</small></div><div class="desc">Pfam (pyhmmer) scan for the <b>obligate class-defining domains</b> — e.g. NRPS adenylation (PF00501) &amp; condensation (PF00668); PKS KS/AT/ACP. Used when antiSMASH is skipped; ~0.87 on real cores.</div></div>
+      <div class="def"><div class="name">module_architecture</div><div class="desc">Counts <b>complete, ordered biosynthetic modules</b> — NRPS C-A-T, PKS KS-AT-ACP — the defining machinery of an assembly-line cluster.</div></div>
+      <div class="def"><div class="name">class_probe <small>continuous · never a gate</small></div><div class="desc">A calibrated <b>continuous</b> class score, added Aug 2026 because the pass/fail checks were too coarse to detect partial effects. Valid only in <b>paired</b> comparisons: it has no negative class, cannot abstain, and scores artificially edited off-manifold sequences <em>higher</em> than genuine class members. Three tests prevent it from ever gating.</div></div>
+      <div class="def"><div class="name">taxon_faithfulness <small>removed Aug 2026</small></div><div class="desc">Graded composition against the conditioned taxon. <b>Retired</b> — it returned no verdict on 870/870 records, and it measures taxon conditioning rather than class.</div></div>
+      <div class="def"><div class="name">kmer_novelty</div><div class="desc">Is the sequence <b>novel</b> vs the training corpus (not memorized)? <em>Skipped in quick-eval; run in the full suite.</em></div></div>
+      <div class="def"><div class="name">protein_homology</div><div class="desc">MMseqs2 homology of predicted proteins to known enzymes. <em>DB not yet wired — diagnostic only.</em></div></div>
+      <div class="def"><div class="name">protein_foldability</div><div class="desc">ESMFold pLDDT of predicted proteins. <em>Optional / GPU-expensive; opt-in.</em></div></div>
+    </div>
+
+    <h3>Questions — the gates derived from the checks</h3>
+    <p class="prose"><span class="tag-gate">GATES</span> &nbsp;<strong>is_bgc</strong> (antiSMASH detected a cluster) · <strong>correct_class</strong> (its class matches the request) · <strong>novel</strong> (not memorized). &nbsp; <span class="tag-gate">DIAGNOSTICS</span> &nbsp;proteins_plausible · complete (has ordered modules) · class_probe_agrees. Retired along the way: synthesis feasibility, Evo2 perplexity, BiG-SCAPE, E.&nbsp;coli-expressibility gating, and conditioning_faithful.</p>
+    <p class="prose"><strong>Controls are mandatory, not optional.</strong> Every reported rate carries a measured ceiling (real cores at the generations' own length and class mix) and a measured floor (real non-BGC windows — the generator refuses to substitute shuffled sequence). Measured false-positive rate for antiSMASH <code>is_bgc</code>: <strong>0.000</strong>; for the retired any-Pfam proxy it was <strong>0.960</strong>, which is why it was retired.</p>
+  </section>
+
+  <!-- ===================== 2. LONG TRAINING ===================== -->
+  <section>
+    <span class="sec-no">02</span>
+    <h2>The long fine-tune, and the result that started this</h2>
+    <p class="prose">Evo2 7B + LoRA (r=16, α=32, ~28.7M trainable ≈ 0.44%), context L=32,768, effective batch 128, bf16 / DeepSpeed, on the leakage-clean <code>splits_core</code> (strict antiSMASH cores, native lowercase GTDB tags, MiBIG held out). The run reached <strong>step 1,200 (~epoch 2.9)</strong>; a first pass had early-stopped at step 400.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Checkpoint</th><th class="num">train loss</th><th class="num">val loss</th><th class="num">is_bgc</th><th class="num">correct_class</th><th class="num">modules</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">step 400 (best, first pass)</td><td class="num">0.715</td><td class="num">0.818</td><td class="num">0.0*</td><td class="num zero">0</td><td class="num zero">0</td></tr>
+          <tr><td class="rowlab">step 1,200 (pooled n=21)</td><td class="num">0.656</td><td class="num">0.816</td><td class="num">0.14</td><td class="num zero">0 / 21</td><td class="num zero">0 / 21</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose" style="font-size:13.5px;color:var(--ink-3)">*step-400 is_bgc estimated at n=3 and read 0; the ~0.14 at step 1,200 is the reliable pooled figure — see "small-n eval noise" in §5.</p>
+
+    <p class="prose">Between step 400 and 1,200 the <strong>train loss kept falling but validation loss was flat</strong>, and the functional gates did not move: <strong>correct_class = 0/21, complete modules = 0/21</strong>. Every time antiSMASH <em>did</em> recognize a cluster (~14%), it was a <em>simple</em> class — <strong>ectoine, terpene, melanin — never the conditioned NRPS/PKS</strong>. The obligate core domains were essentially absent.</p>
+    <div class="callout">
+      <p class="k">Read</p>
+      <p>The model writes gene-dense DNA with plausible accessory enzymes and reads the class tag, but for the complex classes it collapses to an easy attractor and never builds the assembly line. More training didn't help — <strong>the deficit is structural, not under-training.</strong></p>
+    </div>
+  </section>
+
+  <!-- ===================== 3. DIAGNOSIS ===================== -->
+  <section>
+    <span class="sec-no">03</span>
+    <h2>Diagnosis: narrowing the suspects</h2>
+    <p class="prose">A structured multi-agent read of the codebase + data established two firm negatives before any retraining:</p>
+    <ul>
+      <li><strong>Not the training data.</strong> 24/24 sampled NRPS/PKS/hybrid cores <em>do</em> contain their obligate domains and multi-module architecture, positioned within the training window. The signal the model fails to produce is present in what it was trained on.</li>
+      <li><strong>Not a conditioning bug.</strong> The class/taxon prefix is <em>byte-identical</em> between training and generation — the tag reaches the model exactly as trained.</li>
+    </ul>
+    <p class="prose">That left four testable mechanisms, which motivated the probe sweep: <strong>LoRA capacity</strong> (the long-range mixing pathway is largely frozen), <strong>chunking</strong> (long assembly-line genes are fragmented across training windows), <strong>class imbalance</strong> (simple classes as easy attractors), and a <strong>generation-window</strong> confound.</p>
+  </section>
+
+  <!-- ===================== 4. PROBES ===================== -->
+  <section>
+    <span class="sec-no">04</span>
+    <h2>The probe sweep</h2>
+    <p class="prose"><strong>Method.</strong> Each probe is a fast capability screen: ~350 fresh-from-base LoRA steps at L=16,384, each changing exactly <em>one</em> variable versus a shared control, then scored by quick-eval (n=6/probe). They are deliberately under-trained, so they're read on the <em>sensitive</em> markers (class_markers, obligate_fraction) plus a paired control — a change relative to control is the signal, not the absolute value.</p>
+
+    <h3>What each probe tested, and what it showed</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Probe</th><th>Changes vs control</th><th>Hypothesis under test</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">(a) chained-window</td><td>eval only — generate across 3–4 windows</td><td>Is the 32k window truncating the answer?</td><td><span class="pill out">ruled out</span> still 0 at 41–131 kb</td></tr>
+          <tr><td class="rowlab">P0 control</td><td>—</td><td>baseline reference</td><td><span class="pill">baseline</span></td></tr>
+          <tr><td class="rowlab">B</td><td>+LoRA on the frozen Hyena long-range projection</td><td>Is it <strong>model capacity</strong>?</td><td><span class="pill out">ruled out</span> identical to P0</td></tr>
+          <tr class="hi"><td class="rowlab">C</td><td><strong>whole-core</strong> (un-chunked) data</td><td>Must it see the <strong>complete assembly line</strong>?</td><td><span class="pill lever">the lever</span></td></tr>
+          <tr><td class="rowlab">D</td><td>megasynthase up-weighted to 53% (still chunked)</td><td>Is it <strong>class imbalance</strong>?</td><td><span class="pill out">ruled out</span> flat</td></tr>
+          <tr><td class="rowlab">P-tag</td><td>constant class tag on every chunk (drop <code>|CONTINUATION|</code>)</td><td>Is the <strong>chunk label</strong> hurting?</td><td><span class="pill out">ruled out</span> ≈ D</td></tr>
+          <tr><td class="rowlab">gene-aware A/B</td><td>blind vs snap-to-gene chunk boundaries (long cores)</td><td>Does <strong>good chunking</strong> recover C's benefit?</td><td><span class="pill out">ruled out</span> gene-aware ≤ blind</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Functional results (quick-eval, n=6 each)</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Probe</th><th class="num">is_bgc</th><th class="num">correct_class</th><th class="num">class_markers</th><th class="num">obligate_frac</th><th class="num">modules</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">P0 control</td><td class="num">0.17</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
+          <tr><td class="rowlab">B — +capacity</td><td class="num">0.17</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
+          <tr class="hi"><td class="rowlab">C — whole-core</td><td class="num metric-lead">0.50</td><td class="num metric-lead">0.33</td><td class="num metric-lead">0.50</td><td class="num metric-lead">0.18</td><td class="num metric-lead">0.17</td></tr>
+          <tr><td class="rowlab">D — mega-upweight</td><td class="num zero">0</td><td class="num zero">0</td><td class="num">0.17</td><td class="num">0.06</td><td class="num zero">0</td></tr>
+          <tr><td class="rowlab">P-tag — relabel</td><td class="num zero">0</td><td class="num zero">0</td><td class="num">0.17</td><td class="num">0.06</td><td class="num zero">0</td></tr>
+          <tr><td class="rowlab">ga_blind — long cores, blind cuts</td><td class="num">0.17</td><td class="num zero">0</td><td class="num">0.33</td><td class="num">0.10</td><td class="num">0.17</td></tr>
+          <tr><td class="rowlab">ga_geneaware — snap-to-gene</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>n=15 re-evaluation — the reliable numbers</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Config (n=15)</th><th class="num">is_bgc</th><th class="num">correct_class</th><th class="num">class_markers</th><th class="num">obligate_frac</th><th class="num">modules</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">P0 — all classes</td><td class="num">0.20</td><td class="num zero">0.067</td><td class="num">0.07</td><td class="num">0.04</td><td class="num">0.07</td></tr>
+          <tr><td class="rowlab">mega-only</td><td class="num">0.13</td><td class="num zero">0.067</td><td class="num">0.13</td><td class="num">0.07</td><td class="num">0.13</td></tr>
+          <tr class="hi"><td class="rowlab">whole-core (C)</td><td class="num">0.27</td><td class="num zero">0.067</td><td class="num metric-lead">0.33</td><td class="num metric-lead">0.15</td><td class="num metric-lead">0.27</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout verdict">
+      <p class="k">Verdict — corrected at n=15</p>
+      <p>The n=6 screens flagged C (whole megasynthase cores) as a breakthrough — correct_class 0.33. <strong>At n=15 that does not hold:</strong> correct_class is <strong>0.067 (1/15) for every configuration</strong> — all-classes, mega-only, and whole-core alike. No probe lifts the functional gate.</p>
+      <p><strong>What survives is a real but sub-functional gradient.</strong> On domain-level markers the ordering <strong>whole-core &gt; mega-only &gt; all-classes</strong> holds up: whole megasynthase cores yield ~3–5× more class-appropriate obligate domains and partial modules (class_markers 0.33 vs 0.07; modules 0.27 vs 0.07). So whole-core + concentration push the model toward the right <em>parts</em> — but not yet the assembled, validated <em>whole</em>. Model capacity, class imbalance, chunk-labeling, and gene-aware chunking are all ruled out.</p>
+    </div>
+    <p class="prose" style="font-size:13.5px;color:var(--ink-3)">The methodological lesson that shaped this: the <em>same</em> C comparison read correct_class 0.33 at n=6 and 0.067 at n=15. These fast 350-step screens resolve <em>directional</em> effects on sensitive markers, not final gate rates — the gate question needs a real training run.</p>
+  </section>
+
+  <!-- ===================== 5. OTHER FINDINGS ===================== -->
+  <section>
+    <span class="sec-no">05</span>
+    <h2>Other findings worth raising</h2>
+
+    <h3>Small-n evaluation noise</h3>
+    <p class="prose">A single n=6 quick-eval read <code>is_bgc = 0</code> at step 1,200; pooling to n=21 gave ~0.14. <strong>Headline gates need n ≥ 15 pooled</strong> before we treat a "0" as real — this changed how we read every subsequent probe.</p>
+
+    <h3>Why probe B was worth running even though it failed</h3>
+    <p class="prose">Evo2 is a hybrid model: only 5 of 32 blocks are attention; the rest are long-convolution "Hyena" blocks that do the long-range mixing. Our LoRA spends <strong>~81% of its capacity on position-wise MLPs that cannot mix across positions</strong>, and the Hyena long-range pathway (its input projection + convolution kernels) is essentially frozen. That made "insufficient capacity" the leading structural hypothesis — but unfreezing it (B) changed nothing, cleanly <strong>ruling capacity out</strong> at this scale. Detail written up in <code>docs/evo2_lora_and_hyena.md</code>.</p>
+
+    <h3>No cheap fast-iteration model</h3>
+    <p class="prose">The 1B Evo2 requires Transformer Engine / FP8 (not installed) and has no bf16 fallback; only the 7B does. So there is no small model to speed up probing — everything runs on the 7B.</p>
+
+    <h3>antiSMASH-DB version drift</h3>
+    <p class="prose">The GBK archive re-parsed for per-gene coordinates is a <em>different antiSMASH-DB version</em> than the one that originally built <code>splits_core</code> — region boundaries diverge for ~45% of records. Caught during a validation step; resolved by building the gene-aware probe dataset self-consistently from the re-parse. Flagged as a provenance item to reconcile before the production rebuild.</p>
+
+    <div class="callout caveat">
+      <p class="k">Why gene-aware still didn't help — an informative null</p>
+      <p>We first confirmed gene-aware chunking <em>does</em> what it claims: blind chunking never shows <strong>36% of the large (≥3 kb) megasynthase-scale genes</strong> complete; gene-aware halves that to 16%, rescuing ~11,400 big genes across 48.8% of cores. Yet generation did <em>not</em> improve. The lesson: keeping individual <em>genes</em> whole isn't enough — a long cluster is still <strong>fragmented across windows</strong>, so the model never sees the whole assembly line. That redirects attention to whole-<em>cluster</em> context (window length) and to the residual floor of <strong>6,497 genes individually larger than the 16 kb window</strong>, which no boundary scheme can keep whole.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 6. IMPLEMENTATION ===================== -->
+  <section>
+    <span class="sec-no">06</span>
+    <h2>Implementation changes going into this direction</h2>
+
+    <h3>Training</h3>
+    <ul>
+      <li><code>--gene-aware-chunking</code> + <code>build_gene_aware_chunk_spans</code> — packs complete genes into each window and snaps cuts to gene gaps, with an arithmetic fallback for single genes larger than the window. Unit-tested (no cut lands inside a gene) and a window-count-explosion bug fixed.</li>
+      <li><code>--lora-target-parameters</code> — adapts the frozen Hyena projection weights via PEFT <code>target_parameters</code> (the mechanism behind probe B).</li>
+      <li><code>EVO2_BASE_MODEL</code> env override — swap the base checkpoint without code changes (defaults to the 7B).</li>
+    </ul>
+
+    <h3>Data</h3>
+    <ul>
+      <li><code>build_core_records.py</code> now persists <code>strict_core_gene_bounds</code> (per-gene coordinates, previously parsed then discarded) and takes a <code>--genomes-allowlist</code> for fast targeted re-parsing.</li>
+      <li><code>build_probe_subsets.py</code> — whole-core, mega-upweighted, and long-mega gene-aware datasets.</li>
+    </ul>
+
+    <h3>Evaluation</h3>
+    <ul>
+      <li><code>quick_eval.sh</code> gained <code>TEMPERATURE / TOP_K / TOP_P</code> and <code>MAX_WINDOWS / CHUNK_OVERLAP</code> env pass-throughs — for decoding-temperature and chained-generation sweeps (both used to rule out the sampling and window confounds).</li>
+    </ul>
+  </section>
+
+  <!-- ===================== 7. NEXT ===================== -->
+  <section>
+    <span class="sec-no">07</span>
+    <h2>The real-scale test — and the decision it forces</h2>
+    <p class="prose">We took the leading fix to a real run: a milestone-gated, mega-only <strong>whole-core</strong> fine-tune (L=32,768, fresh-from-base), evaluated at n=15 every ~2 epochs and set to auto-stop if the gate stayed at the floor. It stopped itself.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Milestone (n=15)</th><th class="num">is_bgc</th><th class="num">correct_class</th><th class="num">class_markers</th><th class="num">modules</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">~epoch 2 (step 120)</td><td class="num">0.27</td><td class="num">0.133</td><td class="num">0.20</td><td class="num">0.20</td></tr>
+          <tr><td class="rowlab">~epoch 4 (step 240)</td><td class="num">0.13</td><td class="num zero">0.000</td><td class="num">0.13</td><td class="num zero">0.000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose"><strong>More training made it worse.</strong> A flicker at epoch 2 (correct_class 2/15, 3/15 modules) collapsed to zero by epoch 4, and the run auto-killed. Whole-core training at feasible single-GPU context does not convert to correct-class generation — and the decline points at <strong>overfitting the small whole-core set</strong> (80 Mbp; keeping cores whole at L=32k drops 62% of the megasynthase nucleotides — the long, multi-module cores).</p>
+    <p class="prose">So <strong>every single-GPU-cheap lever is now exhausted</strong> — capacity, imbalance, chunk labeling, gene-aware chunking, and whole-core-at-scale. What remains is structural:</p>
+    <ul>
+      <li><strong>Long context (multi-GPU).</strong> Train whole clusters <em>without</em> dropping the long ones — the data-starvation this run exposed. L ≥ 131k needs 2–4× H100 + sequence parallelism (~1–2 weeks + cost). The honest test of the whole-cluster hypothesis.</li>
+      <li><strong>Higher LoRA rank — tested, negative.</strong> The r=16/64/128 sweep is in: correct_class stayed at the floor (0.067 / 0.067 / 0.0), and r=128 was <em>worse</em>. r=64 did nudge domain markers (class_markers 0.13→0.27), but — like every lever — it didn't reach the gate. With coverage-probe B, that <strong>closes the capacity question entirely</strong>: neither which layers we adapt nor how expressively is the limiter.</li>
+      <li><strong>Full / partial fine-tuning instead of LoRA</strong> — more capacity, more compute.</li>
+      <li><strong>Reposition Evo2 as a scorer / evaluator</strong> of BGCs rather than a de-novo generator of these hard classes — where the recalibrated antiSMASH / eval stack is already strong.</li>
+    </ul>
+    <p class="keyline"><b>The bottom line for the talk:</b> the failure is well-characterized and localized to the <b>training signal</b>, and every cheap fix — including a real-scale whole-core run — has now been tested and does not lift the functional gate. The pattern (the real run <em>degrading</em> with training) suggests we are near the ceiling of LoRA-conditioned Evo2 for <em>de-novo</em> megasynthase generation. The question in front of us is which structural lever — long-context, higher-capacity fine-tuning, or repositioning the model as an evaluator — is worth committing to. A genuine fork, worth deciding deliberately rather than defaulting into.</p>
+
+  </section>
+
+  <!-- ===================== 8. WHY CLASS IS HARD + CFG ===================== -->
+  <section>
+    <span class="sec-no">08</span>
+    <h2>Why class conditioning is hard</h2>
+    <p class="prose">Two things followed the whole-core negative. We asked a question we had never actually tested — does conditioning work for the <em>simple</em> classes? — and we established, at the mechanism level, <em>why</em> class conditioning may be fundamentally hard for this model.</p>
+
+    <h3>The failure is general, not just megasynthases</h3>
+    <p class="prose">Every prior evaluation only ever requested NRPS / PKS / hybrid. So we asked the all-classes models for the <em>easy</em> targets — terpene (often a single cyclase), ectoine (a 3-gene cluster) — where sequence length is no obstacle, at n=15/class alongside the previously-missing <strong>base-Evo2 (no-adapter) control</strong>:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Simple classes · n=15/class (75 total)</th><th class="num">is_bgc</th><th class="num">correct_class</th><th class="num">coding density</th></tr></thead>
+      <tbody>
+        <tr><td class="rowlab">v2 adapter</td><td class="num">0.12</td><td class="num zero">0.013</td><td class="num">0.893</td></tr>
+        <tr><td class="rowlab">base Evo2 (no adapter)</td><td class="num zero">0.00</td><td class="num zero">0.00</td><td class="num">0.606</td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose">The single correct hit across 75 v2 generations was one ectoine; the preview's apparent terpene flicker was small-n noise. So it is not assembly-line <em>complexity</em> that defeats the model — the <strong>conditioning interface is weak across the board</strong>. The <strong>base control is the informative part</strong>: the LoRA clearly <em>does</em> contribute — it lifts coding density 0.61 → 0.89 and is_bgc 0 → 0.12 — but adds <strong>nothing to class</strong> (both ≈0 correct_class). The adapter learned to write BGC-like DNA, not the <em>requested</em> class.</p>
+
+    <h3>The mechanism: Evo2 has no native notion of "class"</h3>
+    <p class="prose">A codebase + literature + adversarial investigation (all converging, with citations) established what the base model was actually trained to condition on. The answer: <strong>only phylogeny.</strong> Evo2's single structured conditioning field is the <strong>GTDB lineage tag</strong> (<code>|d__Bacteria;p__…;s__…|</code>), plus two structural contig-stitch tokens. There is <strong>no native handle for biosynthetic product class</strong> anywhere in pretraining.</p>
+    <p class="prose">Our prefix splits cleanly against that: the taxonomy half is <em>already</em> byte-for-byte Evo2's native format, but the <code>|COMPOUND_CLASS:NRPS|</code> half is something the model <em>never saw</em> and has no prior for. LoRA is therefore installing "class → sequence" entirely from scratch, through a low-rank bottleneck. Tellingly, Arc's own functional conditioning (cas9/cas12/cas13) was a <strong>separate fine-tuning stage</strong> using exactly this prepend-a-token-then-finetune pattern — confirming there is no base prior to tap, and that installing functional control takes a real finetune (a tall order for a multi-gene assembly line).</p>
+    <div class="callout verdict">
+      <p class="k">Reframe</p>
+      <p>The ceiling isn't only LoRA capacity — <strong>the base model offers no product-class prior to amplify</strong>, so the adapter must build the concept from nothing. This retires "align the prefix to the native format" as a class lever: the taxonomy is already aligned, and <em>class has no native form to align to</em>.</p>
+    </div>
+
+    <h3>The amplification test — and its answer</h3>
+    <p class="prose"><strong>Classifier-free guidance (CFG).</strong> At each generation step, run the model twice — once <em>with</em> the class tag, once <em>without</em> — and push the output along the difference by a factor <code>w</code>: <code>logits = uncond + w·(cond − uncond)</code>. At <code>w=1</code> this is ordinary generation; <code>w&gt;1</code> exaggerates whatever the class tag was doing. It needs <strong>no retraining</strong> — it reuses the existing adapter and changes only how tokens are sampled. A built-in gate (w=1 must reproduce an independent from-scratch decode) confirmed the implementation before we trusted the rest.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Guidance weight</th><th class="num">correct_class</th><th class="num">is_bgc</th><th class="num">coding density</th></tr></thead>
+      <tbody>
+        <tr><td class="rowlab">w = 1 (ordinary)</td><td class="num zero">0.067</td><td class="num">0.20</td><td class="num">0.903</td></tr>
+        <tr><td class="rowlab">w = 3</td><td class="num zero">0.00</td><td class="num">0.067</td><td class="num">0.257</td></tr>
+        <tr><td class="rowlab">w = 5</td><td class="num zero">0.00</td><td class="num zero">0.00</td><td class="num zero">0.00</td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose"><strong>Amplifying the class direction did not raise correct_class — it destroyed coherence.</strong> As <code>w</code> climbs, correct_class goes 0.067 → 0 → 0 while the DNA degrades toward gibberish (coding density 0.90 → 0.26 → 0.00), with no transient bump — the signature of <strong>no class signal to amplify</strong>. <em>Honest caveat:</em> v2 was never trained with class-dropout, so the "unconditional" stream is a proxy rather than a learned null, and the high-<code>w</code> collapse is partly the expected out-of-distribution failure. It does not fully rule out that a properly trained null would behave better — but there is no positive signal here, and it is consistent with the mechanism finding.</p>
+    <div class="callout verdict">
+      <p class="k">Where this left the fork</p>
+      <p>Every prefix-conditioning lever came back negative: conditioning fails generally, the adapter adds coherence but not class, and CFG found nothing to amplify (a finer sweep confirmed correct_class is flat through the coherent regime, then collapses with it). That closed the label-conditioning question — and sent us to the two decisive follow-ups below.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 9. THE DECISIVE PAIR ===================== -->
+  <section>
+    <span class="sec-no">09</span>
+    <h2>The decisive pair: the model knows the class — it just won't take a label</h2>
+    <p class="prose">Two experiments settled what all the negatives meant. The first asks whether Evo2 <em>represents</em> compound class at all; the second asks whether the one thing that <em>did</em> work — seeding with a real gene fragment — survives scrutiny.</p>
+
+    <h3>Evo2 already encodes class — with no fine-tuning</h3>
+    <p class="prose">We fed <strong>raw core DNA with no prefix and no class tag</strong> (otherwise a probe could simply read the tag), captured mid-network activations, and fit a linear classifier for compound class against a shuffled-label control.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Linear probe (n=991, 11 classes)</th><th class="num">balanced accuracy</th><th class="num">chance</th><th class="num">shuffled control</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td class="rowlab">base Evo2 (no fine-tuning)</td><td class="num metric-lead">0.911</td><td class="num">0.091</td><td class="num">0.089</td></tr>
+        <tr><td class="rowlab">v2 adapter</td><td class="num">0.906</td><td class="num">0.091</td><td class="num">0.082</td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose"><strong>Class is linearly decodable at ten times chance from the untouched base model.</strong> Every class clears chance comfortably — even the hard megasynthases (NRPS 0.80, PKS 0.86, hybrid 0.73), with the simple ones at 0.93–0.99. Two consequences follow. First, <strong>the adapter added nothing to the representation</strong> (0.906 vs 0.911) — the knowledge was always there. Second, the depth profile is the mechanism: accuracy climbs to <strong>0.911 at layer 16</strong>, then <strong>decays to 0.41 by the final layer</strong>. The class is encoded mid-network and is <em>not</em> carried into the next-token distribution.</p>
+    <div class="callout verdict">
+      <p class="k">The reframe</p>
+      <p>This is a <strong>steering problem, not a knowledge problem</strong>. Every previous attempt tried to <em>teach</em> the model a class concept it already had. It also hands us a tool: a layer-16 classifier at 0.91 accuracy is a single matrix multiply — cheap enough to run <em>inside</em> the generation loop as a class scorer.</p>
+    </div>
+
+    <h3>The seeding result survives — but the class comes from the exemplar</h3>
+    <p class="prose">A seven-arm controlled experiment (n=15/class) stress-tested the earlier seeding lift against every artifact we could think of, with the seed sequence held identical across arms.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Arm</th><th class="num">is_bgc</th><th class="num">correct_class</th><th class="num">tracks the seed</th></tr></thead>
+      <tbody>
+        <tr><td class="rowlab">base, no tag</td><td class="num zero">0.00</td><td class="num zero">0.00</td><td class="num zero">0.00</td></tr>
+        <tr><td class="rowlab">base + tag</td><td class="num">0.183</td><td class="num">0.133</td><td class="num">0.133</td></tr>
+        <tr class="hi"><td class="rowlab">v2, no tag</td><td class="num">0.400</td><td class="num metric-lead">0.283</td><td class="num">0.250</td></tr>
+        <tr class="hi"><td class="rowlab">v2 + tag</td><td class="num">0.417</td><td class="num metric-lead">0.283</td><td class="num">0.283</td></tr>
+        <tr><td class="rowlab">v2 + tag, seed truncated (no gene crosses in)</td><td class="num">0.317</td><td class="num">0.217</td><td class="num">0.217</td></tr>
+        <tr><td class="rowlab">v2 + tag, seed shuffled</td><td class="num zero">0.00</td><td class="num zero">0.00</td><td class="num zero">0.00</td></tr>
+        <tr><td class="rowlab">v2, tag ≠ seed class</td><td class="num">0.467</td><td class="num zero">0.067</td><td class="num metric-lead">0.317</td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose">The effect is <strong>real</strong>: every generation passed the memorization check (nearest-training-cluster containment maxed at 0.024, so nothing is copied); it <strong>survives truncating the seed so that no gene spans into the continuation</strong> (0.217 — the class-defining machinery appears de novo); and it <strong>collapses to zero on a shuffled seed</strong>, so it is the real gene content doing the work, not composition. No seed bytes leaked into any scored sequence.</p>
+    <p class="prose"><strong>But the last row reinterprets it.</strong> When the tag names a different class than the seed, the output follows the <em>seed</em> (0.317), not the <em>tag</em> (0.067) — and dropping the tag entirely changes nothing (0.283 either way). <strong>The tag is inert; the exemplar carries the class.</strong> So the honest description is <em>exemplar-conditioned</em> generation — "extend and diversify this cluster" — not <em>label-conditioned</em> de-novo design. The effect is ~0.28, below the 0.37 the small pilot suggested.</p>
+
+    <div class="callout verdict">
+      <p class="k">Where the project stands</p>
+      <p><strong>Evo2 knows the class, won't take a label, and will take an exemplar.</strong> That is a coherent and genuinely publishable result: a strong negative (abstract-label conditioning is unreachable through a low-rank adapter — and we now know mechanistically why: the class signal fades before the output layer) paired with a verified positive (real, novel, correct-class clusters from an exemplar). The next phase follows directly and needs no retraining: <strong>activation steering</strong> — inject the probe's class direction into layer-16 activations during generation — and <strong>guided decoding</strong>, using that same probe as an in-loop scorer, composed with exemplar seeding. Notably this <em>de-prioritizes</em> both per-class adapters and the multi-GPU long-context run, since each aimed to install a class representation the model turns out to already have.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 10. STEERING ===================== -->
+  <section>
+    <span class="sec-no">10</span>
+    <h2>Activation steering: the full programme, and why it is closed</h2>
+    <p class="prose">If the model encodes class but ignores the label, the obvious move is to write the class in directly — add the probe's class direction to the residual stream during generation. We built the machinery, fixed a serious instrument bug in it, and ran it to exhaustion. It does not work, and we now know precisely why.</p>
+
+    <h3>The programme</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Phase</th><th>What it tested</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">0–1 — rebuild</td><td>Directions rebuilt after the length-axis bug, length-stripped, held-out scored, 10 shuffled-label controls per layer</td><td><span class="pill lever">valid</span> all 11 classes beat null at all 4 layers</td></tr>
+          <tr><td class="rowlab">3 — does it control class?</td><td>Paired arms at doses 1 / 2 / 4 class-units, real vs shuffled-label direction</td><td><span class="pill out">negative</span> 0/48, 2/46, 0/46 target markers</td></tr>
+          <tr><td class="rowlab">5 — is it dilution?</td><td>Steer at layer 27 instead of 16, dosed to the live residual norm</td><td><span class="pill out">negative</span> reach <em>falls</em> with depth</td></tr>
+          <tr><td class="rowlab">6 — continuous readout</td><td>A non-binary class score, to catch a signal the pass/fail gates would miss</td><td><span class="pill">the mechanism</span> deletes class, cannot install it</td></tr>
+          <tr><td class="rowlab">multi-layer</td><td>Steering at nine layers at once — the obvious answer to dilution</td><td><span class="pill out">negative</span> 0/12</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="prose"><strong>Phase 5 falsified dilution in reverse.</strong> The intuition was that an edit made early gets washed out, so editing nearer the output should hit harder. The opposite is true: the residual stream is additive, so an edit at layer 16 is carried forward <em>and re-read by 11 more blocks</em>, while an edit at layer 27 has only four. "Closer to the output" means <em>fewer opportunities to be used.</em></p>
+
+    <p class="prose"><strong>Phase 6 found the mechanism, and only the continuous readout could see it.</strong> The class direction reliably <em>removes</em> a class that is present, but never <em>installs</em> the one requested. Ablation works; injection does not. Every binary gate reported this as a flat zero.</p>
+
+    <h3>The closing argument — August 11</h3>
+    <p class="prose">Every null above was compatible with two very different stories, and we had never separated them: the edit never landed (in which case our dosing was wrong and steering deserved another try), or it landed and was ignored (in which case steering-at-a-layer is structurally dead). We had assumed the second and written "stop trying steering variants" into the plan <em>on that assumption</em>. A GPU-free audit settled it, and was written so it could overturn our own conclusion.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Layer</th><th class="num">NRPS</th><th class="num">PKS</th><th class="num">HYBRID</th><th class="num">TERPENE</th><th class="num">RIPP</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">10</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">1.0</td><td class="num">2.0</td></tr>
+          <tr><td class="rowlab">16</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">1.0</td><td class="num">1.0</td></tr>
+          <tr><td class="rowlab">20</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">1.0</td><td class="num">2.0</td></tr>
+          <tr><td class="rowlab">24</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">1.0</td><td class="num">2.0</td></tr>
+          <tr><td class="rowlab">27</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">2.0</td><td class="num">1.0</td><td class="num">2.0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose" style="font-size:13.5px;color:var(--ink-3)">Dose (in class-units) at which the edit flips the class readout on held-out non-target activations. <strong>The generation experiments dosed 2.8, 5.7 and 11.4.</strong> Layers 12/14/18/22 are identical. Random-direction control at 2.8 units: 0.005–0.19 against the real direction's 0.94–1.00.</p>
+
+    <div class="callout verdict">
+      <p class="k">Verdict — the edit landed, and was ignored</p>
+      <p>At every depth we ever steered, the edit was <strong>1.5–10× larger than needed</strong> to completely convert a linear readout <em>in the very layer it was applied to</em> — and the output still did not follow. The failure is downstream of the edit. Steering-at-a-layer is closed for a measured reason rather than an assumed one.</p>
+      <p><strong>The delete/install asymmetry is not geometric.</strong> Ablation also works in activation space (class probability 0.80 → 0.09–0.41 at every layer). <em>Both</em> operations succeed there; only deletion survives to the output. The asymmetry is about how the model <strong>reads</strong> that space, which kills "the install direction is malformed" as an explanation.</p>
+    </div>
+
+    <div class="callout caveat">
+      <p class="k">And we had been overdosing, badly</p>
+      <p>A follow-up placed each edit relative to where the target class actually lives. A dose of 2.8 class-units lands <strong>3.4 standard deviations past</strong> the target class mean; 11.4 lands <strong>19.5 sd past it</strong>, and twelve times further from the real class than genuine members sit from each other. We were not nudging sequences toward a class — we were pushing them off the data distribution entirely. That is the mechanism behind the long-standing observation that <em>a bigger dose buys damage, not class.</em></p>
+      <p>This does <em>not</em> reopen steering: Phase 3 already ran dose 1 — the correctly-calibrated, on-target dose — and got <strong>0/48</strong>.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 11. SOFT PREFIXES ===================== -->
+  <section>
+    <span class="sec-no">11</span>
+    <h2>Soft prefixes, and a cheap negative that closed the next idea too</h2>
+    <p class="prose">If a <em>written</em> label is inert, perhaps a <em>learned</em> one is not. We trained a per-class continuous prefix — 16 vectors × 4,096 dimensions, 65k free parameters per class — prepended to the input and optimized directly on next-token loss.</p>
+    <p class="prose">It trained cleanly and each class separated from an identical initialization, so the optimization was real. It bought <strong>~0.003 nats</strong> and produced <strong>correct_class 0/12</strong> generated de novo. <em>The bound is narrow and worth stating precisely:</em> 65k parameters changing only the <strong>input</strong>. It does not bound a per-class adapter or a genuinely trainable class token.</p>
+
+    <div class="callout caveat">
+      <p class="k">Affine Concept Editing — closed for zero GPU hours</p>
+      <p>The next ranked idea was ACE: instead of <em>adding</em> a class direction, ablate the current class and <strong>reset</strong> the coordinate to the real class mean. Writing it out showed it is the <em>same rank-1 edit along the same direction</em>, differing only in using a per-example dose — arithmetically, "dose 1.0, applied per sequence."</p>
+      <p>So the deciding question was not whether it moves the probe, but whether the edited activation <em>resembles a real member of the class</em>. It does not: ACE removes only <strong>6.7%</strong> (layer 16) and <strong>11.6%</strong> (layer 27) of the distance to the real class manifold — negative for two classes. A rank-1 edit corrects one coordinate out of 4,096 and leaves the other 4,095 belonging to the source class. Closed on a pre-registered rule, before any GPU time was spent.</p>
+    </div>
+  </section>
+
+  <!-- ===================== 12. INSTRUMENTS ===================== -->
+  <section>
+    <span class="sec-no">12</span>
+    <h2>What our instruments can and cannot see</h2>
+    <p class="prose">Three separate audits this month found that measurement, not modelling, was limiting what we could conclude. These change how earlier numbers should be read.</p>
+
+    <h3>Sequence length: two classes were never testable at 3 kb</h3>
+    <p class="prose">Nearly every generation experiment ran at 2–3 kb, while real cores are often far longer. We truncated <em>real</em> held-out cores to the lengths we generate and re-ran the same gate — the best case any generated sequence could achieve.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Class</th><th class="num">ceiling @ 3 kb</th><th class="num">full length</th><th>Read</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">PKS/NRPS hybrid</td><td class="num zero">0.00</td><td class="num">0.96</td><td>structurally untestable — a hybrid call needs both machineries</td></tr>
+          <tr class="hi"><td class="rowlab">PKS</td><td class="num">0.40</td><td class="num">0.96</td><td>genuinely length-limited (2.4× compression)</td></tr>
+          <tr><td class="rowlab">NRPS</td><td class="num">0.76</td><td class="num">0.84</td><td>mildly affected</td></tr>
+          <tr><td class="rowlab">RIPP</td><td class="num">0.76</td><td class="num">0.92</td><td>mildly affected</td></tr>
+          <tr><td class="rowlab">Terpene</td><td class="num">0.88</td><td class="num">0.96</td><td>essentially unaffected</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose"><strong>Hybrid results at 3 kb are withdrawn</strong> — the ceiling is zero in two independent samples, so those arms could not have produced a positive whatever the model did. PKS results at 3 kb must be quoted against 0.40, not 1.0. The other three classes are only mildly affected, so this does not invalidate the programme as a whole.</p>
+
+    <h3>Statistical power, stated honestly</h3>
+    <p class="prose">Several experiments used n=12 arms. Against a ~2% base rate, that design can only detect a jump to <strong>≈23%</strong>. Those "0/12" results mean <em>no large effect</em>, not <em>no effect</em>. The pooled Phase 3 comparison (n=140) resolves ≈6.5%. Direction estimation was never the problem — split-half agreement is 0.97–0.99 at n=500/class.</p>
+
+    <h3>The class probe is a comparator, never a gate</h3>
+    <p class="prose">We added a continuous class score precisely because the binary gates were too coarse to see Phase 6. It is calibrated at both ends and it is <strong>never</strong> allowed to decide anything on its own — three tests enforce this. The ACE audit supplied the mechanism for that rule: in <strong>10 of 10 class-layer cells</strong>, an artificially edited off-manifold activation scored <em>higher</em> than a genuine member of the class (real NRPS 0.762 vs an edit at 0.963 sitting 3.9× further from the real NRPS manifold). A linear readout of one direction out of 4,096 becomes <em>more</em> confident as the point becomes <em>less</em> like the real thing.</p>
+  </section>
+
+  <!-- ===================== 13. GUIDED DECODING ===================== -->
+  <section>
+    <span class="sec-no">13</span>
+    <h2>Guided decoding: selection worked, the ruler could not see it</h2>
+    <p class="prose">The first idea from a structured literature sweep, and structurally different from everything above: rather than injecting one static vector, <strong>recompute guidance at every step from what has been generated so far</strong>. Generate four candidate continuations per 600-nt chunk, keep the one a discriminator scores highest for the target class, repeat. Two pre-registered questions, deliberately separated.</p>
+
+    <h3>Q1 — did selection move what we selected on?</h3>
+    <p class="prose">Yes, decisively. Guide score, guided vs random control: <strong>+5.71 pooled, 39 of 40 seeds, p&lt;10<sup>-10</sup></strong>, with the advantage <em>growing</em> across chunks. A stricter test — comparing the guided arm's pick against the control's <em>own best available</em> candidate — confirms it: chunk 0 gives 40/40 exact ties (both arms provably share candidate sets, a free harness control), then a gap opening to +0.395 by chunk 4 (31/34, p=10<sup>-6</sup>). Selection is real and it compounds.</p>
+
+    <h3>Q2 — did that produce better BGCs?</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Arm</th><th class="num">NRPS</th><th class="num">PKS</th><th class="num">Terpene</th><th class="num">RIPP</th><th class="num">mean</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">plain (1 candidate)</td><td class="num">0.40</td><td class="num">0.50</td><td class="num">0.40</td><td class="num">0.10</td><td class="num">0.350</td></tr>
+          <tr><td class="rowlab">random (4, pick at random)</td><td class="num">0.40</td><td class="num">0.30</td><td class="num">0.30</td><td class="num">0.10</td><td class="num">0.275</td></tr>
+          <tr class="hi"><td class="rowlab">guided (4, pick best)</td><td class="num">0.40</td><td class="num">0.50</td><td class="num metric-lead">0.60</td><td class="num">0.10</td><td class="num">0.400</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose" style="font-size:13.5px;color:var(--ink-3)">antiSMASH correct_class, n=10 seeds per arm, arms paired by seed. Guided vs random: 5–0 discordant, p=0.0625. Guided vs plain: 2–0, p=0.50.</p>
+
+    <div class="callout caveat">
+      <p class="k">Underpowered, and the ruler was confounded — not a null</p>
+      <p><strong>35 of 40 seeds returned an identical outcome in all three arms</strong>, leaving an effective sample of five informative seeds. With zero reversals anywhere in 120 records, the sign test needs 6–0 to reach p&lt;0.05; we observed 5–0. The design missed significance <em>by one seed</em>.</p>
+      <p><strong>More seriously, the outcome measure was measuring the wrong thing.</strong> <code>correct_class</code> agreed with <code>is_bgc</code> on <strong>117 of 120 records</strong> — there is effectively no "detected, but wrong class" case. Because these generations are seeded with a real fragment of a target-class cluster, once antiSMASH detects anything it reports the seed's class. The metric cannot separate <em>"the model built the requested class"</em> from <em>"antiSMASH found the seed we supplied."</em></p>
+    </div>
+
+    <p class="prose">This result was adjudicated by five independent adversarial reviewers before being recorded, which <strong>overturned our first reading of it.</strong> The initial interpretation — that the model had learned to game the guide — is wrong: the guide <em>predicts</em> the independent readout at AUC <strong>0.856</strong> on sequences it played no part in selecting. It is a good proxy, not a gamed one. What is real is a narrower effect: selection degrades the guide's calibration, with the score on antiSMASH-negatives inflating from 0.141 to 0.613.</p>
+  </section>
+
+  <!-- ===================== 14. WHERE THIS LEAVES US ===================== -->
+  <section>
+    <span class="sec-no">14</span>
+    <h2>Where this leaves the project</h2>
+
+    <div class="callout verdict">
+      <p class="k">The one thing that does work</p>
+      <p><strong>Exemplar conditioning is a validated capability.</strong> Seed the model with a real fragment of a cluster and it extends it in the right class — correct_class <strong>0.283</strong> against a <strong>0.067</strong> mismatched floor, with memorization ruled out and all four pre-registered controls passed. The class comes from the <em>seed</em>, never from the label. Framed honestly, that is <em>"extend and diversify a known cluster"</em>, not <em>"generate class X de novo"</em> — and it is a publishable capability today. <em>One caveat now attaches:</em> the seed-confounding above means this number needs re-measuring with a continuation-scoped readout.</p>
+    </div>
+
+    <h3>What is definitively closed</h3>
+    <ul>
+      <li><strong>Written class labels</strong> — inert, in both the LoRA and base model.</li>
+      <li><strong>Classifier-free guidance</strong> — no amplifiable class signal.</li>
+      <li><strong>Activation steering</strong>, in every variant of layer, dose and direction recipe. The edit lands and is ignored; a further variant is not worth running.</li>
+      <li><strong>Soft prefixes</strong> at 65k parameters on the input.</li>
+      <li><strong>Affine concept editing</strong> — a rank-1 edit cannot reach the class manifold.</li>
+      <li><strong>Model capacity</strong> — LoRA rank, target modules, and unfreezing the long-range pathway all ruled out earlier.</li>
+    </ul>
+
+    <h3>The organising hypothesis</h3>
+    <p class="prose">Every mechanism we have tried injects the class condition <strong>at one place</strong> — one input token, one input position, an activation edit at a handful of hand-picked layers. The model conditions perfectly well on content present at <em>every</em> position, which is exactly what seeding provides. Across nine independent search angles in the literature sweep, the recurring answer is that conditioning which works <strong>enters at every layer, through a small gated module trained end-to-end</strong>. <em>Depth of injection is the one axis we have never varied.</em></p>
+
+    <h3>Next steps, in order</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>#</th><th>Move</th><th>Cost</th><th>Why this one</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td class="rowlab">Fix the readout</td><td>days, CPU</td><td>Score the <em>continuation</em>, not the whole record. Until this exists, no seeded experiment can distinguish the model's contribution from the seed's — including the 0.283 headline.</td></tr>
+          <tr><td class="num">2</td><td class="rowlab">Activation patching</td><td>~1 day</td><td>We know <em>where class is readable</em>; we have never asked <em>which components write it</em>. The direction audit makes this the one diagnostic still carrying weight.</td></tr>
+          <tr class="hi"><td class="num">3</td><td class="rowlab">Per-layer conditional adapters</td><td>weeks</td><td>The closest published precedent — same task family, same compute scale — whose own controlled comparison found the token-conditioned baseline (structurally our finding) overfits while the per-layer adapter generalises. Tests the depth hypothesis directly.</td></tr>
+          <tr><td class="num">4</td><td class="rowlab">Per-class LoRA routing</td><td>weeks</td><td>Highest prior of simply working: class becomes <em>which adapter is loaded</em>, so the symbolic-conditioning problem is removed rather than solved.</td></tr>
+          <tr><td class="num">5</td><td class="rowlab">Substrate change — GenomeOcean</td><td>parallel track</td><td>Accepts a genuine trainable class token (single atomic id), which Evo2's byte-level tokenizer structurally cannot provide. 5.15 bp/token gives a 52.7 kb context against Evo2's 32.8 kb.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="keyline"><b>The bottom line:</b> the negative results are now <b>mechanistic rather than merely empirical</b> — we can say what fails and why, not just that it failed. Inference-time conditioning is closed: the class direction is real, the edit lands, and the model does not read it. What has never been tried is conditioning that enters <b>at every layer during training</b>, which is what the literature says actually works. Alongside that, <b>exemplar conditioning is a real, controlled, publishable result</b> once its readout is de-confounded.</p>
+  </section>
+
+  <!-- ===================== 15. DATASET ===================== -->
+  <section>
+    <span class="sec-no">15</span>
+    <h2>Dataset &amp; provenance</h2>
+    <p class="prose">The model trains on <strong>splits_core</strong> — a deliberately curated slice of the antiSMASH database, not the raw thing. The raw DB is ~7× larger; the reduction is what makes the evaluation trustworthy and the training tractable.</p>
+
+    <h3>From antiSMASH-DB to the training set</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Stage</th><th class="num">records</th><th>what happened</th></tr></thead>
+      <tbody>
+        <tr><td class="rowlab">antiSMASH-DB (asdb5)</td><td class="num">542,414</td><td>the raw database — BGC regions across 56,846 genomes</td></tr>
+        <tr><td class="rowlab">strict cores</td><td class="num">496,788</td><td>extract each region's biosynthetic core; drop unmappable (<code>OTHER</code>)</td></tr>
+        <tr><td class="rowlab">quality + genome-split</td><td class="num">456,410</td><td>drop contig-edge / N-containing / too-short; genome-disjoint split</td></tr>
+        <tr><td class="rowlab">dedup + class-cap</td><td class="num">123,060</td><td><strong>MMseqs2 collapses near-identical BGCs</strong>; cap ~4k/class; diversity-stratify</td></tr>
+        <tr><td class="rowlab">leakage-cleaned</td><td class="num">83,491</td><td>remove val/test near-dups of training (cross-split MMseqs2)</td></tr>
+        <tr class="hi"><td class="rowlab">final · splits_core</td><td class="num">74,443</td><td>exclude MiBIG (held out as positive control + Phase-2)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose"><strong>The dominant reason is redundancy</strong> — antiSMASH-DB is the same clusters re-observed across hundreds of related strains (e.g. 126,330 raw TERPENE regions collapse to ~14k distinct). Deduplication, not arbitrary capping, drives the 456k→123k cut; the rest is class-balancing (so TERPENE/RIPP don't swamp rare classes), genome-disjoint + cross-split dedup (so val/test are genuinely unseen), strict-core trimming, and holding out MiBIG.</p>
+
+    <h3>Final composition</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Split</th><th class="num">records</th><th class="num">Mbp</th><th class="num">megasynthase</th></tr></thead>
+      <tbody>
+        <tr><td class="rowlab">train</td><td class="num">47,524</td><td class="num">467</td><td class="num">9,629</td></tr>
+        <tr><td class="rowlab">val</td><td class="num">8,048</td><td class="num">50</td><td class="num">2,016</td></tr>
+        <tr><td class="rowlab">test</td><td class="num">18,871</td><td class="num">99</td><td class="num">5,143</td></tr>
+      </tbody>
+    </table></div>
+    <p class="prose">22 compound classes. The 3 <strong>megasynthase</strong> classes (NRPS / PKS / hybrid) are 16,788 records (23%) but ~45% of the training nucleotides (their cores are long). Because the split is genome-keyed, class proportions are uneven — val/test are dominated by TERPENE + RIPP — so <code>quick_eval</code> samples the megasynthase classes directly rather than reading aggregate val metrics.</p>
+
+    <div class="callout caveat">
+      <p class="k">Why this matters for the result</p>
+      <p>The megasynthase classes were cut ~90–95% (NRPS 73,259 raw → 3,445 kept), but almost entirely by <strong>deduplication</strong> — NRPS lands <em>below</em> the per-class cap, so the raw regions are mostly near-duplicates and the ~3–4k we keep are roughly the genuinely distinct cores in the whole database. So the generation failure is <strong>not a data-volume problem</strong>: we already have essentially all the diverse megasynthase cores that exist, and "more data" would just mean more near-duplicates. That is consistent with the ceiling conclusion — it points at model/approach, not dataset size.</p>
+    </div>
+
+    <p class="foot">Sources: <code>docs/project_memory/{progress,decisions,bugs}.md</code> · <code>src/bgc_pipeline/evaluation.py</code> · <code>scripts/finetune_evo2_lora.py</code> · run artifacts under <code>bgcmodel_runs/</code> · data funnel from <code>asdb5_core_stats.json</code> + per-stage counts. Prepared Aug 2026. Negative results here are recorded with the same care as positive ones; three findings in this document were retracted or weakened by adversarial review before publication.</p>
+  </section>
+</div>
+
