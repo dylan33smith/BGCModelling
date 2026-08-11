@@ -75,9 +75,13 @@ for C in $CLASSES; do
   PY evo2/scripts/train_soft_prefix.py --adapter "$V2" --train "$TRAIN" --val "$VAL" \
      --compound-class "$C" --n-prefix "$N_PREFIX" --max-nt "$MAX_NT" --steps "$STEPS" \
      --lr "$LR" --seed "$SEED" --out-dir "$ROOT/$C" > "$ROOT/train_$C.log" 2>&1
-  [ -s "$ROOT/$C/prefix_best.pt" ] && echo "[sp] $C: $(PY -c "
-import json;d=json.load(open('$ROOT/$C/summary.json'));print(f\"val {d['baseline_val_loss']:.4f} -> {d['best_val_loss']:.4f} ({d['improvement']:+.4f})\")" 2>/dev/null)" \
-                                  || echo "[sp] !! $C TRAIN FAILED (see train_$C.log)"
+  # Deliberately NOT a nested-quote one-liner here: the per-class summary table below prints
+  # the same numbers, and a quoting bug in an echo is not worth the runtime risk.
+  if [ -s "$ROOT/$C/prefix_best.pt" ]; then
+    grep -a "^\[sp\] $C: val" "$ROOT/train_$C.log" || echo "[sp] $C: trained"
+  else
+    echo "[sp] !! $C TRAIN FAILED (see train_$C.log)"
+  fi
 done
 
 echo
@@ -160,33 +164,37 @@ for arm in [f"gen_{c}" for c in CLASSES] + ["gen_none"]:
     cells = " ".join(f"{mat[lbl][c]:>10.4f}" + ("*" if c == lbl else " ")[0:0] for c in CLASSES)
     print(f"{lbl:>12} {len(rs):>3} | {cells}")
 
-print("\nPAIRED per taxon: for each class X, prefix_X vs each OTHER prefix, same taxon.")
-print("The other prefixes ARE the control — every arm is equally 'a trained prefix'.\n")
-print(f"{'class X':>10} {'vs':>10} {'pairs':>6} {'mean dP(X)':>12} {'up':>7} {'sign p':>8}")
-verdict = {}
+print("\nPAIRED per taxon. The independent unit is the TAXON, not the comparison: pooling")
+print("prefix_X against three control arms reuses the SAME 12 generations three times and")
+print("makes the sign test anticonservative. So each taxon contributes ONE number --")
+print("P(X | prefix_X) minus the MEAN of the other prefixes on that same taxon.\n")
+print(f"{'class X':>9} {'pairs':>6} {'mean dP(X)':>12} {'median':>10} {'up':>7} {'sign p':>8} "
+      f"{'Bonf':>7}")
+
+def _sign(d):
+    up = sum(1 for x in d if x > 0); n = len(d)
+    return up, n, min(1.0, 2 * sum(comb(n, k) * 0.5 ** n for k in range(max(up, n - up), n + 1)))
+
+bytax = collections.defaultdict(dict)
+for r in rows:
+    if r.get("tax_idx") is not None:
+        bytax[r["arm"]][r["tax_idx"]] = r
 for X in CLASSES:
-    a = {r["tax_idx"]: r for r in by.get(f"gen_{X}", []) if "tax_idx" in r}
-    deltas_all = []
-    for Y in CLASSES + ["none"]:
-        if Y == X:
-            continue
-        b = {r["tax_idx"]: r for r in by.get(f"gen_{Y}", []) if "tax_idx" in r}
-        d = [a[k]["probs"].get(X, 0.0) - b[k]["probs"].get(X, 0.0) for k in a if k in b]
-        if len(d) < 3:
-            continue
-        up = sum(1 for v in d if v > 0)
-        p = min(1.0, 2 * sum(comb(len(d), k) * 0.5 ** len(d)
-                             for k in range(max(up, len(d) - up), len(d) + 1)))
-        print(f"{X:>10} {Y:>10} {len(d):>6} {st.mean(d):>+12.4f} {up:>3}/{len(d):<3} {p:>8.4f}")
-        if Y != "none":
-            deltas_all += d
-    if deltas_all:
-        up = sum(1 for v in deltas_all if v > 0)
-        n = len(deltas_all)
-        p = min(1.0, 2 * sum(comb(n, k) * 0.5 ** n for k in range(max(up, n - up), n + 1)))
-        verdict[X] = (st.mean(deltas_all), up, n, p)
-        print(f"{X:>10} {'ALL other':>10} {n:>6} {st.mean(deltas_all):>+12.4f} "
-              f"{up:>3}/{n:<3} {p:>8.4f}   <== the test for {X}")
+    a = bytax.get(f"gen_{X}", {})
+    d = []
+    for k, r in a.items():
+        others = [bytax[f"gen_{Y}"][k]["probs"].get(X, 0.0)
+                  for Y in CLASSES if Y != X and k in bytax.get(f"gen_{Y}", {})]
+        if len(others) >= 2:
+            d.append(r["probs"].get(X, 0.0) - st.mean(others))
+    if len(d) < 3:
+        print(f"{X:>9} {len(d):>6}   (too few paired taxa — is tax_idx present in the records?)")
+        continue
+    up, n, p = _sign(d)
+    print(f"{X:>9} {n:>6} {st.mean(d):>+12.4f} {st.median(d):>+10.4f} {up:>3}/{n:<3} "
+          f"{p:>8.4f} {min(1.0, p*len(CLASSES)):>7.4f}")
+print("\nMEAN vs MEDIAN matters here: a mean carried by one or two sequences out of twelve is")
+print("not a class effect. Check both before believing a cell.")
 
 # --- the binary instruments, for the same arms ---
 print("\nBinary readouts (lower sensitivity; report alongside, never instead):")

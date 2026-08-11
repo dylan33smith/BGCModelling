@@ -47,8 +47,11 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
   negative results and the instrument fixes they forced, is in
   [`docs/steering_program.md`](docs/steering_program.md).
 
-**Standing debt:** the steering directions and the class probe are fit on **val+test**.
-Both must be refit train-only before any externally reported number.
+**Leakage debt — CLEARED 2026-08-10.** The class probe and the steering directions had been fit
+on **val+test** and applied to val/test-seeded generations. Both are now refit **train-only**
+(`acts_v2_train500.npz`, provenance-verified), and `_fit_probe` **refuses** a non-train fit set —
+every activation cache carries a `.provenance.json` and the guard is tested in both directions.
+Clearing it cost one published finding: see the retraction above.
 
 ---
 

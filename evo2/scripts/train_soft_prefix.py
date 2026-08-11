@@ -115,13 +115,21 @@ def main() -> int:
                     help="Nucleotides per example. The class signal is readable from the first "
                          "few kb (the probe reads it at 4096 nt), and generation is ~3 kb, so a "
                          "long context buys nothing here and costs hours.")
-    ap.add_argument("--steps", type=int, default=400)
-    ap.add_argument("--grad-accum", type=int, default=8)
-    ap.add_argument("--lr", type=float, default=0.05,
-                    help="Soft prompts tune at a MUCH higher LR than weights (a handful of "
-                         "embedding-scale vectors, no weight decay coupling).")
+    ap.add_argument("--steps", type=int, default=300)
+    ap.add_argument("--grad-accum", type=int, default=4)
+    ap.add_argument("--lr", type=float, default=1e-3,
+                    help="AdamW takes a step of ~lr per COORDINATE, so the update VECTOR has "
+                         "norm ~lr*sqrt(4096) = 64*lr. Evo2 token embeddings have ||e|| ~ 1.45, "
+                         "so lr=0.05 moves the prefix 2.2x its own length EVERY step — measured "
+                         "2026-08-10, it destroyed the prefix during warmup (val 0.88 -> 1.40 by "
+                         "step 50, grad norm collapsing 0.52 -> 0.005 as it landed somewhere "
+                         "flat). 1e-3 gives ~4% of ||e|| per step. The startup check below "
+                         "refuses anything wild.")
+    ap.add_argument("--max-step-frac", type=float, default=0.25,
+                    help="Refuse an LR whose per-step update exceeds this fraction of the mean "
+                         "token-embedding norm.")
     ap.add_argument("--warmup", type=int, default=20)
-    ap.add_argument("--val-every", type=int, default=50)
+    ap.add_argument("--val-every", type=int, default=25)
     ap.add_argument("--val-n", type=int, default=24)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--device", default="cuda")
@@ -150,6 +158,23 @@ def main() -> int:
         adapter = adapter / "adapter"
     wrapper = load_evo2_wrapper_for_inference(adapter, device=args.device)
     model, tok = wrapper.model, wrapper.tokenizer
+    # The inference loader merges the LoRA under torch.no_grad()/inference_mode, which marks the
+    # resulting weights as INFERENCE TENSORS. Those cannot be saved for backward, so the first
+    # backward pass dies with "Inference tensors cannot be saved for backward" -- even though the
+    # weights are frozen and only the prefix needs a gradient: autograd still has to route through
+    # them. Re-materialise each parameter as an ordinary tensor OUTSIDE inference mode.
+    with torch.inference_mode(False):
+        n_fixed = 0
+        for _, mod in model.named_modules():
+            for pname, par in list(mod.named_parameters(recurse=False)):
+                if par is not None:
+                    setattr(mod, pname, torch.nn.Parameter(par.detach().clone(),
+                                                           requires_grad=False))
+                    n_fixed += 1
+            for bname, buf in list(mod.named_buffers(recurse=False)):
+                if buf is not None and getattr(buf, "is_inference", lambda: False)():
+                    mod.register_buffer(bname, buf.detach().clone())
+    print(f"[sp] re-materialised {n_fixed} frozen parameters out of inference mode", flush=True)
     for p in model.parameters():
         p.requires_grad_(False)
     n_ckpt = enable_block_activation_checkpointing(model)
@@ -164,6 +189,20 @@ def main() -> int:
         raise SystemExit(f"[sp] ABORT: {len(trainable)} model parameters are still trainable — "
                          f"this run would fine-tune the model, not the prefix")
     print(f"[sp] trainable: prefix only, {prefix.numel():,} floats", flush=True)
+
+    # LR SANITY, in units of the thing being updated. This is the check whose absence cost an
+    # hour of GPU on a prefix that had already been destroyed by step 20.
+    emb_norm = float(prefix.detach().float().norm(dim=-1).mean())
+    step_norm = args.lr * (prefix.shape[-1] ** 0.5)
+    frac = step_norm / max(emb_norm, 1e-9)
+    print(f"[sp] LR check: ||e||={emb_norm:.4f}  AdamW step norm ~{step_norm:.4f}  "
+          f"= {frac:.1%} of ||e|| per step", flush=True)
+    if frac > args.max_step_frac:
+        raise SystemExit(
+            f"[sp] ABORT: lr={args.lr} moves the prefix {frac:.0%} of its own length per step "
+            f"(limit {args.max_step_frac:.0%}). Measured 2026-08-10: at 220% the prefix leaves "
+            f"the readable region during warmup and the gradient dies. Try lr<="
+            f"{args.max_step_frac * emb_norm / (prefix.shape[-1] ** 0.5):.2e}.")
 
     opt = torch.optim.AdamW([prefix], lr=args.lr, weight_decay=0.0)
 
@@ -238,6 +277,15 @@ def main() -> int:
                 torch.save({"prefix": prefix.detach().cpu(), "n_prefix": args.n_prefix,
                             "compound_class": args.compound_class, "step": step, "val_loss": v},
                            args.out_dir / "prefix_best.pt")
+            # FAIL EARLY AND LOUDLY. A prefix that is already far worse than its initialisation
+            # is not "still warming up" -- it has left the region the model can read, and the
+            # gradient norm collapses with it. Burning the remaining 90% of the budget produces
+            # a file that looks like a trained prefix and is not one.
+            if v > base_val * 1.25 and step >= 2 * args.val_every:
+                raise SystemExit(
+                    f"[sp] ABORT at step {step}: val {v:.4f} is {v / base_val:.2f}x the "
+                    f"baseline {base_val:.4f} — the prefix has diverged, not converged. "
+                    f"Lower --lr (currently {args.lr}, {frac:.1%} of ||e|| per step).")
     handle.remove()
 
     summary = {"compound_class": args.compound_class, "n_prefix": args.n_prefix,

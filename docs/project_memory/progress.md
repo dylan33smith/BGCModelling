@@ -375,12 +375,57 @@ class direction costs 3.1x more than deleting a shuffled one.
 
 **Nothing.** The GPU is idle and the steering programme is closed (see Phase 6 above).
 
+## ★★★ SOFT PREFIXES (2026-08-10) — trained, tested, NEGATIVE. Next-action 1 is now closed.
+
+The first TRAINING-TIME conditioning handle this project has tried. 16 x 4096 = 65k floats per
+class (~440x smaller than the LoRA), base + v2 LoRA frozen and merged, trained on train.jsonl
+only, evaluated de novo (taxonomy-only, NO seed) on held-out taxa.
+Scripts: `evo2/scripts/train_soft_prefix.py`, `generate_soft_prefix.py`,
+`evo2/experiments/probes/run_soft_prefix.sh`. Artifacts: `/data2/ds85/bgcmodel_runs/soft_prefix/`.
+
+**Training worked and the run is not vacuous.** All four converged without diverging, and an
+accident of string length made the setup unusually clean: `|COMPOUND_CLASS:` is EXACTLY 16
+characters, so every prefix was initialised from the **identical** vector (pairwise cosine
+1.0000 by construction — the class name never entered the init). Training moved them to pairwise
+cosine 0.85–0.92 with norms 1.45 → 1.53, so genuine class-specific learning happened.
+
+**But the learning is tiny:** val improvement 0.0017 / 0.0027 / 0.0025 / 0.0046 nats for
+NRPS / PKS / TERPENE / RIPP over the inert class-tag initialisation, flat from step 25, final
+grad norms 0.009–0.021. A nearly flat loss surface with respect to the prefix.
+
+**Generation: no class conditioning.** Cross-class matrix, all four prefixes run on an IDENTICAL
+taxonomy pool with an identical seed (so the only variable is which prefix is loaded, paired per
+taxon). Independent unit = the taxon; each contributes P(X | prefix_X) minus the MEAN of the
+other prefixes on that same taxon:
+
+| class X | mean ΔP(X) | median | up | sign p | Bonferroni |
+|---|---|---|---|---|---|
+| NRPS | −0.018 | −0.00004 | 1/12 | 0.0063 | **0.025** (wrong direction) |
+| PKS | −0.045 | −0.00004 | 4/12 | 0.388 | 1.0 |
+| TERPENE | +0.173 | +0.012 | 9/12 | 0.146 | 0.584 |
+| RIPP | −0.015 | −0.013 | 5/12 | 0.774 | 1.0 |
+
+The one positive cell (TERPENE) fails four ways: not significant after correction; carried by
+**2 of 12** sequences (0.999, 0.990 — median only 0.038); a **coin flip against the no-prefix
+floor** (6/12, p=1.0); and it is the class the probe already drifts toward on non-BGC DNA (11/25
+of the negative controls). NRPS is nominally significant in the WRONG direction with a median of
+−0.00004 — the sign test detecting consistency in the noise floor, not an effect.
+Binary readouts agree: **correct_class 0/12 in every arm**, antiSMASH is_bgc 0–0.083, markers
+0–1/12, coding_density 0.854–0.950 (no damage).
+
+**Scope of this negative — read it narrowly.** It bounds the CHEAP end of training-time coupling:
+65k parameters that only change the INPUT do not install class. It does not speak for per-class
+LoRA (28.7M parameters, and it modifies the computation rather than the input) or for a substrate
+with a real trainable class token. Next actions 2 and 3 stand unaffected.
+
 ## NEXT ACTIONS (2026-08-10)
 
 Ranked. The diagnosis is *the generator does not CONSUME the class coordinate*, which is a
 training-time fact — so every candidate below changes training, not inference.
 
-1. **Per-class soft prefixes — ~1 GPU-day, do this first.** The cheapest experiment that
+1. ~~**Per-class soft prefixes**~~ — **DONE 2026-08-10, NEGATIVE** (see the section above).
+   Original rationale retained below.
+   **Per-class soft prefixes — ~1 GPU-day, do this first.** The cheapest experiment that
    discriminates, and it sits exactly in the gap between the two established facts: labels fail,
    exemplars work ⇒ *learn a synthetic exemplar* in embedding space instead of asserting a byte
    string with no pretrained prior. If the generator can consume a learned content-like handle,

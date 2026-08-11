@@ -207,7 +207,14 @@ def main() -> int:
                          "target": r.get("steer_target_class"),
                          "seed_acc": r.get("seed_accession"),
                          "dose_cu": r.get("steer_realized_class_units"),
-                         "dose_frac": r.get("steer_realized_norm_frac")})
+                         "dose_frac": r.get("steer_realized_norm_frac"),
+                         # Join keys for PAIRED analyses. `tax_idx` pairs soft-prefix arms
+                         # (same taxon, different prefix); `seed_acc` pairs steering arms (same
+                         # seed exemplar). Dropping one made the soft-prefix paired table print
+                         # zero rows -- an empty result that looks like "no pairs" rather than
+                         # "the key was never carried through".
+                         "tax_idx": r.get("tax_idx"),
+                         "soft_prefix_class": r.get("soft_prefix_class")})
     if not recs:
         raise SystemExit("no scoreable records")
     print(f"[probe] {len(recs)} generations over {len(args.jsonl)} arms")

@@ -8,6 +8,33 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Evo2 / vortex / generation
 
+- **[2026-08-10] Training a prompt: AdamW's step is per-COORDINATE, so the update VECTOR is
+  `lr*sqrt(D)`.** At D=4096 an lr of 0.05 moves the prefix by 3.2 — against a token-embedding
+  norm of 1.45 that is **221% of the prefix's own length every step**. Measured: the prefix left
+  the readable region during warmup, val went 0.884 → 1.404 by step 50, and the gradient norm
+  collapsed 0.52 → 0.005 as it settled somewhere flat. It looked exactly like training (loss
+  printed, steps ticked, a `prefix_best.pt` was written) and produced a dead vector.
+  *Fix:* lr 1e-3 (~4% of ||e|| per step), plus two guards in `train_soft_prefix.py` — a startup
+  check that prints the step size AS A FRACTION of ||e|| and refuses anything over 25%, and an
+  early abort when val exceeds 1.25x baseline. *Rule:* quote a learning rate in units of the
+  thing being updated, never in the abstract.
+- **[2026-08-10] The inference loader's weights are INFERENCE TENSORS and cannot be backwarded
+  through.** `load_evo2_wrapper_for_inference` merges the LoRA under `no_grad`, so any training
+  on top of it dies with "Inference tensors cannot be saved for backward" — even when the weights
+  are frozen and only a new parameter needs a gradient, because autograd still routes through
+  them. *Fix:* re-materialise every parameter (and inference-mode buffer) with
+  `.detach().clone()` inside `with torch.inference_mode(False):` after loading.
+- **[2026-08-10] A dropped join key makes a paired analysis print NOTHING, which reads as "no
+  data" rather than "bug".** `probe_score_generations.py` rebuilt records with an explicit key
+  list and did not carry `tax_idx`, so the soft-prefix driver's paired table — joining on it —
+  found zero pairs and printed an empty section under a populated matrix. *Fix:* carry every
+  join key a caller might pair on (`tax_idx`, `seed_acc`) and say so in the code.
+- **[2026-08-10] Pooling non-independent comparisons inflates n and the significance with it.**
+  Comparing prefix_X against three control arms and pooling gives "36 pairs" from 12 generations
+  used three times. TERPENE read p=0.0288 pooled and p=0.146 with the taxon as the independent
+  unit. *Rule:* the independent unit is the item, not the comparison. Also report the MEDIAN —
+  TERPENE's mean of +0.173 came from 2 of 12 sequences and its median was +0.012.
+
 - **[2026-08-10] A mean-POOLED activation norm is not the norm a generated token sees — and the
   error grows with depth.** The activation cache stores mean-pooled hidden states, so ‖h‖ read
   from it disagrees with the live per-position ‖h‖ at the steering hook by 0.75x at L16 but
