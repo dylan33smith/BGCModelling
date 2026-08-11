@@ -444,3 +444,16 @@ these in minutes.
   background poller written as `while pgrep -f run_guided_decoding.sh; do sleep 15; done` never
   exits: `pgrep -f` matches full command lines, including the poller's. Watch for a completion marker
   in the log instead, or exclude self with `pgrep -f ... | grep -v $$`.
+
+- **[2026-08-11] RETRACTED same-day: "the seeded readout is confounded by the seed".** Claimed on
+  the strength of `correct_class` agreeing with `is_bgc` on 117/120 guided-decoding records. **The
+  seed is not in the scored sequence.** `guided_generate.py` starts `seq = ""` and only does
+  `seq += cands[pick]` (the seed reaches the model via `prompt_seqs`); `seed_generate.py` stores
+  `extract_sequence(...)`, the prompt-stripped generation. Across every seeded run on disk,
+  **0/1512 stored sequences begin with their seed**. Now pinned by `tests/test_scored_span.py`.
+  **Two lessons.** (1) *A concordance rate is meaningless without the same rate on a control.* Real
+  cores at 3 kb show 31.4% of detections landing off-class and 84.7% overall agreement — so the
+  metric discriminates fine and the 97.5% was a fact about the generations. Measuring that first
+  would have prevented the whole error. (2) *A premise handed to a verifier is not verified by it.*
+  Five adversarial reviewers were given the confound as background context; none checked the
+  generator source. Put the premises in the attack list, not the preamble.

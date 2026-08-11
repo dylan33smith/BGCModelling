@@ -28,6 +28,7 @@ TESTS = [
     "test_steer_hooks.py",              # WHERE and HOW BIG the injected steering edit is
     "test_guided_decoding.py",          # WHICH candidate guided decoding keeps + how Q1 is read
     "test_direction_audit.py",          # the dose/angle arithmetic behind the steering verdict
+    "test_scored_span.py",              # is the SEED inside the sequence antiSMASH scores? (no)
 ]
 
 

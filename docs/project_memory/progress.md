@@ -419,13 +419,43 @@ Direction is consistently positive with **zero reversals in 120 records**, but:
 - p=0.50 for best-vs-plain is the **design floor** (2 discordant ⇒ min two-sided p = 2×0.5² = 0.50),
   so it carries no evidential weight — best never *loses* a pair to plain.
 
-**★ THE INSTRUMENT PROBLEM, and the most important finding here.** `correct_class` agrees with
-`is_bgc` on **117/120 records**; the only 3 disagreements are one NRPS seed, called TERPENE in all
-three arms. So the gate measured **detectability, not class specificity** — there is effectively no
-"detected, but wrong class" cell. In the seeded regime the seed is a real core of the target class,
-so once antiSMASH detects anything it calls the seed's class. **`correct_class` on seeded
-generations cannot separate "guidance installed the target class" from "antiSMASH found the seed".**
-Any rerun needs a readout scoped to the continuation, not the whole record.
+**⚠️ RETRACTED 2026-08-11 (same day): "the readout was confounded with the seed".** The original
+text claimed that because `correct_class` agreed with `is_bgc` on 117/120 records, the gate had
+collapsed into detection — and that the cause was antiSMASH recognising the real class-X seed
+inside the scored sequence. **The seed is not in the scored sequence and never has been.**
+`guided_generate.py` starts `seq = ""` and only does `seq += cands[pick]`; `seed_generate.py`
+stores the prompt-stripped generation. Verified against every seeded run on disk: **0 of 1512
+records begin with their seed**; 8 (0.5%) contain any 60-mer of it. Pinned by
+`tests/test_scored_span.py`. Nothing needs rerunning, and **the 0.283 exemplar result is cleaner
+than the retraction implied, not weaker.**
+
+**★ What the 117/120 actually means — and it reframes the failure mode.** The inference was drawn
+without ever measuring the agreement rate on REAL DNA. On held-out real cores truncated to the
+lengths we generate, antiSMASH's off-class rate is large:
+
+| length | detections | detected but WRONG class |
+|---|---|---|
+| 1000 | 22 | 5 = 22.7% |
+| 2000 | 36 | 13 = 36.1% |
+| **3000** | 35 | **11 = 31.4%** |
+| 6000 | 45 | 13 = 28.9% |
+| full | 54 | 3 = 5.6% |
+
+`is_bgc == correct_class` on **84.7%** of real cores, against 97.5% in our generations. So the
+"detected but off-class" cell is well populated and `correct_class` **is** a discriminating
+metric — the concordance is a property of the GENERATIONS, not of the instrument.
+
+⇒ **When the model produces a detectable cluster, it is the target class ~92% of the time, versus
+~69% for a length-matched real core.** The failure mode is not "builds the wrong class" — it is
+**"usually builds nothing detectable, but lands on-class when it does."** Detection is the
+bottleneck, not class-correctness. This is the single most useful reframing to come out of the A1
+run, and it argues for effort on *making anything recognisable at all* rather than on class
+steering.
+
+**Methodological note.** This error survived a five-reviewer adversarial pass because it was handed
+to the reviewers as established CONTEXT rather than as a claim to attack — none checked the
+generator source. *Rule: a premise supplied to a verifier is not verified by it. Put the premises
+in the attack list.*
 
 **⚠️ RETRACTED before publication: the Goodhart reading.** The first pass claimed this was
 proxy-gaming, mechanistically linked to the same-day off-manifold finding. **Both halves are wrong.**
@@ -438,11 +468,13 @@ What *is* real is **calibration collapse under selection**: P(correct_class | gu
 0.696 (unselected) → 0.516 (best), and the mean guide score on antiSMASH-negatives inflates
 0.141 → 0.613.
 
-**⇒ VERDICT: A1 is not answered.** Selection demonstrably works; the outcome measure could not see
-whether it mattered. Before any rerun: (1) a continuation-scoped readout, (2) far more seeds — the
-seed, not the arm, sets the outcome, (3) emit `accession` in `antismash.tsv` (pairing currently
-relies on row order; verified sound here via `length`, but 4 of 12 arms are all-3000 nt and give no
-ordering information), (4) add the max-vs-max Q1 test to the analyzer.
+**⇒ VERDICT: A1 is underpowered, not confounded.** Selection demonstrably works; the experiment
+could not resolve whether it mattered, because 35 of 40 seeds were frozen. Before any rerun:
+(1) **far more seeds** — the seed, not the arm, sets the outcome, and this is now the whole
+problem; (2) emit `accession` in `antismash.tsv` (pairing currently relies on row order; verified
+sound here via `length`, but 4 of 12 arms are all-3000 nt and give no ordering information);
+(3) add the max-vs-max Q1 test to the analyzer. The "continuation-scoped readout" item is
+**withdrawn** — the readout was already continuation-scoped.
 
 ## ★★★ ACE PRE-CHECK (2026-08-11): A2 is CLOSED before spending GPU, and the doses were overdoses
 
