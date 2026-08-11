@@ -8,6 +8,24 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-11] Every rate at 3 kb must be quoted against its measured ceiling, and hybrids at 3 kb are withdrawn
+Prompted by the question "aren't we failing because 3 kb is too short, not because conditioning
+doesn't work?" — a fair challenge that turned out to be right for some classes and wrong for
+others. Measured, not argued: real held-out cores truncated to generation length, same gate.
+
+- **PKS_NRPS_HYBRID at 1/2/3 kb: correct_class ceiling 0.00.** Structural — hybrid classification
+  requires seeing both machineries. All hybrid results at 3 kb are withdrawn as uninformative.
+- **NRPS 0.25, PKS 0.33 at 3 kb** (vs 0.83 full for both) — a real 2.5-3.3x compression.
+- **TERPENE 0.75, RIPP 0.67** — barely affected; their natural cores are short (medians 966 and
+  1,992 nt), so 3 kb meets or exceeds a typical core.
+- Long-core pooled ceiling 0.40; population-representative (positive control) 0.750. Different
+  questions, both real — always state which.
+
+**Consequence for how we report.** Absolute rates at 3 kb are fractions of 0.40-0.75, never of
+1.0. Paired internally-controlled contrasts are unaffected (shared ceiling cancels). Going
+forward, any de-novo generation experiment aimed at megasynthases should generate at >= 6-12 kb,
+or restrict to classes whose natural cores fit the generation length.
+
 ### [2026-08-10] Soft prefixes fail too — the bound is "input-only conditioning", not "training-time coupling"
 Per-class continuous soft prefixes (`evo2/scripts/train_soft_prefix.py`): 16 x 4096 = 65k learned
 floats per class, base + v2 LoRA frozen and merged, trained on train-only data, evaluated de novo

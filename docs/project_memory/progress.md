@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-08-11._
+_Last updated: 2026-08-11 (measurement-validity audit)._
 
 ---
 
@@ -417,6 +417,51 @@ Binary readouts agree: **correct_class 0/12 in every arm**, antiSMASH is_bgc 0�
 65k parameters that only change the INPUT do not install class. It does not speak for per-class
 LoRA (28.7M parameters, and it modifies the computation rather than the input) or for a substrate
 with a real trainable class token. Next actions 2 and 3 stand unaffected.
+
+## ⚠️ MEASUREMENT-VALIDITY AUDIT (2026-08-11) — read before citing any 3 kb rate
+
+Prompted by the question "aren't we failing because 3 kb is too short, not because conditioning
+doesn't work?". Investigated rather than assumed; the answer is class-dependent and partly YES.
+
+**1. The 3 kb generation length is a CEILING, and for hybrids it is ZERO.**
+`scripts/length_ceiling.py` truncates REAL held-out cores to the lengths we generate and runs the
+same antiSMASH gate — a real BGC is the best case, so no generation can beat it:
+
+| correct_class | 1 kb | 2 kb | 3 kb | 6 kb | 12 kb | full |
+|---|---|---|---|---|---|---|
+| NRPS | 0.08 | 0.25 | 0.25 | 0.50 | 0.67 | 0.83 |
+| PKS | 0.33 | 0.33 | 0.33 | 0.67 | 0.67 | 0.83 |
+| **PKS_NRPS_HYBRID** | **0.00** | **0.00** | **0.00** | 0.08 | 0.42 | 0.92 |
+| TERPENE | 0.75 | 0.75 | 0.75 | 0.75 | 0.75 | 0.92 |
+| RIPP | 0.25 | 0.58 | 0.67 | 0.67 | 0.75 | 0.75 |
+| POOLED | 0.28 | 0.38 | 0.40 | 0.53 | 0.65 | 0.85 |
+
+**Hybrid results at 3 kb are WITHDRAWN** — antiSMASH needs both machineries to call a hybrid and
+3 kb cannot hold both, so those arms could not have produced a positive whatever the model did.
+NRPS/PKS carry a real 2.5–3.3x compression. TERPENE/RIPP are barely affected (natural core
+medians 966 and 1,992 nt, so 3 kb meets or exceeds a typical core).
+
+**Do not quote 0.40 as "the ceiling"** — that run required cores ≥12 kb so the long columns would
+mean something, so it sampled each class's LONG TAIL and answers "what does truncation cost a long
+core". The population-representative figure (the positive control, matched to the generations' own
+length and class mix) is **0.750** pooled at 3 kb. Both real; always say which.
+
+*Unaffected:* every paired, internally-controlled contrast (real vs shuffled direction, guided vs
+random, prefix_X vs prefix_Y) — a shared ceiling cancels. Phase 1 never used antiSMASH.
+*Changed:* every ABSOLUTE rate at 3 kb is a fraction of 0.40–0.75, never of 1.0.
+
+**2. Several arms were doubly underpowered.** Against the ~2% cross-class base rate, 80% power:
+Phase 3 pooled (n=140) detects ≥6.5%; per dose (n=48) ≥11.2%; **L27 ladder / multi-layer / soft
+prefix (n=12) only ≥23%**. An n=12 arm reads 0/12 whether the truth is 0% or 15%, so "0/12
+everywhere" means *no LARGE effect*. The programme's conclusion survives on Phase 3's n=140 and on
+the continuous probe's resolution, not on the n=12 arms.
+**Direction-estimation n was already fine** — split-half cosine 0.97–0.99 at n=500/class (it was
+0.67–0.88 at n=10–40, which is what triggered the re-embed).
+
+**3. Consequence for what to run next.** Any de-novo megasynthase experiment should generate at
+≥6–12 kb, or restrict to classes whose natural cores fit the generation length. The running
+guided-decoding experiment uses NRPS/PKS/TERPENE/RIPP (no hybrids) at 3 kb in the SEEDED regime,
+where the relevant baseline is the measured seeded floor (0.283), not an absolute 1.0.
 
 ## NEXT ACTIONS — updated 2026-08-11 after a literature sweep
 

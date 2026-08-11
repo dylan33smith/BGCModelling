@@ -96,6 +96,54 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Eval suite
 
+- **[2026-08-11] THE 3 kb GENERATION LENGTH IS A CEILING, and for hybrids it is a ceiling of ZERO.**
+  Nearly every generation experiment ran at 2-3 kb. Measured directly (`scripts/length_ceiling.py`)
+  by truncating REAL held-out cores to the lengths we generate and running the same antiSMASH gate
+  — a real BGC is the best case, so this is the ceiling no generation can beat:
+
+  | correct_class | 1 kb | 2 kb | 3 kb | 6 kb | 12 kb | full |
+  |---|---|---|---|---|---|---|
+  | NRPS | 0.08 | 0.25 | 0.25 | 0.50 | 0.67 | 0.83 |
+  | PKS | 0.33 | 0.33 | 0.33 | 0.67 | 0.67 | 0.83 |
+  | **PKS_NRPS_HYBRID** | **0.00** | **0.00** | **0.00** | 0.08 | 0.42 | 0.92 |
+  | TERPENE | 0.75 | 0.75 | 0.75 | 0.75 | 0.75 | 0.92 |
+  | RIPP | 0.25 | 0.58 | 0.67 | 0.67 | 0.75 | 0.75 |
+  | POOLED | 0.28 | 0.38 | 0.40 | 0.53 | 0.65 | 0.85 |
+
+  **Hybrids are structurally unscoreable at 3 kb**: antiSMASH calls a cluster PKS/NRPS-hybrid only
+  by seeing BOTH machineries, and a 3 kb window cannot contain both. Every hybrid-class result
+  measured at 3 kb in this project was scored against a ceiling of zero and could not have
+  produced a positive regardless of the model. Withdraw them; do not count them as evidence.
+
+  **SAMPLING CAVEAT, do not quote 0.40 as "the ceiling".** That run REQUIRED cores >= 12 kb so the
+  long columns would be meaningful, i.e. it sampled the LONG TAIL of each class (sampled TERPENE
+  median 22.6 kb vs a class median of 966 nt). It answers "what does truncation cost a LONG core",
+  not "what is this class's ceiling in general". The population-representative number — the
+  existing positive control, which matches the generations' own length AND class mix — is
+  **0.750** pooled at 3 kb, higher because many real cores are naturally short and never get
+  truncated at all. Both are real; say which one you mean.
+
+  *What this does NOT overturn:* paired, internally-controlled comparisons (real vs shuffled-label
+  direction; guided vs random selection; prefix_X vs prefix_Y) share the ceiling, so it cancels in
+  the contrast. Phase 1 never used antiSMASH at all. *What it does change:* every ABSOLUTE rate
+  quoted at 3 kb was against a ceiling of 0.40-0.75, never 1.0.
+
+- **[2026-08-11] Several arms were doubly underpowered: a compressed ceiling AND an n that could
+  only see large effects.** Binomial power against the ~2% cross-class base rate, 80% power:
+
+  | experiment | n/arm | smallest detectable rate |
+  |---|---|---|
+  | Phase 3 steering (pooled) | 140 | 6.5% |
+  | Phase 3 steering (per dose) | 48 | 11.2% |
+  | L27 ladder / multi-layer / soft prefix | **12** | **23%** |
+
+  An n=12 arm reads 0/12 whether the true effect is 0% or 15%. "0/12 in every arm" therefore
+  means *no LARGE effect*, not *no effect* — the L27 and multi-layer writeups lean on it harder
+  than the n supports. The conclusion survives because the big experiment (Phase 3, n=140) rules
+  out >=6.5% and the continuous probe has far more resolution than any binary gate.
+  **Direction-estimation n was NOT a problem and was already fixed**: split-half cosine is
+  0.97-0.99 at n=500/class (it was 0.67-0.88 at n=10-40, which is what triggered the re-embed).
+
 - **Small-n quick_eval is noisy — `is_bgc` read 0/6 when the true rate was ~14%.** At
   step_1200, a single n=6 quick_eval showed `is_bgc=0.0`; pooling n=21 across two decoding
   temps gave `is_bgc≈3/21 (14%)` (still `correct_class=0/21`). *Lesson:* don't treat one tiny
