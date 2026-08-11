@@ -132,11 +132,59 @@ def test_crossing_reports_the_first_dose_at_or_above_threshold():
     print("PASS audit: crossing dose is the first at-or-above threshold, None if never reached")
 
 
+def test_ace_edit_sets_the_coordinate_and_touches_nothing_else():
+    """ACE is `h - ((h.u) - m_c) * u`: land the coordinate on the target mean, change nothing else.
+
+    Two ways this goes wrong silently. A sign slip moves the point AWAY from the target mean by
+    exactly as much as it should have moved toward it — and the resulting table still looks like a
+    dose curve. And if the edit leaks into the orthogonal complement it is no longer rank-1, so
+    the comparison against additive steering (which is rank-1 by construction) is not measuring
+    what it claims: the whole point is that both edits move along the SAME line and differ only in
+    how far.
+    """
+    rng = np.random.default_rng(0)
+    u = rng.normal(size=16)
+    u /= np.linalg.norm(u)
+    H = rng.normal(size=(50, 16)) * 3.0
+    m_c = 1.75
+
+    ace = H - ((H @ u) - m_c)[:, None] * u[None, :]
+
+    assert np.allclose(ace @ u, m_c), (
+        f"ACE did not land the coordinate on m_c (got {(ace @ u)[:3]}, want {m_c}) — a sign slip "
+        f"here moves every point away from the target class instead of onto it")
+    # Everything orthogonal to u must be untouched: the edit is rank-1 along u.
+    delta = ace - H
+    resid = delta - (delta @ u)[:, None] * u[None, :]
+    assert np.allclose(resid, 0.0, atol=1e-12), "the ACE edit leaked outside the direction u"
+    # And it must genuinely differ from a fixed-dose additive edit: ACE's step is per-example.
+    steps = delta @ u
+    assert steps.std() > 1e-6, ("every example moved by the same amount — that is additive "
+                                "steering, not ACE, and the comparison would be vacuous")
+    print("PASS ace: edit lands the coordinate on m_c, stays rank-1, and is per-example")
+
+
+def test_knn_dist_is_the_mean_over_k_nearest():
+    """The off-manifold yardstick. Returning the min (k=1) or the max would still produce a
+    plausible, monotone-looking table while measuring a different quantity."""
+    from ace_precheck import knn_dist
+
+    bank = np.array([[0.0], [1.0], [10.0]])
+    q = np.array([[0.0]])
+    got = knn_dist(bank, q, 2)[0]
+    assert abs(got - 0.5) < 1e-12, f"got {got}, expected mean(0, 1) = 0.5 over the 2 nearest"
+    got3 = knn_dist(bank, q, 3)[0]
+    assert abs(got3 - (0 + 1 + 10) / 3) < 1e-12, f"got {got3} for k=3"
+    print("PASS ace: knn_dist averages over the k nearest, not the closest or the furthest")
+
+
 def main() -> int:
     for t in (test_dose_is_alpha_times_class_unit_times_direction,
               test_raw_space_direction_divides_by_the_scaler_sigma,
               test_contrast_is_against_the_other_classes_not_zero,
-              test_crossing_reports_the_first_dose_at_or_above_threshold):
+              test_crossing_reports_the_first_dose_at_or_above_threshold,
+              test_ace_edit_sets_the_coordinate_and_touches_nothing_else,
+              test_knn_dist_is_the_mean_over_k_nearest):
         t()
     print("\nALL DIRECTION-AUDIT TESTS PASSED")
     return 0

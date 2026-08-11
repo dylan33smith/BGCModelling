@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-08-11 (direction audit: the steering edit landed at every layer)._
+_Last updated: 2026-08-11 (ACE pre-check closed A2 offline; direction audit)._
 
 ---
 
@@ -390,6 +390,51 @@ is null as required (3/9, p=0.51).
 train-only pooled activations for 10,022 real cores at all 32 layers, so anything living in
 activation space runs alongside a GPU job. Used below for the direction audit; the same route is
 open for an offline Affine-Concept-Editing pre-check (A2).
+
+## ★★★ ACE PRE-CHECK (2026-08-11): A2 is CLOSED before spending GPU, and the doses were overdoses
+
+`evo2/scripts/ace_precheck.py` (CPU-only). Writing ACE down makes the key fact obvious: it is a
+**rank-1 edit along the same direction** as additive steering, differing only in that the dose is
+per-example and lands the coordinate exactly on the target class mean `m_c`.
+
+    additive   h' = h + (alpha * class_unit) * u      <- fixed dose
+    ACE        h' = h - ((h.u) - m_c) * u             <- per-example, lands on m_c
+
+Since `class_unit` is *defined* as the other-class-mean → class-c-mean distance, **ACE ≈ dose 1.0,
+applied per example.** So the question is not "does ACE move the probe" (the direction audit
+showed any sufficient move does) but "does the edited point look like a real member of the class".
+Measured as z along the class axis in units of the class's own spread, and k-NN distance to a bank
+of real target activations divided by how far real held-out target activations sit from that bank
+(1.00 = on-manifold). Pooled over 5 classes, L16 / L27:
+
+| arm | z (L16) | knn (L16) | z (L27) | knn (L27) | P(target) |
+|---|---|---|---|---|---|
+| REAL target (held-out) | +0.0 | **1.00** | +0.0 | **1.00** | 0.62–0.96 |
+| unedited (source) | −1.8 | 3.87 | −1.7 | 1.31 | ~0.01 |
+| add @1 cu | +0.1 | 3.80 | +0.0 | 1.28 | ~0.36 |
+| add @2.8 cu *(ran)* | +3.4 | 4.47 | +3.2 | 1.47 | ~0.96 |
+| add @11.4 cu *(ran)* | **+19.5** | **11.66** | **+18.2** | **4.24** | 1.000 |
+| ACE (reset to m_c) | +0.0 | 3.79 | +0.0 | 1.27 | ~0.39 |
+
+**⇒ A2 is closed on the pre-registered rule ("both far off-manifold ⇒ ACE is not the fix").**
+A rank-1 edit removes only **6.7% (L16) / 11.6% (L27)** of the source's off-manifold distance —
+negative for two classes. It corrects 1 coordinate of 4096 and leaves the other 4095 belonging to
+the source class. No GPU time spent to learn this.
+
+**Two findings that outlive A2.**
+
+1. **The doses we ran were overdoses, and that gives "a bigger dose buys damage, not class" a
+   mechanism.** 2.8 class-units lands **3.4 sd past** the target class mean; 11.4 lands **19.5 sd**
+   past it, and 12× further from the target manifold than real class members sit from each other.
+   We were not moving activations toward the class, we were leaving the distribution.
+   **This does NOT reopen steering:** Phase 3 already ran doses 1, 2 and 4 at L16, and dose 1 —
+   exactly the on-target dose, z≈+0.1, the ACE-equivalent — gave **0/48** target markers. The
+   correctly-dosed cell was tested (n=48, so effects above ~11% are excluded) and was null.
+2. **The probe scores edited off-manifold points HIGHER than genuine class members — 10/10
+   class-layer cells.** Real held-out NRPS activations score 0.762; a point dosed to 2.8 units,
+   sitting 3.9× further from the NRPS manifold, scores 0.963. This is an independent, mechanistic
+   confirmation of the standing rule that `class_probe` must **never gate**: it is linear, reads
+   one direction of 4096, and its confidence rises as the point becomes less like the real class.
 
 ## ★★★ DIRECTION AUDIT (2026-08-11): the steering edit LANDED at every layer — the null is downstream
 

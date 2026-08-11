@@ -8,6 +8,33 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-11] A2 (Affine Concept Editing) closed by an offline pre-check; and a rank-1 edit cannot reach the class manifold
+`evo2/scripts/ace_precheck.py`, CPU-only. ACE written out is a **rank-1 edit along the same
+direction** as additive steering, differing only in a per-example dose that lands the coordinate on
+the class mean `m_c`. Since `class_unit` is *defined* as the other-mean→class-mean distance,
+**ACE ≈ dose 1.0 per example** — not a new mechanism, a better-calibrated dose.
+
+So the deciding question is not "does it move the probe" (the direction audit showed any
+sufficient move does) but "does the edited point resemble a real class member". Judged by k-NN
+distance to a bank of real target activations, normalised by how far real held-out target
+activations sit from that bank: **ACE removes 6.7% (L16) / 11.6% (L27) of the source's
+off-manifold distance**, negative for two classes. Correcting 1 coordinate of 4096 leaves 4095
+belonging to the source class. Pre-registered rule was "both far off-manifold ⇒ ACE is not the
+fix". ⇒ **Skip A2; spend the GPU on Tier B.** Cost: zero GPU.
+
+**Why the overdose finding does not reopen steering.** The doses the programme ran land 3.4 sd
+(2.8 cu) and 19.5 sd (11.4 cu) past the target class mean — we were leaving the distribution, not
+approaching the class, which is the mechanism behind "a bigger dose buys damage, not class". But
+Phase 3 already ran doses 1, 2 and 4 at L16, and **dose 1 is the on-target, ACE-equivalent dose
+(z≈+0.1) and gave 0/48**. The correctly-dosed cell was tested at n=48 (excluding effects above
+~11%) and was null, so this is an explanation for the damage, not an untested cell.
+
+**`class_probe` must never gate — now with a mechanism.** The edited off-manifold points score
+**higher than genuine class members in 10/10 class-layer cells** (real NRPS 0.762 vs a 2.8-unit
+edit at 0.963, sitting 3.9× further from the NRPS manifold). A linear readout of one direction out
+of 4096 grows *more* confident as the point becomes *less* like the real class. This is
+independent support for the rule already pinned by three tests.
+
 ### [2026-08-11] The steering edit LANDED at every layer — "no more steering variants" is now evidence-backed, not assumed
 `evo2/scripts/direction_audit.py` (CPU-only, off the cached train activations) separates the two
 explanations that every steering null was compatible with and that we had never distinguished:

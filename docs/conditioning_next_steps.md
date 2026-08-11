@@ -96,6 +96,24 @@ dose never reaches a fixed target.
   generative style. Cheap enough to run before declaring steering fully closed.
 - <https://arxiv.org/abs/2411.09003>
 
+> **CLOSED 2026-08-11 by an offline pre-check — no GPU spent.** `evo2/scripts/ace_precheck.py`.
+> Written out, ACE is a **rank-1 edit along the same direction** as additive steering, differing
+> only in that the dose is per-example and lands the coordinate on the class mean — and because
+> `class_unit` is defined as the other-mean→class-mean distance, **ACE ≈ dose 1.0 per example.**
+> Judged on whether the edited activation looks like a real class member (k-NN distance to a bank
+> of real target activations, normalised so 1.00 = on-manifold), ACE removes only **6.7% (L16) /
+> 11.6% (L27)** of the source's off-manifold distance — negative for two classes. It fixes 1
+> coordinate of 4096 and leaves 4095 belonging to the source class. Pre-registered rule was "both
+> far off-manifold ⇒ ACE is not the fix"; both are.
+>
+> Two findings that outlive the item. **(a)** The doses the steering programme ran were overdoses
+> — 2.8 class-units lands 3.4 sd past the target class mean, 11.4 lands 19.5 sd past it and 12×
+> further from the manifold than real members sit from each other. That is the mechanism behind
+> "a bigger dose buys damage, not class". It does **not** reopen steering: Phase 3 ran dose 1 (the
+> on-target, ACE-equivalent dose) at L16 and got 0/48. **(b)** The probe scores these off-manifold
+> points **higher than genuine class members in 10/10 class-layer cells** — mechanistic support
+> for the standing rule that `class_probe` never gates.
+
 ### A3. Re-run CFG after retraining the LoRA **with class dropout**
 Ho & Salimans's Algorithm 1: null the condition on 10–20% of training examples so the same network
 learns a genuine `P(x|null)`. Our LoRA saw the tag on 100% of examples, so its "unconditional"
