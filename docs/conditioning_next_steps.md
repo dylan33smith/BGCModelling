@@ -67,9 +67,10 @@ than any single citation.
 the guidance signal at *every* step from everything generated so far: FUDGE reweights the top-k
 next-token distribution via Bayes' rule with a discriminator trained on **partial** prefixes; GeDi
 does it contrastively with a small class-conditional model (~30× cheaper than PPLM); PPLM
-backprops the classifier into the cached hidden state. ProteinGuide generalises the family to
-Any-Order Autoregressive **biological sequence** models — Evo2's model class — and reports it
-beating fine-tuning and post-hoc filtering.
+backprops the classifier into the cached hidden state. ProteinGuide unifies discriminator-style
+guidance across four generative-model classes — diffusion, flow-matching, masked-LM, and
+Any-Order Autoregressive (Evo2's model class) — and reports it beating fine-tuning and post-hoc
+filtering. *(The paper does not itself invoke PPLM/FUDGE/GeDi; grouping them is our framing.)*
 
 - *Addresses:* **4** directly. Tests whether the null was specific to *static, context-insensitive*
   vectors rather than a property of all inference-time guidance. Needs no CFG null-branch (**3**)
@@ -121,10 +122,14 @@ causally-verified examples recovering 60–73% of control.
   AxBench <https://arxiv.org/abs/2501.17148>
 
 ### A5. Diagnostic: causally-localized injection (activation patching)
-Injection demonstrably *can* work when localized to a small, causally-identified component set —
-ITI raised TruthfulQA 32.5% → 65.1% by intervening on specific attention heads found via causal
-mediation, not by picking the layer where a probe reads best. We located **where class is
-decodable** but never **which components lie on the causal path to the next token**.
+Injection demonstrably *can* work when localized to a small component set, rather than the
+whole-residual-stream direction we injected. Two different localization recipes both beat the
+diffuse approach: ITI selects specific attention heads by **linear-probe validation accuracy per
+head** (raising TruthfulQA 32.5% → 65.1%); Function Vectors localizes via **causal mediation
+analysis** (measuring each head's actual causal effect, not just its probe accuracy) and reports
+comparable gains. Both differ from what we did — we picked a *layer* from where a probe reads
+best overall, never asked which *components within it* causally write the output. Either recipe
+is a candidate for a next attempt; they are not the same method and should not be conflated.
 
 - *Addresses:* **4**, by reframing it as "the surgical form of injection is untried" rather than a
   closed negative.
@@ -137,7 +142,11 @@ decodable** but never **which components lie on the causal path to the next toke
 What we built was Lester et al.'s *Prompt Tuning* (embedding-only), not Li & Liang's
 *Prefix-Tuning*, which prepends trainable vectors to the keys/values of **every** attention layer.
 Both the original paper and P-Tuning v2 document embedding-only tuning as specifically failing on
-hard tasks. `peft` is already a pinned dependency.
+hard tasks. `peft` is already a pinned dependency, and its `PrefixTuningConfig` is a documented,
+near drop-in implementation — but **do not assume it stacks with the existing LoRA adapter**: an
+unresolved `peft` GitHub issue (#2595) states plainly that mixing prefix-tuning with LoRA on one
+model is not currently supported. Verify this directly before planning around it; a fallback is
+to run the prefix on the frozen base without LoRA, or wait on upstream support.
 
 - *Addresses:* **5**, with the exact mechanistic reason from two independent papers — we chose the
   weak side of the one axis that matters.
@@ -160,9 +169,14 @@ latent; at **every** layer, a low-rank projection of that layer's hidden state i
 the latent, passed through a bottleneck MLP, and added back to the residual stream. Backbone never
 updates. ~40–240 A100-hours vs. ~15,000 for training an equivalent control-tag model from scratch.
 
-Crucially, their own controlled comparison found the **token/prompt-conditioned baseline —
-structurally identical to our finding 2 — overfits and fails to generalise**, while the continuous
-per-layer adapter generalises well.
+**Correction (checked against the source):** the paper's own controlled ablation compares
+*full fine-tuning* against the *parameter-efficient adapter* — both using the same per-layer
+conditioning architecture, varying only whether the base weights are frozen — not
+token-conditioning against the adapter. Separately, and more qualitatively, the paper's related-work
+table characterises published control-tag methods (ZymCTRL-style) as generalising weakly to
+rare/unseen conditions, but that is not a head-to-head experiment these authors ran. Read as: real
+same-domain precedent for a per-layer adapter's design and cost, not as direct evidence the adapter
+beats token-conditioning on our specific axis.
 
 - *Addresses:* **2** and **5** by replacing "a token the model may choose to attend to" with "a
   per-layer additive term it cannot skip"; **7** by giving the condition a dedicated pathway
@@ -229,10 +243,18 @@ beyond "our LoRA didn't learn the tag" to "input-token conditioning is inherentl
 *Caveat:* DiT is non-causal and bidirectional; whether adaLN preserves autoregressive coherence is
 untested by that paper. <https://arxiv.org/abs/2212.09748> · <https://arxiv.org/abs/1709.07871>
 
-### C3. ATGC-Gen-style per-position broadcast
-A DNA LM with **our exact character-level tokenizer constraint** conditions by concatenating the
-class vector with every position's nucleotide encoding, removing the "read once at position zero,
-carry it 32k characters" dependency shared by findings 2 and 5.
+### C3. ATGC-Gen-style per-position broadcast — **corrected scope, weaker than first stated**
+**Checked against the source and the original framing here was backwards.** ATGC-Gen (a DNA LM
+with our exact character-level tokenizer constraint) uses TWO distinct conditioning mechanisms,
+not one: categorical/global properties (cell type, transcription factor — the actual class-style
+conditioning) are handled by "sequence-level integration," a **prefix embedding** — structurally
+the same family as our finding 2. Per-position broadcast ("feature-level integration") is reserved
+in that paper for **continuous, position-aligned** signals (e.g. a per-base track), not categorical
+labels. So ATGC-Gen does not demonstrate per-position broadcast working for class conditioning; if
+anything, its own class-conditioning choice matches what we already tried.
+What survives: per-position broadcast of a categorical embedding is still a mechanism worth testing
+on its own logic (removes the "read once, carry it 32k characters" dependency), but it should be
+read as an **untested extrapolation we would be making**, not a validated technique for this case.
 *Caveat:* purpose-built model, not a frozen-backbone retrofit; a constant additive signal at every
 position risks shifting the input distribution away from what pretraining calibrated for.
 <https://arxiv.org/abs/2507.19523>
