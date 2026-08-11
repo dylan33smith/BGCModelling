@@ -13,13 +13,15 @@ Prompted by the question "aren't we failing because 3 kb is too short, not becau
 doesn't work?" — a fair challenge that turned out to be right for some classes and wrong for
 others. Measured, not argued: real held-out cores truncated to generation length, same gate.
 
-- **PKS_NRPS_HYBRID at 1/2/3 kb: correct_class ceiling 0.00.** Structural — hybrid classification
-  requires seeing both machineries. All hybrid results at 3 kb are withdrawn as uninformative.
-- **NRPS 0.25, PKS 0.33 at 3 kb** (vs 0.83 full for both) — a real 2.5-3.3x compression.
-- **TERPENE 0.75, RIPP 0.67** — barely affected; their natural cores are short (medians 966 and
-  1,992 nt), so 3 kb meets or exceeds a typical core.
-- Long-core pooled ceiling 0.40; population-representative (positive control) 0.750. Different
-  questions, both real — always state which.
+Two samples were measured and they disagree, so the right one matters:
+- **PKS_NRPS_HYBRID: 0.00 at 1/2/3 kb in BOTH samples.** Structural — a hybrid call needs both
+  machineries and 3 kb cannot hold both. All hybrid results at 3 kb are WITHDRAWN.
+- **PKS: 0.40 at 3 kb vs 0.96 full** — a 2.4x compression, the largest for a non-hybrid class.
+- **NRPS 0.76, TERPENE 0.88, RIPP 0.76** at 3 kb — only mildly affected.
+- An earlier long-tail-only sample (cores ≥12 kb) read NRPS 0.25 / PKS 0.33 / pooled 0.40. That
+  answers "what does truncation cost a LONG core" and **overstates the handicap for NRPS by 3x**.
+  Use the population column. Pooled-excluding-hybrids is 0.70, agreeing with the independent
+  positive control's 0.750.
 
 **Consequence for how we report.** Absolute rates at 3 kb are fractions of 0.40-0.75, never of
 1.0. Paired internally-controlled contrasts are unaffected (shared ceiling cancels). Going

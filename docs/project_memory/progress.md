@@ -427,24 +427,33 @@ doesn't work?". Investigated rather than assumed; the answer is class-dependent 
 `scripts/length_ceiling.py` truncates REAL held-out cores to the lengths we generate and runs the
 same antiSMASH gate — a real BGC is the best case, so no generation can beat it:
 
-| correct_class | 1 kb | 2 kb | 3 kb | 6 kb | 12 kb | full |
-|---|---|---|---|---|---|---|
-| NRPS | 0.08 | 0.25 | 0.25 | 0.50 | 0.67 | 0.83 |
-| PKS | 0.33 | 0.33 | 0.33 | 0.67 | 0.67 | 0.83 |
-| **PKS_NRPS_HYBRID** | **0.00** | **0.00** | **0.00** | 0.08 | 0.42 | 0.92 |
-| TERPENE | 0.75 | 0.75 | 0.75 | 0.75 | 0.75 | 0.92 |
-| RIPP | 0.25 | 0.58 | 0.67 | 0.67 | 0.75 | 0.75 |
-| POOLED | 0.28 | 0.38 | 0.40 | 0.53 | 0.65 | 0.85 |
+| correct_class at 3 kb | POPULATION (n=25/class) | long-tail (cores ≥12 kb) | full length |
+|---|---|---|---|
+| NRPS | **0.76** | 0.25 | 0.84 |
+| **PKS** | **0.40** | 0.33 | **0.96** |
+| **PKS_NRPS_HYBRID** | **0.00** | **0.00** | 0.96 |
+| TERPENE | 0.88 | 0.75 | 0.96 |
+| RIPP | 0.76 | 0.67 | 0.92 |
+| POOLED | 0.56 | 0.40 | 0.93 |
 
-**Hybrid results at 3 kb are WITHDRAWN** — antiSMASH needs both machineries to call a hybrid and
-3 kb cannot hold both, so those arms could not have produced a positive whatever the model did.
-NRPS/PKS carry a real 2.5–3.3x compression. TERPENE/RIPP are barely affected (natural core
-medians 966 and 1,992 nt, so 3 kb meets or exceeds a typical core).
+**Use the POPULATION column** — it samples each class at its natural length distribution, which
+is what a generation is actually competing against. The long-tail column required cores ≥12 kb so
+the long columns would be meaningful, and therefore answers only "what does truncation cost a
+LONG core". Quoting it as the ceiling overstates the handicap for NRPS by 3x.
 
-**Do not quote 0.40 as "the ceiling"** — that run required cores ≥12 kb so the long columns would
-mean something, so it sampled each class's LONG TAIL and answers "what does truncation cost a long
-core". The population-representative figure (the positive control, matched to the generations' own
-length and class mix) is **0.750** pooled at 3 kb. Both real; always say which.
+Reconciliation with the existing positive control (0.750 pooled at 3 kb): pooled-excluding-hybrids
+here is (0.76+0.40+0.88+0.76)/4 = **0.70**. The 0.56 figure is dragged down only by including
+hybrids at 0.00. Two independent methods agreeing at ~0.70-0.75.
+
+**The two classes that are genuinely length-limited:**
+- **PKS_NRPS_HYBRID — ceiling 0.00 at 1/2/3 kb in BOTH samples.** Structural: antiSMASH calls a
+  hybrid only by seeing both machineries, and 3 kb cannot contain both. Every hybrid result at
+  3 kb is WITHDRAWN — those arms could not have produced a positive whatever the model did.
+- **PKS — 0.40 at 3 kb against 0.96 at full length**, a 2.4x compression, the largest for any
+  non-hybrid class. Median PKS core is 9 kb in this sample, so most are heavily truncated.
+
+NRPS (0.76), TERPENE (0.88) and RIPP (0.76) are only mildly affected: their cores are short enough
+that 3 kb captures most of a typical one.
 
 *Unaffected:* every paired, internally-controlled contrast (real vs shuffled direction, guided vs
 random, prefix_X vs prefix_Y) — a shared ceiling cancels. Phase 1 never used antiSMASH.
