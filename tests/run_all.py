@@ -29,6 +29,7 @@ TESTS = [
     "test_guided_decoding.py",          # WHICH candidate guided decoding keeps + how Q1 is read
     "test_direction_audit.py",          # the dose/angle arithmetic behind the steering verdict
     "test_scored_span.py",              # is the SEED inside the sequence antiSMASH scores? (no)
+    "test_activation_patching.py",      # is the donor state really substituted, and measured right
 ]
 
 

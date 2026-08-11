@@ -476,6 +476,49 @@ sound here via `length`, but 4 of 12 arms are all-3000 nt and give no ordering i
 (3) add the max-vs-max Q1 test to the analyzer. The "continuation-scoped readout" item is
 **withdrawn** — the readout was already continuation-scoped.
 
+## ★★★ ACTIVATION PATCHING (2026-08-11) — the model DOES read mid-layer state. The steering null was about the EDIT'S SHAPE.
+
+`evo2/scripts/activation_patching.py`. The direction audit showed our edit lands and is ignored; the
+ACE pre-check showed the edit was rank-1 and 3–20 sd off the data manifold. That left a fork nobody
+had tested: is the model blind to these activations, or was our edit simply the wrong SHAPE to be
+read? Patching answers it by substituting a **genuine** activation pattern — recorded from a real
+forward pass over real DNA, in-distribution, all 4,096 coordinates mutually consistent.
+
+**Mean alignment to the donor** (0 = patch did nothing, 1 = recipient now behaves exactly like the
+donor), by layer × number of trailing context positions substituted, n=12 cross-class pairs:
+
+| layer | k=1 | k=10 | k=50 | k=200 | k=500 |
+|---|---|---|---|---|---|
+| 8 | 0.106 | 0.262 | 0.389 | **0.851** | 0.936 |
+| 16 | 0.056 | **0.414** | 0.575 | **0.837** | 0.905 |
+| 22 | 0.133 | 0.655 | 0.773 | 0.956 | 0.997 |
+| 26 | 0.327 | 0.931 | 0.962 | 0.996 | 1.001 |
+
+Controls at k=10 / layer 16: same-class donor **0.128**, position-shuffled donor **0.129**,
+norm-matched noise **−0.099**, against cross-class **0.414**. The transfer is donor-specific, not
+generic disruption.
+
+**⇒ The model reads mid-layer activations perfectly well.** Substituting 10 positions out of 1000 —
+1% of the context — at layer 16 moves the output 41% of the way to the donor. Our rank-1 steering
+edit, applied to EVERY position at 2.8–11.4 class-units, moved it essentially nothing. **The
+difference is the shape of the edit, exactly as the ACE analysis predicted.** A transplant works
+where a translation does not.
+
+**A first pass got this backwards and the design was fixed.** `mode='all'` (substitute every
+position) returns alignment 1.000 with an identical KL of 0.8508 at layers 0, 16 and 31 alike —
+because once every position at depth L is the donor's, layers L+1..31 compute from the donor alone
+and the model simply *becomes* the donor. Identical values across layers were the tell. It is a
+positive control that the patch propagates, never a layer profile. Likewise the k=1 null at
+mid-layers was **leverage, not blindness** — one position out of a thousand has little influence,
+and the k-sweep is what separates those two readings. Both facts are recorded in the script.
+
+**What this does NOT yet show.** Evo2's vocabulary is bytes, so the next-token distribution is over
+A/C/G/T and class is not legible in it. At small k the patched positions *are* the local context of
+the next base, so high alignment may be ordinary sequence continuation rather than class transfer.
+**Phase B** (`evo2/scripts/patch_generate.py`, running) patches the context representation and then
+generates a full 3 kb continuation, scored by antiSMASH and Pfam markers — instruments that take no
+part in the intervention — to ask whether the continuation comes out as the DONOR's class.
+
 ## ★★★ ACE PRE-CHECK (2026-08-11): A2 is CLOSED before spending GPU, and the doses were overdoses
 
 `evo2/scripts/ace_precheck.py` (CPU-only). Writing ACE down makes the key fact obvious: it is a

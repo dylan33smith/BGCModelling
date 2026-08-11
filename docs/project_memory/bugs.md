@@ -457,3 +457,20 @@ these in minutes.
   would have prevented the whole error. (2) *A premise handed to a verifier is not verified by it.*
   Five adversarial reviewers were given the confound as background context; none checked the
   generator source. Put the premises in the attack list, not the preamble.
+
+- **[2026-08-11] An intervention that saturates is a positive control, not a measurement.**
+  Activation patching with `mode='all'` (substitute every position at layer L) returned alignment
+  **1.000 at layers 0, 16 and 31 alike, with an identical KL of 0.8508 at each** — because once
+  every position at depth L is the donor's, layers L+1..31 compute from the donor alone and the
+  model simply becomes the donor. The tell was that the numbers were *identical across layers*, and
+  a layer profile that does not vary with layer is not a layer profile. Kept as a positive control
+  (it proves the patch propagates and nothing leaks past the hook). The informative version
+  substitutes only the last k positions.
+
+- **[2026-08-11] A null from a low-leverage intervention is not a null about the mechanism.**
+  Patching ONE position out of 1000 at mid-layers gave alignment 0.056–0.13, indistinguishable from
+  the noise control — which reads as "the model does not consult this layer" and would have closed
+  the last open door in the programme. Sweeping k showed the opposite: 10 positions gives 0.414 at
+  layer 16, 200 gives 0.837. It was **leverage, not blindness**. *Rule: before reading a null off an
+  intervention, vary its magnitude along the axis that controls leverage and show the effect stays
+  flat. A single operating point cannot distinguish "no mechanism" from "too small to see".*

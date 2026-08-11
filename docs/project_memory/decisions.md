@@ -8,6 +8,31 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-11] "The model does not read these activations" is FALSE — it reads them; our edit was the wrong shape
+`evo2/scripts/activation_patching.py`. Substituting a **real** donor's activations (in-distribution,
+all 4,096 coordinates consistent) over 10 of 1000 context positions at layer 16 moves the
+next-token distribution **41%** of the way to the donor; 200 positions reaches **84%**. Controls:
+same-class donor 0.128, position-shuffled 0.129, norm-matched noise −0.099. Our rank-1 steering
+edit, at every position, at 2.8–11.4 class-units, moved it essentially nothing.
+
+⇒ **The mechanism behind every steering null is the SHAPE of the edit, not the model's blindness.**
+This is the direct experimental confirmation of what the ACE pre-check predicted from geometry
+alone (a rank-1 edit fixes 1 coordinate of 4,096 and leaves the rest belonging to the source class,
+landing 3–20 sd off-manifold). It does **not** reopen steering — a direction is still the wrong
+shape — but it does open *transplantation* as a category we had never tried, and it means the
+residual stream at mid-depth is a live channel rather than a dead one.
+
+**Two design corrections, both caught by internal inconsistency rather than by a crash.**
+(1) Patching ALL positions returns alignment 1.000 with an identical KL at layers 0, 16 and 31 —
+the model just becomes the donor. Identical numbers across layers were the tell. It is a positive
+control, not a measurement. (2) The one-position null at mid-layers was **leverage, not blindness**;
+only a k-sweep separates those, and without it the experiment would have "closed" the last open
+door on an artifact.
+
+*Still open:* whether what transfers includes CLASS. Byte-level vocabulary means the next-token
+distribution cannot show it, and at small k the patched positions are the local context of the next
+base. Phase B (`patch_generate.py`) settles it functionally.
+
 ### [2026-08-11] A2 (Affine Concept Editing) closed by an offline pre-check; and a rank-1 edit cannot reach the class manifold
 `evo2/scripts/ace_precheck.py`, CPU-only. ACE written out is a **rank-1 edit along the same
 direction** as additive steering, differing only in a per-example dose that lands the coordinate on
