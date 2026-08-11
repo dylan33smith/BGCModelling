@@ -419,3 +419,28 @@ these in minutes.
 - **`peft` 0.19 + `torch` 2.5.1 (the `bgcmodel` env) is broken:** `get_peft_model` →
   `AttributeError: module 'torch' has no attribute 'float8_e8m0fnu'`. GenomeOcean PEFT work must
   run in the `genomeocean` env (torch 2.11).
+
+- **[2026-08-11] `correct_class` on SEEDED generations measures detectability, not class.** It agrees
+  with `is_bgc` on 117/120 records in the guided-decoding run; the only 3 disagreements are one NRPS
+  seed. The seed is a real core of the target class, so once antiSMASH detects anything it calls the
+  seed's class and the "detected but wrong class" cell is essentially empty. **Any seeded experiment
+  scored this way cannot separate "the model installed the class" from "antiSMASH found the seed".**
+  Fix: scope the readout to the continuation, or report the seeded and de novo regimes separately.
+
+- **[2026-08-11] A "final full-sequence score" comparison is not a myopia test when the score is
+  cumulative.** `guided_generate.py` scores `seq + cand`, so the guided arm's final number is a
+  max-of-4 and the control's a uniform-of-4 — the guided arm wins by construction even under total
+  myopia. The valid comparison is **max-vs-max**: the guided arm's chosen score against the control's
+  own `guide_p_target_max`. Chunk 0 then gives 40/40 exact ties (both arms share candidate sets), a
+  free harness control that the naive test cannot produce.
+
+- **[2026-08-11] A paired sign test can be at its DESIGN FLOOR and look like a null.** best-vs-plain
+  gave p=0.5000 with 2 discordant pairs — but 2×0.5² = 0.5 is the *minimum attainable* two-sided p at
+  n_discordant=2, reached when the treatment wins BOTH. Reading it as "no effect" inverts the
+  evidence. Always report the discordant count next to p; and with zero reversals, 6-0 is the
+  smallest result that can reach p<0.05.
+
+- **[2026-08-11] `pgrep -f <script>` inside a waiter matches the waiter's own command line.** A
+  background poller written as `while pgrep -f run_guided_decoding.sh; do sleep 15; done` never
+  exits: `pgrep -f` matches full command lines, including the poller's. Watch for a completion marker
+  in the log instead, or exclude self with `pgrep -f ... | grep -v $$`.

@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-08-11 (ACE pre-check closed A2 offline; direction audit)._
+_Last updated: 2026-08-11 (A1 guided decoding: Q1 passes, Q2 underpowered + seed-confounded)._
 
 ---
 
@@ -390,6 +390,59 @@ is null as required (3/9, p=0.51).
 train-only pooled activations for 10,022 real cores at all 32 layers, so anything living in
 activation space runs alongside a GPU job. Used below for the direction audit; the same route is
 open for an offline Affine-Concept-Editing pre-check (A2).
+
+## ★★★ A1 GUIDED DECODING (2026-08-11): Q1 PASSES, Q2 is UNDERPOWERED — and the readout was confounded with the seed
+
+Complete: 4 classes × 3 arms × n=10, `/data2/ds85/bgcmodel_runs/guided_decoding/`. Adjudicated by
+five independent adversarial reviewers, which **refuted one of the first-pass conclusions** and
+downgraded three others. Do not cite the first-pass reading.
+
+**Q1 — selection works.** Guide score best−random +5.71 pooled (39/40, p<1e-10); per-chunk gap grows
++0.244→+0.472. *Caveat found in review:* the "final full-sequence" test in
+`analyze_guided_decoding.py` is **not** a myopia test — `guided_generate.py` scores `seq + cand`, so
+best's final number is a max-of-4 and random's a uniform-of-4, and best wins by construction even
+under total myopia. The valid test is **max-vs-max** (best's chosen vs random's own
+`guide_p_target_max`): chunk 0 gives +0.000 with 40/40 exact ties — a perfect harness control, since
+both arms provably share candidate sets — then +0.225/+0.359/+0.370/+0.395, chunk 4 at 31/34,
+p=1e-6. **Myopia is ruled out, but by a test the analyzer does not yet run.** Note 57.8% of total
+selection pressure lands on chunk 0.
+
+**Q2 — UNDERPOWERED, not null.** antiSMASH `correct_class`: plain 0.350 / random 0.275 / best 0.400.
+Paired best-vs-random 5–0 (p=0.0625), best-vs-plain 2–0 (p=0.50), markers 4–1 (p=0.375).
+Direction is consistently positive with **zero reversals in 120 records**, but:
+
+- **35 of 40 seeds return an identical outcome in all three arms ⇒ effective n = 5 informative
+  seeds, not 40 pairs.** NRPS 10/10 and RIPP 10/10 are entirely frozen; only PKS (2) and TERPENE (3)
+  carry any paired information.
+- With zero reversals the sign test needs **6–0 for p<0.05**; we observed 5–0. The design missed
+  significance **by one seed**.
+- p=0.50 for best-vs-plain is the **design floor** (2 discordant ⇒ min two-sided p = 2×0.5² = 0.50),
+  so it carries no evidential weight — best never *loses* a pair to plain.
+
+**★ THE INSTRUMENT PROBLEM, and the most important finding here.** `correct_class` agrees with
+`is_bgc` on **117/120 records**; the only 3 disagreements are one NRPS seed, called TERPENE in all
+three arms. So the gate measured **detectability, not class specificity** — there is effectively no
+"detected, but wrong class" cell. In the seeded regime the seed is a real core of the target class,
+so once antiSMASH detects anything it calls the seed's class. **`correct_class` on seeded
+generations cannot separate "guidance installed the target class" from "antiSMASH found the seed".**
+Any rerun needs a readout scoped to the continuation, not the whole record.
+
+**⚠️ RETRACTED before publication: the Goodhart reading.** The first pass claimed this was
+proxy-gaming, mechanistically linked to the same-day off-manifold finding. **Both halves are wrong.**
+(a) The guide **predicts** the independent readout — AUC **0.808** over all 120 records and **0.856**
+in the *unselected* arms, where selection took no part. A proxy that still tracks the target at
+AUC 0.86 has not been Goodharted. (b) Guided decoding performs **no activation edit** — every
+activation scored is a genuine forward pass over DNA the model emitted, whereas the off-manifold
+audit constructed `h + α·direction` at 3.4–19.5 sd. The two results are not the same mechanism.
+What *is* real is **calibration collapse under selection**: P(correct_class | guide>0.5) falls
+0.696 (unselected) → 0.516 (best), and the mean guide score on antiSMASH-negatives inflates
+0.141 → 0.613.
+
+**⇒ VERDICT: A1 is not answered.** Selection demonstrably works; the outcome measure could not see
+whether it mattered. Before any rerun: (1) a continuation-scoped readout, (2) far more seeds — the
+seed, not the arm, sets the outcome, (3) emit `accession` in `antismash.tsv` (pairing currently
+relies on row order; verified sound here via `length`, but 4 of 12 arms are all-3000 nt and give no
+ordering information), (4) add the max-vs-max Q1 test to the analyzer.
 
 ## ★★★ ACE PRE-CHECK (2026-08-11): A2 is CLOSED before spending GPU, and the doses were overdoses
 
