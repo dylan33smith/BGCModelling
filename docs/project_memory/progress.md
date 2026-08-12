@@ -971,7 +971,7 @@ not as the objective. `max_orf_aa` retains weak signal here (0.709) but had **no
 | `n_bio_orfs` | 0.16 | 0.75 | 1.36 | rung, weaker (0.826) |
 | `n_orfs` | 4.02 | 2.94 | 2.12 | separates, but INVERTED — more ORFs is worse |
 | `co_orient` | 0.805 | 0.885 | 0.973 | too weak (0.654) |
-| `modules` / `in_order` | 0.000 | 0.000 | **0.000** | **instrument broken — see bugs.md** |
+| `modules` / `in_order` | 0.000 | 0.000 | **0.000** | **length floor, not broken** — a module needs ~1000–1500 aa and cannot fit the 3 kb window this cohort used; the check is correct (5 ordered modules on a real 5,951 aa megasynthase). Diagnostic at ≥6 kb only. See bugs.md. |
 
 `bio_span_frac` is the rung that was missing: it measures whether biosynthetic domains are SPREAD
 across the sequence like a cluster rather than crammed in one spot. Real 0.876, de novo 0.051.
@@ -991,9 +991,27 @@ across the sequence like a cluster rather than crammed in one spot. Real 0.876, 
 | — | `max_orf_aa` | 448 | 542 | 729 | structural diagnostic only |
 | **guard** | **novelty** | — | — | — | **every rung above is maximised by copying training data** |
 
-**The novelty guard is not optional.** Rungs 2–4 all reward producing sequence that looks like the
-training set; the cheapest way to win any of them is memorisation. Novelty must be reported
-alongside in every run or an improvement is uninterpretable. It is a CONSTRAINT, not a rung.
+**The novelty guard is not optional, and here is what it actually does.** Rungs 2–4 all reward
+sequence that looks like the training set, so the cheapest way to win any of them is memorisation.
+`check_kmer_novelty` + `scripts/memorization_check.scan_corpus` measure **containment**: cut the
+generation into every overlapping 21-nucleotide window, and ask what fraction of those windows also
+occur in the single most similar real BGC. ≥0.95 → `FAIL_memorized`; ≥0.80 → `WARN`; below →
+`PASS_novel`.
+
+Three design points that matter for reading it:
+* **Containment, not similarity.** "What share of MY k-mers appear in that reference" is the right
+  question for a fragment: a 3 kb generation can be a verbatim copy of part of a 30 kb cluster, and
+  a symmetric similarity score would read LOW because the reference has so much extra. Containment
+  reads 1.0, correctly.
+* **k=21** is long enough that a match is essentially never chance (4^21 ≈ 4×10¹²) and short enough
+  to survive differences elsewhere in the sequence.
+* **A skip is never a pass.** No scan supplied → SKIPPED. Scan present but missing the
+  `max_containment` key → SKIPPED as malformed, explicitly refusing to default. That guard exists
+  because an earlier version used `.get("max_containment", 0.0)`, and 0.0 means *maximal novelty* —
+  so a malformed record certified a memorised sequence as novel.
+
+It is a CONSTRAINT, not a rung: report it beside every ladder number, and treat an improvement with
+an unverified novelty gate as uninterpretable rather than positive.
 
 ## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 

@@ -23,8 +23,19 @@ from the model line.
     it would mean three months of conditioning experiments were run on a generator that had never
     left base-model behaviour.
 
+**THE CONFOUND THIS TEST HAS, AND THE GUARD FOR IT.** The LoRA was trained on 47,524 BGC cores;
+base Evo2 was not. So "LoRA scores higher on biosynthetic metrics" has two very different readings:
+it LEARNED to generate biosynthetic sequence, or it is REGURGITATING cores it memorised. Every
+metric on the ladder rewards resemblance to the training set, so the two look identical on all of
+them. Novelty is therefore scored here as a gate, not an afterthought: k-mer containment against the
+reference corpus, FAIL at >= 0.95. A LoRA advantage carried by memorised sequences is not evidence
+that the fine-tune moved generation, and without this the more interesting reading would be the one
+reported.
+
 Paired by prompt index, since both arms share the prompt list. A paired sign test is the primary
-readout; means are reported alongside but the metric is skewed and n is small.
+readout; means are reported alongside but the metric is skewed and n is small. PRIMARY METRIC is
+`best_bio_bits` (absolute), not the ratio: the ladder audit measured AUROC 0.950 vs 0.893 for
+predicting the independent antiSMASH outcome.
 """
 from __future__ import annotations
 
@@ -92,14 +103,57 @@ def main() -> int:
               f"{st.mean(len(arms[name][i]['sequence']) for i in shared):>7.0f}")
 
     print(f"\nPAIRED (same prompt, same seed, adapter is the only difference)")
+    print("  * = PRIMARY (ladder audit: AUROC 0.950 for the independent antiSMASH outcome)")
     print(f"{'metric':>18} {'base':>9} {'lora':>9} {'delta':>9} {'up':>8} {'sign p':>8}")
-    for key, lab in (("frac", "BIO fraction"), ("bio", "best BIO bits"),
+    for key, lab in (("bio", "best BIO bits *"), ("frac", "BIO fraction"),
                      ("cls_bio", "best CLASS bits"), ("any", "best ANY bits")):
         d = [l[i][key] - b[i][key] for i in shared]
         up, n, p = sign_test(d)
         print(f"{lab:>18} {st.mean(b[i][key] for i in shared):>9.3f} "
               f"{st.mean(l[i][key] for i in shared):>9.3f} {st.mean(d):>+9.3f} "
               f"{up:>3}/{n:<4} {p:>8.4f}")
+
+    # ---- NOVELTY GATE -------------------------------------------------------------------
+    # Runs on BOTH arms against the TRAINING corpus. A LoRA win carried by memorised sequence is
+    # not evidence the fine-tune moved generation.
+    print("\nNOVELTY GATE (k-mer containment vs the training corpus; FAIL at >= 0.95)")
+    try:
+        sys.path.insert(0, str(REPO / "scripts"))
+        from memorization_check import scan_corpus
+        ref = Path("/data2/ds85/bgcmodel_data/splits_core/train.jsonl")
+        queries, qkeys = [], []
+        for name, d in (("base", b), ("lora", l)):
+            for i in shared:
+                queries.append((f"{name}#{i}", arms[name][i]["sequence"]))
+                qkeys.append((name, i))
+        nov = scan_corpus(queries, ref)
+        cont = {k: float(r.get("max_containment", float("nan"))) for k, r in zip(qkeys, nov)}
+        print(f"{'arm':>6} {'mean containment':>17} {'max':>7} {'>=0.95 (memorised)':>20} "
+              f"{'>=0.80 (warn)':>15}")
+        for name in ("base", "lora"):
+            v = [cont[(name, i)] for i in shared if cont[(name, i)] == cont[(name, i)]]
+            if not v:
+                continue
+            print(f"{name:>6} {st.mean(v):>17.3f} {max(v):>7.3f} "
+                  f"{sum(1 for x in v if x >= 0.95) / len(v):>20.2f} "
+                  f"{sum(1 for x in v if x >= 0.80) / len(v):>15.2f}")
+        memo = [i for i in shared if cont.get(("lora", i), 0) >= 0.95]
+        if memo:
+            print(f"  !! {len(memo)} LoRA sequences are MEMORISED — recomputing the headline "
+                  f"metric with them excluded:")
+            keep = [i for i in shared if i not in memo]
+            if keep:
+                d = [l[i]["bio"] - b[i]["bio"] for i in keep]
+                up, n, pv = sign_test(d)
+                print(f"     best_bio_bits, memorised excluded (n={len(keep)}): "
+                      f"{st.mean(d):+.2f}, {up}/{n}, p={pv:.4f}")
+        else:
+            print("  no LoRA sequence reaches the memorisation threshold — a LoRA advantage, if "
+                  "any, is not explained by copying.")
+    except Exception as e:
+        print(f"  SKIPPED: {e}")
+        print("  NOTE: a skipped novelty gate means novelty is UNVERIFIED, never that it passed. "
+              "Any LoRA advantage below is uninterpretable until this runs.")
 
     print(f"\nper class (BIO fraction)")
     print(f"{'class':>10} {'n':>4} {'base':>8} {'lora':>8} {'delta':>9}")
