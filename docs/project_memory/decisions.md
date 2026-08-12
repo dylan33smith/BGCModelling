@@ -8,6 +8,102 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-12] PHASE 2 OPENED — the 1B track, and the custom training objective
+Phase 1 (the 7B) answered *where* the problem is. Phase 2 asks *whether changing the training
+objective moves it*, which needs many short runs rather than one long one. New track at `evo2_1b/`;
+everything model-agnostic (eval suite, ladder, novelty guard, domain spans, controls) is REUSED
+rather than copied, and only model-specific numbers are re-derived.
+
+**SUBSTRATE — and the Transformer Engine story, which corrected two of my own claims.**
+1. Project docs said for weeks that no small model existed because the 1B "requires TE/FP8".
+2. The refusal in `evo2.models` is a **name check**: `if "7b" in model_name: bf16 fallback, else
+   raise`. The fallback is model-agnostic, so applying it by hand makes the 1B **load** cleanly —
+   1.108B params, finite logits. It looked as though the docs were simply wrong.
+3. **They were not.** On real held-out cores the bf16 1B reads **1.339 nats/base** with predictive
+   entropy **1.357** against a uniform **1.386** — a near-uniform distribution, i.e. guessing. The
+   7B base under the *same* fallback is fine at 0.859. The checkpoint stores FP8 scale metadata in
+   `_extra_state` (`te_fp8_meta` on load) that TE needs to dequantise the projections. **The
+   refusal is crude in implementation but correct in substance**, and "it is only a string
+   comparison" was wrong.
+4. **TE 1.13.0 installed.** 2.18 cannot build against torch 2.5.1 (`SymmetricMemory.hpp`, a header
+   from a later torch); 1.13 is contemporary with torch 2.5, does **not** upgrade torch, and the 7B
+   pipeline is verified unaffected afterwards. Pin cu12 — the resolver otherwise pulls cu13.
+
+**1B vs 7B — the differences that matter.**
+
+| | 1B + TE | 7B |
+|---|---|---|
+| parameters | 1.108B | 6.58B |
+| blocks | 25 (4 attn / 21 Hyena) | 32 (5 attn / 27 Hyena) |
+| hidden | 1,920 | 4,096 |
+| native context | **8,192** | 32,768 |
+| nats/base, real cores | **0.990** | 0.859 base · 0.820 +LoRA |
+| **throughput** | **8,770 tok/s** | **2,625 tok/s** |
+
+⇒ **The speedup is 3.34×, NOT the ~6× the parameter ratio suggests.** Both models are byte-level, so
+3 kb is 3,000 tokens on both — there is no token-compression win, and the 1B carries fixed per-step
+overhead that matters more at ~15 s/step. (GenomeOcean's 5.15 bp/token is the only route to a
+bigger win, and remains the option if the LONG-context version is ever needed.) The +0.13 nats
+handicap is real but modest: the 1B is a usable stand-in for *does this objective change anything*,
+**not** a substitute for a final number — a Phase-2 positive must be confirmed on the 7B.
+
+**THE OBJECTIVE** (`src/bgc_pipeline/objective.py`, model-agnostic so both tracks share one path).
+Standard CE is misaligned with the task twice over: every position counts equally (33.7% of
+training nucleotides are class-defining domain and get 33.7% of the gradient), and every *mistake*
+counts equally (a synonymous third-position change is harmless; a base that completes a stop codon
+terminates the protein and junks everything downstream).
+* **domain-weighted** — per-position weights, **normalised PER RECORD**. Coverage is 78.6% in cores
+  under 1 kb and 25.1% above 50 kb, so an unnormalised multiplier silently becomes a LENGTH
+  weighting.
+* **frame-aware** — penalises probability mass on a base that would CLOSE a stop codon at codon
+  phase 2 inside an annotated gene. **Real gene termini are exempt at the whole POSITION, not per
+  base**: excluding only the true base still penalises the alternative stop (mass on G at a real
+  TAA) and teaches the model never to terminate.
+* Defaults (weight 1.0, λ 0.0) are **bit-identical** to `causal_lm_loss`, pinned by test, so the
+  control cell is exactly the current objective.
+* Components are logged separately (`loss_ce`, `loss_stop_pen`) — a penalty that is silently zero,
+  or that swamps the CE, is invisible in a single total. Measured on the 1B: penalty 0.10–0.29
+  against CE 0.93–1.45.
+
+**SEQUENCING — frame-aware first, and why the arms want different lengths.** frame-aware is
+length-agnostic (a stop is a stop) and can run short; domain-weighted is least meaningful at short
+context, because short cores are already 78.6% domain and there is nothing to reweight. A short
+pilot is therefore a valid test of one arm and a poor test of the other.
+
+**L = 8,192, the 1B's NATIVE context — not 4,096.** At 4,096 the sequence budget is ~3,897 nt after
+the prefix, while ONE NRPS module is 3,000–4,500 nt: the window could barely hold the thing the
+frame-aware arm exists to teach. *"The window could not fit a module"* would be a poor reason for a
+null. Measured cost is affordable (7.7 GB peak, ~8,700 tok/s).
+
+**CHUNKED, NOT TRUNCATED — and this was nearly a silent confound.** The trainer defaults to
+`truncate`, which was used unexamined until challenged. Measured:
+
+| | truncate @4 kb | whole-records-only @8 kb | blind chunk @8 kb |
+|---|---|---|---|
+| DNA seen | 25.2% | 14.7% | **100%** |
+| class-domain coverage | **49.0%** | — | **33.7%** (true) |
+| cost | biased AGAINST the weighted arm | drops long cores | cuts 13.1% of genes |
+
+Truncation shows only the first ~4 kb of every core, a slice that is 49.0% class-domain against the
+true 33.7% — i.e. it hands the domain-weighted arm LESS linker to down-weight than reality has,
+biasing the test against the intervention under test. It also pins `nt_start` at 0, so the
+window-offset path in `annotations.py` is never exercised by a real run. ⇒ **blind chunk, overlap
+1024.** Gene-aware boundaries were already tested (probe sweep: "gene-aware ≤ blind", n=6 on
+metrics reading ~0) and buy complexity against a measured null; whole-records-only is cleaner but
+uses 14.7% of the DNA and drops most NRPS and all hybrids — exactly the assembly-line classes the
+ORF question concerns. Chunking is **common-mode across all arms**, so it can add noise but cannot
+manufacture a difference between them.
+*Residual concern, recorded not fixed:* a window starting mid-gene penalises the model for frame it
+cannot yet infer. Overlap was raised 512→1024 to give more run-up; the fuller fix (skip the first
+~100 positions of a window) waits until this pass is read, rather than shipping untested code.
+
+**SCORED ON `best_bio_bits`, NOT `max_orf_aa`.** The frame-aware arm manipulates reading-frame
+length directly, so scoring it there would be scoring the manipulation. `max_orf_aa` does not track
+domain content de novo (r = 0.051 / −0.120) and is a structural diagnostic only. **If ORF length
+rises and `best_bio_bits` does not, that is the informative negative: length was never the
+constraint.** Novelty is a hard constraint, not a metric — every rung is maximised by copying.
+
+
 ### [2026-08-12] B-track design decisions: frame-aware first, short context, per-record weights
 Settled before any training run, with the reasoning so a later reader can tell which parts were
 measured and which were judgement.

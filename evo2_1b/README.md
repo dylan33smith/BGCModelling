@@ -98,16 +98,71 @@ right required fixing three errors, each an instance of a pattern this project k
 
 Final form: 500 bases after 2,000 nt of real context, averaged over 8 real cores, healthy < 1.15.
 
+## Training configuration, and why
+
+**L = 8,192** — the 1B's native context. Not 4,096: the sequence budget there is ~3,897 nt after
+the prefix, while ONE NRPS module is 3,000–4,500 nt, so the window could barely hold the thing the
+frame-aware arm exists to teach. *"The window could not fit a module"* is a poor reason for a null.
+Cost is affordable: 7.7 GB peak, ~8,700 tok/s.
+
+**`--long-seq-strategy chunk --chunk-overlap 1024`** — 95,759 windows over all 467 Mbp. The
+trainer's default is `truncate`, which was used unexamined until challenged and turned out to bias
+the experiment against its own hypothesis:
+
+| | truncate @4 kb | whole-records-only @8 kb | blind chunk @8 kb |
+|---|---|---|---|
+| DNA seen | 25.2% | 14.7% | **100%** |
+| class-domain coverage | **49.0%** | — | **33.7%** (the true rate) |
+| cost | biased AGAINST the weighted arm | drops long cores | cuts 13.1% of genes |
+
+Gene-aware boundaries were already tested in Phase 1 ("gene-aware ≤ blind", n=6, on metrics reading
+~0) and buy complexity against a measured null. Whole-records-only is cleaner but uses 14.7% of the
+DNA and drops most NRPS and all hybrids — exactly the assembly-line classes the ORF question is
+about. Chunking is **common-mode across all arms**: it can add noise, it cannot manufacture a
+difference between them.
+
+*Residual concern, recorded not fixed:* a window starting mid-gene penalises the model for frame it
+cannot yet infer from its visible context. Overlap was raised 512→1024 for more run-up; the fuller
+fix (skip the first ~100 positions of a window) waits on this pass rather than shipping untested
+code before a run.
+
+**Read on `best_bio_bits`, never `max_orf_aa`.** The frame arm manipulates ORF length directly, so
+scoring it there scores the manipulation. `max_orf_aa` does not track domain content de novo
+(r = 0.051 / −0.120). If ORF length rises and `best_bio_bits` does not, that is the informative
+negative: length was never the constraint. **Novelty is a constraint, not a metric** — every rung is
+maximised by copying training data.
+
+## The arms
+
+| arm | flags | tests |
+|---|---|---|
+| `baseline` | `--domain-weight 1.0 --frame-lambda 0.0` | bit-identical to `causal_lm_loss` (pinned by test) |
+| `frame` | `--frame-lambda 0.5` | in-gene stop-completion penalty |
+| `weighted` | `--domain-weight 3.0` | per-record-normalised domain weights |
+
+Not the full 2×2 yet — the arms want different lengths (frame-aware is length-agnostic;
+domain-weighted is least meaningful at short context), so the interaction cell runs only if a single
+arm moves.
+
+**Reference points for reading a result** (7B, de novo): `best_bio_bits` LoRA **56.9**, real cores
+**148.6**, base **0.0**.
+
 ## Layout
 
 ```
 evo2_1b/
+  README.md
   scripts/
-    evo2_1b_inference.py     # loader (+ the fp8/bf16 story), substrate sanity check
-    compare_1b_7b_loss.py    # baseline 1: next-base CE on real cores, 1B vs 7B
-  experiments/               # run drivers
-  docs/                      # phase notes
+    evo2_1b_inference.py     # loader + substrate sanity check (real DNA, 8 cores, healthy < 1.15)
+    compare_1b_7b_loss.py    # baseline: next-base CE on real cores, 1B vs 7B
+  experiments/
+    run_objective_arms.sh    # baseline / frame / weighted
+    score_arms.sh            # generate with matched prompts, then the ladder + novelty
+  docs/
 ```
 
-Run everything from the repo root. Shared tooling stays at the root by the existing convention
-(`CLAUDE.md` → Repository Layout).
+Shared, model-agnostic tooling stays at the root (`CLAUDE.md` → Repository Layout) and is called,
+not copied: `src/bgc_pipeline/{evaluation,objective,annotations}.py`,
+`evo2/scripts/{ladder_audit,score_ladder}.py`, `scripts/{build_domain_spans,memorization_check}.py`.
+
+Run everything from the repo root with `EVO2_BASE_MODEL=evo2_1b_base`.

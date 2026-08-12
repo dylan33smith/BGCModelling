@@ -39,6 +39,12 @@ Two model tracks, one shared instrument:
   `docs/project_memory/`.
 - **`evo2/`** — Evo2-specific: `scripts/` (trainer, generation, queue wrappers,
   `quick_eval.sh`/`run_eval.sh`), `experiments/{probes,quartz}/`, `docs/`.
+- **`evo2_1b/`** — **PHASE 2 (opened 2026-08-12): the fast 1B track** for objective-change
+  experiments. `scripts/` (loader + 1B-vs-7B baselines), `experiments/` (arm drivers), `docs/`.
+  Reuses the shared eval suite, ladder, novelty guard and domain spans rather than copying them;
+  re-derives only model-specific numbers. **Requires Transformer Engine 1.13.0** — without it the
+  1B loads and is at chance. Select with `EVO2_BASE_MODEL=evo2_1b_base` (training and eval switch
+  together). See `evo2_1b/README.md`.
 - **`genomeocean/`** — GenomeOcean-specific: `scripts/`, `experiments/`,
   `external/` (upstream clone, gitignored).
 
@@ -79,9 +85,11 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
   0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
   experimentally. The class comes from the seed, never the label.
-  ⇒ Current plan — **A** bank exemplar conditioning as a characterisation paper / **B** attack de
-  novo capability with a LoRA + custom-loss **2×2 (frame-aware × domain-weighted)** / **C** per-layer
-  adapters DEFERRED:
+  ⇒ **PHASE 2 IS RUNNING (2026-08-12):** B is under way on the new 1B track — frame-aware and
+  domain-weighted arms against a bit-identical baseline, L=8192, chunked, scored on
+  `best_bio_bits` with novelty as a hard constraint. Current plan — **A** bank exemplar
+  conditioning as a characterisation paper / **B** attack de novo capability with a LoRA +
+  custom-loss **2×2 (frame-aware × domain-weighted)** / **C** per-layer adapters DEFERRED:
   `docs/project_memory/progress.md` → NEXT ACTIONS. Superseded ranking + accurate citations:
   `docs/conditioning_next_steps.md`. Arc of the closed programme:
   `docs/steering_program.md`. Live state: `docs/project_memory/progress.md` → NEXT ACTIONS.

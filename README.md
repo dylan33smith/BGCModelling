@@ -23,6 +23,13 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 ## Current status (snapshot, 2026-08-12)
 
+- **▶ PHASE 2 IS RUNNING — the 1B track.** `evo2_1b/` holds a clean, fast track for the
+  objective-change experiments (frame-aware and domain-weighted loss) on `evo2_1b_base`:
+  **0.990 nats/base vs 0.859 for the 7B base, and 3.34× the throughput** (8,770 vs 2,625 tok/s —
+  a depth/width win only, since both models are byte-level). **Transformer Engine 1.13.0 is
+  required**; without it the 1B loads and sits at chance. Everything model-agnostic is reused, not
+  copied. See [`evo2_1b/README.md`](evo2_1b/README.md).
+
 - **v2 LoRA is trained and stopped at `step_1200`** (run dir
   `/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768`, `L=32768`,
   `bs=1 ga=128`). It is the checkpoint every downstream experiment uses.

@@ -8,6 +8,50 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Analysis / tooling
 
+- **[2026-08-12] An accession-keyed join silently mismatches 12,217 training records.** The
+  Phase-2 annotation sidecar was keyed by `accession`, but **5,219 accessions are shared by 12,217
+  records with DIFFERENT sequences** (`GCF_043836905.1.region1` appears at 3,603 nt *and* 11,163
+  nt). One record's domain spans and codon phases would have been attached to another record's DNA
+  — confidently wrong weights, plausible-looking output, undetectable downstream. **Fix:** key by
+  **row index**; the sidecar emits `row`, and the trainer cross-checks that the sidecar row names
+  the same accession as the training record (so a sidecar built from a different split raises
+  instead of mislabelling everything). *Rule: before using a field as a join key, count its
+  duplicates.*
+
+- **[2026-08-12] `truncate` is the trainer's default, and it biased the experiment against its own
+  hypothesis.** Left unexamined, the Phase-2 arms trained on the first ~4 kb of every core: 25.2%
+  of the training DNA, and a slice that is **49.0% class-domain against the true 33.7%**. The
+  domain-weighted arm would therefore have had *less linker to down-weight than reality contains*
+  — a bias against the intervention being tested. It also pins `nt_start` at 0, so the
+  window-offset code in `annotations.py` never runs outside its unit test. **Fix:**
+  `--long-seq-strategy chunk --chunk-overlap 1024`, giving 95,759 windows over all 467 Mbp at the
+  true coverage, with `first_nt_start` verified non-zero (3,380 / 6,760 / 20,892) in a smoke run.
+  *Rule: a default is a decision you did not make; check what it does to YOUR hypothesis.*
+
+- **[2026-08-12] A substrate sanity check that passed a model which was at chance — three separate
+  errors, each a pattern this project repeats.**
+  1. **Hand-written test data.** The check scored an invented ORF and returned 1.3843 against a
+     1.386 uniform threshold — passing a model that was guessing, because invented DNA is
+     out-of-distribution for *every* model. *Test on real data.*
+  2. **Threshold from a different protocol.** A no-context measurement (1.25) was compared against
+     a with-context reference (0.99). *The same quantity measured two ways is two quantities.*
+  3. **n = 1.** It thresholded on a single core, where variance is ~0.25 nats — larger than the gap
+     between a healthy model and a dead one. *n=1 cannot support a threshold.*
+  Final form: 500 bases after 2,000 nt of real context, averaged over 8 real cores, healthy < 1.15.
+
+- **[2026-08-12] `deepspeed` is not on PATH under `nohup`.** A driver calling `deepspeed` bare
+  died with exit 127 *after* printing its START line, so the log looked like a run in progress.
+  **Fix:** `micromamba run -n bgcmodel deepspeed ...` inside the script. *Rule: a launcher that
+  prints START before the first real work can report a failure as progress.*
+
+- **[2026-08-12] Transformer Engine: the 1B needs it, and the version matters.** TE 2.18 will not
+  build against torch 2.5.1 (`SymmetricMemory.hpp: No such file` — a header added in a later
+  torch). **TE 1.13.0** is contemporary with torch 2.5, builds, does not upgrade torch, and leaves
+  the 7B pipeline working (verified after install). Pin the **cu12** runtime; the resolver
+  otherwise pulls cu13 against a cu124 torch. Without TE the 1B loads and is *at chance* — see
+  decisions.md 2026-08-12.
+
+
 - **[2026-08-12] ~~`module_architecture` is broken~~ — RETRACTED SAME DAY. It works; it has a
   LENGTH FLOOR, and my diagnosis blamed the wrong component twice.** The first claim was that the
   check never fires and that pyrodigal was fragmenting megasynthase genes. Both are wrong:
