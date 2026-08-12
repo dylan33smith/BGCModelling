@@ -58,10 +58,17 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
   | de novo @2 kb | 0.815 | 332 aa | **0.050** |
 
   Two instruments at very different strictness agree, so it is not an evaluation artifact.
-  De novo output is *not* junk — but **the model cannot sustain a reading frame long enough to
-  encode one module** (332–505 aa vs ~1000–1500 aa for a single NRPS module), so no domain can sit
-  in it. ⇒ Track the **continuous ladder** `max_orf_aa` → `domain_count` → antiSMASH detect →
-  class. The first two are non-zero today; `correct_class` has read ~0 de novo since the project began.
+  De novo output is *not* junk — and the first reading of this table ("the model cannot sustain a
+  reading frame long enough to encode a module") **did not survive the ladder audit**. **100% of
+  6 kb de novo generations hit some Pfam family: the model writes REAL protein, of the WRONG KIND.**
+  Biosynthetic fraction 0.100 vs 0.836; `bio_span_frac` 0.051 vs 0.876. `max_orf_aa` is DEMOTED
+  (AUROC 0.709; r = 0.051 / −0.120 *within* de novo generations — it does not track domain content
+  where it would have to).
+  ⇒ Track the **validated ladder**: **`best_bio_bits`** (PRIMARY, AUROC 0.950) → `n_bio_domains`
+  (0.919) → `bio_span_frac` (0.896) → antiSMASH detect → class, with `biosynthetic_fraction` as a
+  specificity diagnostic and `max_orf_aa` as a structural one — **all under a hard novelty
+  constraint**, since every rung is maximised by copying training data. `correct_class` has read
+  ~0 **de novo** since the project began (0.283–0.40 seeded).
 
 - **Why the label was always inert, quantified** (`evo2/scripts/context_ablation.py`). Scoring the
   same 500 bases while varying preceding context: 10 nt already yields 73% of everything the model

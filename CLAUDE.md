@@ -75,13 +75,18 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   (1/81)** vs **seeded 0.367 (44/120)**, with class-given-detection already **0.932** when seeded.
   In the seeded regime there is ~7% left for conditioning to win; de novo there is nothing to
   install class into.
-  ⇒ **The real failure is capability, verified against a permissive instrument** (2026-08-12):
-  de novo output is not junk (coding density 0.74-0.82 vs 0.97 real) but its **longest ORF is
-  332-505 aa against 702 for real cores and ~1000-1500 aa for a single NRPS module**. The model
-  cannot hold a reading frame long enough to encode one module, so no domain can sit in it.
-  ⇒ **Use the continuous ladder, not the binary gate:** `max_orf_aa` -> `domain_count` ->
-  antiSMASH detect -> class. The first two are non-zero today; `correct_class` has read ~0 for a
-  year and cannot be optimised against.
+  ⇒ **The real failure is capability — but it is NOT reading-frame length** (2026-08-12, ladder
+  audit). De novo output is not junk (coding density 0.74-0.82 vs 0.97 real) and **100% of 6 kb
+  generations hit some Pfam family — the model writes REAL protein**. It writes the WRONG KIND:
+  biosynthetic fraction **0.100 vs 0.836** on real cores, `bio_span_frac` **0.051 vs 0.876**.
+  `max_orf_aa` was **DEMOTED** — AUROC 0.709, and r = 0.051 / -0.120 *within* de novo generations,
+  so it does not track domain content where it would have to.
+  ⇒ **Use the VALIDATED ladder, not the binary gate:** **`best_bio_bits`** (PRIMARY, AUROC 0.950)
+  -> `n_bio_domains` (0.919) -> `bio_span_frac` (0.896) -> antiSMASH detect -> class;
+  `biosynthetic_fraction` is a specificity diagnostic and `max_orf_aa` a structural one.
+  **Novelty (k=21 containment) is a HARD CONSTRAINT on every rung** — each is maximised by copying
+  training data. `correct_class` has read ~0 **de novo** since the project began (0.283-0.40
+  seeded) and cannot be optimised against de novo.
   ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
   0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
   experimentally. The class comes from the seed, never the label.
