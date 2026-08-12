@@ -8,6 +8,26 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Analysis / tooling
 
+- **[2026-08-12] `module_architecture` reports 0 modules on REAL full-length BGC cores — the check
+  never fires.** On a real 21,721 nt NRPS core it finds PF00501 (A) but neither PF00668 (C) nor
+  PF00550 (T), so `module_count` = 0. Root cause is upstream: pyrodigal called **16 ORFs averaging
+  ~1,360 nt** on that core, while real NRPS genes are 3–15 kb — the megasynthase is being
+  fragmented, so a C-A-T module straddles fragment boundaries and no single ORF carries the
+  pattern. Same family as the retired six-frame-scanner fragmentation. **Consequence:** the check
+  cannot serve as an evaluation rung and is currently a non-functional diagnostic, exactly like
+  `taxon_faithfulness` before it was removed (no_verdict on 870/870). Do not read a 0 from it as a
+  statement about the sequence. *Not yet fixed — recorded so nobody builds on it.*
+
+- **[2026-08-12] Reading a metric out of a result dict by a key that does not exist returns 0 and
+  looks like a measurement — TWICE in one day.** `soft_instrument_probe.py` read `any_pfam_hit` /
+  `n_pfam_hits` (neither exists; the real field is `markers_present`, a LIST) and reported
+  `any Pfam = 0.000` for REAL cores. `ladder_audit.py` read `complete_modules` / `n_modules` (real
+  fields: `module_count` / `ordered_module_count`) and reported 0 everywhere. Both were caught only
+  because the REAL-data row was implausible. **Rule: when a new column reads 0 for the positive
+  control, suspect the key before the biology** — and prefer `d["k"]` over `d.get("k")` for fields
+  that must exist, so a rename raises instead of silently zeroing.
+
+
 - **[2026-08-11] A missing input rendered as a null result: `direction_audit.py` pointed at a
   directions file that had only 2 of the 9 layers.** `train500.steerdirs.npz` carries L16/L20;
   `trainonly.steerdirs.npz` carries all nine (10,12,14,16,18,20,22,24,27) with class-units. Asking

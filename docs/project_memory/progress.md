@@ -935,6 +935,66 @@ prompts. If they are equal, the fine-tune changed the model's *likelihoods* with
 *generates* — which would reframe the objective work again and is worth knowing before spending a
 training run. Requires base-model generations, which we do not currently have on disk.
 
+## ★★★ LADDER AUDIT (2026-08-12): the primary metric is `best_bio_bits`, not the fraction
+
+`evo2/scripts/ladder_audit.py`. `max_orf_aa` was adopted on BETWEEN-group evidence plus a
+mechanistic story, and failed the WITHIN-group test. `biosynthetic_fraction` rested on exactly the
+same kind of evidence, so it got the same test before adoption.
+
+**PART 1 — within-group validation.** Seeded arm (n=120, 44 detections) is the only regime with
+variance rather than a floor. AUROC for predicting the *independent* antiSMASH outcome:
+
+| metric | predicts is_bgc | predicts correct_class |
+|---|---|---|
+| **`best_bio_bits`** (absolute) | **0.950** | **0.925** |
+| `n_bio_domains` | 0.919 | 0.901 |
+| `bio_span_frac` | 0.896 | 0.891 |
+| `biosynthetic_fraction` (ratio) | 0.893 | 0.876 |
+| `best_any_bits` | 0.804 | 0.784 |
+| `max_orf_aa` | 0.709 | 0.728 |
+| `co_orient` | 0.654 | 0.659 |
+| `modules` | 0.500 | 0.500 |
+
+⇒ **The absolute biosynthetic bitscore beats the ratio (0.950 vs 0.893), so it — not
+`biosynthetic_fraction` — is the primary target.** The ratio's denominator adds noise: a sequence
+with a strong biosynthetic hit AND a strong unrelated hit is penalised for no good reason. Keep the
+ratio as a *specificity* diagnostic (it is what showed the model writes real-but-wrong proteins),
+not as the objective. `max_orf_aa` retains weak signal here (0.709) but had **none** de novo
+(r = 0.051 / −0.120), so it stays a structural diagnostic only.
+
+**PART 2 — the previously unmeasured rungs.** Mean per group:
+
+| metric | de novo | seeded | REAL | verdict |
+|---|---|---|---|---|
+| `n_bio_domains` | 0.20 | 1.71 | **2.48** | **RUNG** (AUROC 0.919) |
+| `bio_span_frac` | 0.051 | 0.390 | **0.876** | **RUNG** (AUROC 0.896) — the clustering measure |
+| `n_bio_orfs` | 0.16 | 0.75 | 1.36 | rung, weaker (0.826) |
+| `n_orfs` | 4.02 | 2.94 | 2.12 | separates, but INVERTED — more ORFs is worse |
+| `co_orient` | 0.805 | 0.885 | 0.973 | too weak (0.654) |
+| `modules` / `in_order` | 0.000 | 0.000 | **0.000** | **instrument broken — see bugs.md** |
+
+`bio_span_frac` is the rung that was missing: it measures whether biosynthetic domains are SPREAD
+across the sequence like a cluster rather than crammed in one spot. Real 0.876, de novo 0.051.
+
+**⇒ THE VALIDATED LADDER**
+
+| # | rung | de novo | seeded | REAL | status |
+|---|---|---|---|---|---|
+| 0 | coding_density | 0.74–0.82 | 0.93 | 0.97 | nearly closed |
+| 1 | any Pfam hit | **1.00** | 0.94 | 1.00 | **SOLVED** — the model writes real protein |
+| 2 | **`best_bio_bits`** | 0.7–15.7 | 72.3 | 148.6 | **PRIMARY TARGET** |
+| 3 | `n_bio_domains` | 0.20 | 1.71 | 2.48 | |
+| 4 | `bio_span_frac` | 0.051 | 0.390 | 0.876 | clustering |
+| 5 | antiSMASH detect | 0.012 | 0.367 | ~0.58 | |
+| 6 | correct_class | ~0 | 0.34 | ~0.45 | |
+| — | `biosynthetic_fraction` | 0.076 | 0.528 | 0.836 | specificity diagnostic |
+| — | `max_orf_aa` | 448 | 542 | 729 | structural diagnostic only |
+| **guard** | **novelty** | — | — | — | **every rung above is maximised by copying training data** |
+
+**The novelty guard is not optional.** Rungs 2–4 all reward producing sequence that looks like the
+training set; the cheapest way to win any of them is memorisation. Novelty must be reported
+alongside in every run or an improvement is uninterpretable. It is a CONSTRAINT, not a rung.
+
 ## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 
 **The previous list ranked ways to condition class. That was the wrong target.** See DETECTION IS
@@ -979,9 +1039,11 @@ Framed as *"extend and diversify a known cluster"*, not *"generate class X de no
 
 ### B. Attack de novo capability — the real bottleneck
 
-**Primary target: `biosynthetic_fraction`** (see THE TARGET METRIC IS WRONG above) — 0.015 / 0.100
-de novo against 0.836 for real cores, defined for 76–100% of sequences where the binary gate fires
-for 3–4%. `max_orf_aa` is a **structural diagnostic, not the objective**: within de novo generations
+**Primary target: `best_bio_bits`** (see LADDER AUDIT above — AUROC 0.950 for predicting the
+independent antiSMASH outcome, against 0.893 for the ratio and 0.709 for `max_orf_aa`). Secondary
+rungs `n_bio_domains` and `bio_span_frac`; `biosynthetic_fraction` retained as a specificity
+diagnostic. **Novelty reported in every run as a guard** — every one of these rungs is maximised by
+copying training data. `max_orf_aa` is a **structural diagnostic, not the objective**: within de novo generations
 it does not track domain content (r = 0.051 at 2 kb, −0.120 at 6 kb) and it is gameable by avoiding
 three codons.
 
@@ -1030,8 +1092,8 @@ does not, full FT becomes the *next* question rather than a confound in this one
 4. *Reserve:* sequence-level reward on domain presence. Directly optimises the target; expensive
    and high-variance.
 
-**Kill criterion, stated in advance:** if no cell of the 2×2 moves `biosynthetic_fraction` above
-baseline within a single training run, that is a fast clean negative on the objective hypothesis — and the
+**Kill criterion, stated in advance:** if no cell of the 2×2 moves `best_bio_bits` above baseline
+(at unchanged novelty) within a single training run, that is a fast clean negative on the objective hypothesis — and the
 question becomes scale/substrate, not another loss variant.
 
 **Read it on the ladder, not the gate:** `biosynthetic_fraction` (primary) → `max_orf_aa` and
