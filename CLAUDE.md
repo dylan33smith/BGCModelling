@@ -52,22 +52,35 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
 
 - Goal: fine-tune a genome foundation model for BGC sequence generation/evaluation.
 - Current production host focus: `gputee` (single H100 80 GB).
-- **STATE OF THE CENTRAL PROBLEM (2026-08-10).** Evo2 *represents* compound class (linear probe
-  0.911, chance 0.091 — and 0.911 in **base** Evo2, so the LoRA installed nothing) but the
-  generator does not *consume* it. Every inference-time conditioning lever is now closed:
-  prefix labels (inert), CFG (no amplifiable signal), and activation steering (all variants,
-  2026-08-10). The decisive finding: the class direction reliably **deletes** a class that is
-  present but never **installs** the target's — ablation works, injection does not.
-  Per-class **soft prefixes** were then tried and also failed (2026-08-10): they trained cleanly
-  and separated per class from an identical init, but bought ~0.003 nats and gave `correct_class`
-  0/12 de novo. The bound is narrow — 65k params changing only the INPUT — and does NOT bound
-  per-class LoRA or a real trainable class token.
-  ⇒ Ranked next steps, with citations, are in `docs/conditioning_next_steps.md`. The organising
-  hypothesis from a 2026-08-11 literature sweep: every mechanism tried so far injects the
-  condition at ONE PLACE; what works in the literature enters at EVERY layer.
-  ⇒ **What works today:** exemplar conditioning (seed a real core → correct_class 0.283 vs a
-  0.067 floor, memorization ruled out). The class comes from the seed, never the label.
-  See `docs/steering_program.md` and `docs/project_memory/progress.md` → NEXT ACTIONS.
+- **STATE OF THE CENTRAL PROBLEM (2026-08-12) — REFRAMED. Class conditioning was the wrong
+  target.** Evo2 *represents* compound class (linear probe 0.911, chance 0.091 — and 0.911 in
+  **base** Evo2, so the LoRA installed nothing). Every inference-time lever is closed: prefix
+  labels, CFG, activation steering (all variants), soft prefixes, affine concept editing, and
+  cross-class activation transplants. The last of those is the strongest closure because it is a
+  POSITIVE demonstration: a real donor activation moves the model's behaviour 92% toward the donor
+  yet carries its class 0/48 times.
+  ⇒ **But two measurements on 2026-08-12 show conditioning was never the binding constraint.**
+  (1) The class tag is worth **-0.0006 nats** to the training loss (-0.0000 with the tag 200 nt
+  away), against 0.149 nats for ALL long-range context and 1.386 for a uniform guess — so gradient
+  descent never had a reason to build a pathway that reads it. (2) Decomposing
+  `correct_class = P(detect) x P(right|detect)` on the same adapter: **de novo P(detect) = 0.012
+  (1/81)** vs **seeded 0.367 (44/120)**, with class-given-detection already **0.932** when seeded.
+  In the seeded regime there is ~7% left for conditioning to win; de novo there is nothing to
+  install class into.
+  ⇒ **The real failure is capability, verified against a permissive instrument** (2026-08-12):
+  de novo output is not junk (coding density 0.74-0.82 vs 0.97 real) but its **longest ORF is
+  332-505 aa against 702 for real cores and ~1000-1500 aa for a single NRPS module**. The model
+  cannot hold a reading frame long enough to encode one module, so no domain can sit in it.
+  ⇒ **Use the continuous ladder, not the binary gate:** `max_orf_aa` -> `domain_count` ->
+  antiSMASH detect -> class. The first two are non-zero today; `correct_class` has read ~0 for a
+  year and cannot be optimised against.
+  ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
+  0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
+  experimentally. The class comes from the seed, never the label.
+  ⇒ Plan and citations: `docs/conditioning_next_steps.md`. Arc of the closed programme:
+  `docs/steering_program.md`. Live state: `docs/project_memory/progress.md` → NEXT ACTIONS.
+  ⚠️ A same-day claim that the seeded readout was confounded by the seed was **RETRACTED**: the
+  scored sequence contains no seed (0/1512 records), pinned by `tests/test_scored_span.py`.
 - **Evo2 track:** LoRA adapters on Evo2 7B (not full-parameter FT); DeepSpeed + PEFT +
   PyTorch (bf16); env `bgcmodel` (torch 2.5.1+cu124, transformers 4.46.3). This env also
   carries **antiSMASH 8.0.4 + Pfam**, so both tracks run the eval suite here.

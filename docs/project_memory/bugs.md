@@ -420,12 +420,14 @@ these in minutes.
   `AttributeError: module 'torch' has no attribute 'float8_e8m0fnu'`. GenomeOcean PEFT work must
   run in the `genomeocean` env (torch 2.11).
 
-- **[2026-08-11] `correct_class` on SEEDED generations measures detectability, not class.** It agrees
-  with `is_bgc` on 117/120 records in the guided-decoding run; the only 3 disagreements are one NRPS
-  seed. The seed is a real core of the target class, so once antiSMASH detects anything it calls the
-  seed's class and the "detected but wrong class" cell is essentially empty. **Any seeded experiment
-  scored this way cannot separate "the model installed the class" from "antiSMASH found the seed".**
-  Fix: scope the readout to the continuation, or report the seeded and de novo regimes separately.
+- **[2026-08-11] ~~`correct_class` on SEEDED generations measures detectability, not class.~~
+  RETRACTED THE SAME DAY — see the retraction entry below.** The claim was that antiSMASH agreeing
+  with `is_bgc` on 117/120 records meant it was recognising the seed. **The scored sequence contains
+  no seed** (0/1512 records across every seeded run). What the concordance actually reflects: on
+  REAL cores at 3 kb, 31.4% of antiSMASH detections are off-class, so the metric discriminates
+  fine — our generations simply land on-class when they land at all (~92% vs ~69% for a
+  length-matched real core). *The durable lesson is the methodological one: a concordance rate is
+  meaningless without the same rate on a control.*
 
 - **[2026-08-11] A "final full-sequence score" comparison is not a myopia test when the score is
   cumulative.** `guided_generate.py` scores `seq + cand`, so the guided arm's final number is a

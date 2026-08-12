@@ -8,6 +8,58 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-12] Class conditioning was aimed at the smaller of two problems — the constraint is CAPABILITY
+Two cheap measurements, both on data already on disk, reframe the programme.
+
+**(a) The class tag is worth nothing to the loss** (`evo2/scripts/context_ablation.py`). Scoring the
+same 500 bases of real cores while varying only preceding context: 10 nt already gives 73% of
+everything the model achieves (0.977 nats vs 1.386 uniform); 1,000 → 6,000 nt buys 0.005; all
+long-range context is worth **0.149 nats**. Right-vs-wrong class tag: **−0.0006 nats**, and
+**−0.0000** with the tag only 200 nt away. ⇒ The tag is not ignored out of stubbornness — *using it
+never reduced the loss*, so gradient descent had no incentive to build a pathway that reads it.
+One number retro-explains the inert label, the absent CFG signal, and the 0.003-nat soft prefix.
+
+**(b) De novo, almost nothing is detectable at all.** `correct_class = P(detect) × P(right|detect)`
+on the same step_1200 adapter: de novo **0.012** (1/81, CI [0.000, 0.067]) vs seeded **0.367**
+(44/120, CI [0.281, 0.459]); seeded class-given-detection **0.932**. The seed multiplies detection
+**30×**, and with one de novo detection the conditional is unestimable — the pre-registered third
+outcome, which is itself the answer.
+
+⇒ **In neither regime is class-correctness binding.** Seeded, it is already 0.932. De novo, perfect
+conditioning would have nothing to install class into. **This demotes per-layer conditional adapters
+from "the next step" to third priority** — they target ~7% of the seeded gap and nothing of the de
+novo one. Defer until de novo detection is non-trivial, at which point ProCALM applies directly.
+
+**The failure is capability, not the instrument** (`evo2/scripts/soft_instrument_probe.py`). antiSMASH
+needs *clustered* genes, so the obvious alternative was that a generation could contain real
+biosynthetic DNA and still fail. Re-scored with instruments needing only ONE domain hit anywhere:
+
+| group | coding density | longest ORF | ≥1 class domain | antiSMASH |
+|---|---|---|---|---|
+| real @3 kb | 0.972 | **702 aa** | 0.800 | ~0.58 |
+| seeded @3 kb | 0.932 | 591 aa | 0.467 | 0.367 |
+| de novo @6 kb | 0.743 | 505 aa | 0.033 | 0.034 |
+| de novo @2 kb | 0.815 | 332 aa | 0.050 | 0.000 |
+
+Two instruments at very different strictness agree. De novo output is *not* junk — but **the longest
+ORF is 332–505 aa against ~1000–1500 aa for a single NRPS module**, so the model cannot hold a
+reading frame long enough to encode one and there is nowhere for a domain to sit.
+
+⇒ **Adopt a continuous ladder in place of the binary gate:** `max_orf_aa` → `domain_count` →
+antiSMASH detect → class. The first two are non-zero today and can be optimised and tracked;
+`correct_class` has read ~0 for a year and cannot.
+
+⇒ **Why an objective change is warranted rather than merely plausible.** Next-base prediction is
+*locally satisfiable*: predicting base 900 from bases 850–899 works whether or not base 1,400
+introduces a stop codon. The objective never asks the model to keep a promise it made 1,000 bases
+ago, which is exactly the failure measured above. Candidate fixes, in order: domain-weighted loss
+(needs a one-off pyhmmer pass over the 47.5k training cores to get per-domain nucleotide
+coordinates — the records carry `strict_core_genes` as a COUNT only, no per-domain spans),
+reading-frame-aware penalties, an auxiliary head predicting upcoming domain content (NOT class —
+the probe already recovers class at 0.911, so that head would teach nothing), and sequence-level
+reward as a reserve.
+
+
 ### [2026-08-11] "The model does not read these activations" is FALSE — it reads them; our edit was the wrong shape
 `evo2/scripts/activation_patching.py`. Substituting a **real** donor's activations (in-distribution,
 all 4,096 coordinates consistent) over 10 of 1000 context positions at layer 16 moves the

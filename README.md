@@ -21,40 +21,78 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 ---
 
-## Current status (snapshot, 2026-08-10)
+## Current status (snapshot, 2026-08-12)
 
 - **v2 LoRA is trained and stopped at `step_1200`** (run dir
   `/data2/ds85/bgcmodel_runs/phase1_lora_prod_20260617_095202_L32768`, `L=32768`,
   `bs=1 ga=128`). It is the checkpoint every downstream experiment uses.
-- **Class conditioning: the model REPRESENTS class but the generator does not CONSUME it.**
-  A linear probe reads compound class off mid-network activations at 0.911 (chance 0.091),
-  in *base* Evo2 as well as ours. But every attempt to write that variable at inference
-  time fails: ΔP(target) is null in every arm on every instrument — binary and continuous,
-  single-layer and 9-layer stacked, from 0.15 to 11.9 class-units.
-  ⇒ The next spend is **training-time coupling**, not another inference-time trick.
-  *(A companion claim that the direction reliably DELETES a class, ΔP(seed) −0.308 at
-  p = 0.0063, was **retracted** the same day: the probe behind it had been fit on val+test and
-  applied to val/test-seeded generations. Train-only it is −0.177 at p = 0.146.)*
-- **Training-time coupling: the cheap end is closed too (2026-08-10).** Per-class **soft
-  prefixes** (16 x 4096 = 65k learned floats per class, base + LoRA frozen) trained cleanly and
-  demonstrably learned something class-specific — all four initialised from a *provably
-  identical* vector and separated to pairwise cosine 0.85–0.92 — but bought only ~0.003 nats of
-  validation loss and did not transfer: `correct_class` **0/12 in every arm**, and the
-  continuous probe found no lift of a class's own prefix over the other three on identical
-  held-out taxa. Read narrowly: 65k parameters that change only the **input** do not install
-  class. This says nothing about per-class LoRA (28.7M params, modifies the *computation*) or a
-  substrate with a real trainable class token.
+
+- **⚠️ REFRAMED 2026-08-12: class conditioning was never the binding constraint.**
+  Decomposing `correct_class = P(detect) × P(right class | detect)` on the same adapter:
+
+  | regime | n | P(detect) | 95% CI | P(right \| detect) |
+  |---|---|---|---|---|
+  | de novo (unseeded) | 81 | **0.012** | [0.000, 0.067] | 1 detection — unestimable |
+  | seeded | 120 | **0.367** | [0.281, 0.459] | **0.932** |
+
+  The seed multiplies detection **30×**. Seeded, class is already 0.932 — there is ~7% for a
+  conditioning mechanism to win. De novo, there is nothing to install a class into. The whole
+  conditioning programme was aimed at the smaller of two problems.
+
+- **The real failure is capability, and it is specific.** Re-scored with permissive instruments
+  (`evo2/scripts/soft_instrument_probe.py`) — no clustering required, just "does any single
+  class-defining Pfam domain appear anywhere":
+
+  | group | coding density | longest ORF | ≥1 class domain |
+  |---|---|---|---|
+  | real cores @3 kb | 0.972 | **702 aa** | **0.800** |
+  | seeded @3 kb | 0.932 | 591 aa | 0.467 |
+  | de novo @6 kb | 0.743 | 505 aa | **0.033** |
+  | de novo @2 kb | 0.815 | 332 aa | **0.050** |
+
+  Two instruments at very different strictness agree, so it is not an evaluation artifact.
+  De novo output is *not* junk — but **the model cannot sustain a reading frame long enough to
+  encode one module** (332–505 aa vs ~1000–1500 aa for a single NRPS module), so no domain can sit
+  in it. ⇒ Track the **continuous ladder** `max_orf_aa` → `domain_count` → antiSMASH detect →
+  class. The first two are non-zero today; `correct_class` has read ~0 for a year.
+
+- **Why the label was always inert, quantified** (`evo2/scripts/context_ablation.py`). Scoring the
+  same 500 bases while varying preceding context: 10 nt already yields 73% of everything the model
+  achieves (0.977 nats vs 1.386 uniform), and 1,000 → 6,000 nt buys 0.005. All long-range context
+  is worth **0.149 nats**. Against that, **right-vs-wrong class tag = −0.0006 nats** (−0.0000 with
+  the tag 200 nt away). Using the tag never reduced the loss, so nothing ever built a pathway to
+  read it. This unifies the inert label, the absent CFG signal and the 0.003-nat soft prefix.
+
+- **Inference-time conditioning is closed, and the last closure is a positive demonstration.**
+  Labels, CFG, steering (every layer/dose/recipe), soft prefixes, affine concept editing, and
+  cross-class activation transplants. Patching showed the model **does** read mid-layer state — a
+  real donor moves its behaviour 92% — while carrying the donor's class **0/48**. So the channel
+  works; class is not what travels down it.
+
 - **What does work today:** *exemplar-conditioned* generation. Seed a real core and the
-  continuation is correct-class 0.283 vs a 0.067 floor, with memorization ruled out and all
-  four pre-registered controls passed. The class comes from the **seed**, never the label.
-- **Eval suite** is named **checks → questions**, antiSMASH the gold-standard gate, and as of
-  2026-08-10 it is calibrated at **both** ends — a real negative control (false-positive rate
-  0.000 for antiSMASH `is_bgc`) and a positive control, plus a new **continuous** class
-  readout (`class_probe`) that can see effects the binary gates round to zero.
+  continuation is correct-class **0.283 vs a 0.067 floor**, memorization ruled out, all four
+  pre-registered controls passed. The detection numbers explain the mechanism (the seed supplies
+  the recognisability the model cannot generate), and this is the mode Evo's own published work
+  validates experimentally.
+
+- **Eval suite** is named **checks → questions**, antiSMASH the gold-standard gate, calibrated at
+  **both** ends — negative control (false-positive rate 0.000 for `is_bgc`) and positive control —
+  plus a **continuous** `class_probe` that never gates. On real cores at 3 kb, **31.4% of antiSMASH
+  detections are off-class**, so `correct_class` genuinely discriminates; a high concordance with
+  `is_bgc` in our generations is a fact about the generations, not the ruler.
+
 - The live, detailed state is in **[`docs/project_memory/progress.md`](docs/project_memory/progress.md)**
-  — read that first when resuming work. The steering program's full arc, including its
-  negative results and the instrument fixes they forced, is in
-  [`docs/steering_program.md`](docs/steering_program.md).
+  — read that first when resuming work. The steering program's full arc is in
+  [`docs/steering_program.md`](docs/steering_program.md); the ranked plan in
+  [`docs/conditioning_next_steps.md`](docs/conditioning_next_steps.md).
+
+**Retraction, 2026-08-11 (same day it was made).** A claim that the seeded readout was confounded —
+that antiSMASH was recognising the seed rather than the generation — was **wrong**. Both generators
+score the continuation only; across every seeded run ever produced, **0 of 1512 stored sequences
+contain their seed**. Nothing needed rerunning and the 0.283 result is *cleaner* than the
+retraction implied. Pinned by `tests/test_scored_span.py`. *Lesson recorded: a concordance rate is
+meaningless without the same rate on a control, and a premise handed to a verifier is not verified
+by it.*
 
 **Leakage debt — CLEARED 2026-08-10.** The class probe and the steering directions had been fit
 on **val+test** and applied to val/test-seeded generations. Both are now refit **train-only**

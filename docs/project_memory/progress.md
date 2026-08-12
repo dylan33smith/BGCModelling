@@ -4,7 +4,7 @@
 checkpoint of activity. Update it at the end of a session or after a major change.
 See [decisions.md](decisions.md) (the why) and [bugs.md](bugs.md) (quirks/fixes).
 
-_Last updated: 2026-08-11 (A1 guided decoding: Q1 passes, Q2 underpowered + seed-confounded)._
+_Last updated: 2026-08-12 (REFRAMED: detection, not class, is the bottleneck — the model cannot hold a reading frame)._
 
 ---
 
@@ -473,7 +473,8 @@ separate 0.01 from 0.37, not to quote a precise rate. A step-250 checkpoint arm 
 at 16 kb) was excluded as not comparable. The class tag's absence in those arms is not a confound,
 since (a) shows the tag is worth ~0 nats.
 
-## ★★★ A1 GUIDED DECODING (2026-08-11): Q1 PASSES, Q2 is UNDERPOWERED — and the readout was confounded with the seed
+## ★★★ A1 GUIDED DECODING (2026-08-11): Q1 PASSES, Q2 is UNDERPOWERED
+### (a same-day claim that the readout was seed-confounded was RETRACTED — see below)
 
 Complete: 4 classes × 3 arms × n=10, `/data2/ds85/bgcmodel_runs/guided_decoding/`. Adjudicated by
 five independent adversarial reviewers, which **refuted one of the first-pass conclusions** and
@@ -822,57 +823,63 @@ the continuous probe's resolution, not on the n=12 arms.
 guided-decoding experiment uses NRPS/PKS/TERPENE/RIPP (no hybrids) at 3 kb in the SEEDED regime,
 where the relevant baseline is the measured seeded floor (0.283), not an absolute 1.0.
 
-## NEXT ACTIONS — updated 2026-08-11 after a literature sweep
+## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 
-**Full ranked list with citations and caveats: [`docs/conditioning_next_steps.md`](../conditioning_next_steps.md).**
-Summarised here; that document is the one to work from.
+**The previous list ranked ways to condition class. That was the wrong target.** See DETECTION IS
+THE BOTTLENECK and IT IS A CAPABILITY FAILURE above. The ranked conditioning list survives as
+reference in [`docs/conditioning_next_steps.md`](../conditioning_next_steps.md), now carrying a
+superseded banner; its citations and caveats are still accurate, its *ranking* is not.
 
-**The organising hypothesis the sweep produced.** Every mechanism we have tried injects the class
-condition at ONE PLACE — one input token (label), one input position (soft prefix), an activation
-edit at a few hand-picked layers (steering). The model conditions perfectly well on content
-present at EVERY position (seeding, 0.283). Across nine independent search angles the recurring
-answer is that conditioning which works enters at EVERY LAYER, via a small gated, zero-initialised
-module trained end-to-end. **Depth of injection is the axis we have never varied.**
+**Two numbers set the agenda.** De novo P(detect) = **0.012** vs seeded **0.367**, with seeded
+class-given-detection already **0.932**. And the class tag is worth **−0.0006 nats** to the loss.
+So there is ~7% for conditioning to win in the regime that works, and nothing to condition in the
+regime that doesn't.
 
-Run in this order:
+### A. Bank the result that works — weeks, mostly CPU
+Exemplar conditioning is validated: `correct_class` **0.283 vs a 0.067 floor**, memorization ruled
+out, all four pre-registered controls passed, and the scored span provably contains no seed
+(0/1512). The detection numbers now supply the *mechanism* — the seed provides the recognisability
+the model cannot generate — and this is the mode Evo's own published work validates experimentally
+("genomic autocomplete"). **To do:** scale n, characterise which classes work and which don't
+(quote every rate against its measured 3 kb ceiling), and add the novelty/diversity analysis.
+Framed as *"extend and diversify a known cluster"*, not *"generate class X de novo"*.
 
-1. **Discriminator-guided decoding** using our own `class_probe` (FUDGE / GeDi / PPLM;
-   ProteinGuide generalises the family to biological sequence models). Cheap, days. Structurally
-   different from every closed lever: recomputes guidance at EVERY step from what has been
-   generated so far, rather than injecting one static vector. Tests whether the steering null was
-   specific to *static, context-insensitive* interventions. Needs no CFG null-branch and no
-   architecture change. *Prerequisite:* retrain the probe on PARTIAL prefixes (FUDGE's design
-   point) — ours has only ever scored finished sequences.
-2. **Two diagnostics, ~a day, before any further steering spend.** (a) ~~Measure the angle between
-   our diff-of-means direction and a direction obtained by gradient ascent on `class_probe`~~
-   — **PARTLY DONE 2026-08-11, and the framing was wrong.** The angle is 58–86° and the direction
-   still flips the readout completely at 2 class-units, so a large angle does not imply weak
-   control (see DIRECTION AUDIT above). The remaining, informative half is a direction derived
-   from the **model's output** (gradient ascent through the model), not from the probe — that one
-   still needs a GPU and is still unrun. (b) Activation patching to find which components actually
-   lie on the causal path — we located where class is *decodable*, never which heads *write* it.
-   (b) now carries the whole diagnostic load: the audit shows the edit lands and is ignored, so
-   "which components read this subspace" is the open question.
-3. **ProCALM-style per-layer conditional adapters** on a frozen backbone. Weeks. The closest
-   published precedent in the sweep — same task family, same compute scale — and its own
-   controlled comparison found the token-conditioned baseline (structurally our finding 2)
-   overfits while the per-layer adapter generalises. Tests the depth hypothesis directly.
-4. **Per-class LoRA routing.** Weeks. Highest prior of simply working: class becomes which adapter
-   is loaded, so the symbolic-conditioning problem is removed rather than solved.
-5. Cheap fill-in: **Affine Concept Editing** (ablate then reset to the real class mean, reusing our
-   validated ablation machinery); **CFG retrained with class-dropout** (closes a genuine gap in our
-   rigor — the null branch was never trained); **every-layer KV-prefix tuning** (what we built was
-   embedding-only Prompt-Tuning, not Prefix-Tuning).
+### B. Attack de novo capability — the real bottleneck
+**Target `max_orf_aa` first.** It is 332–505 aa de novo against 702 for real cores and ~1000–1500 aa
+for one NRPS module. It is continuous, non-zero today, and measurable per sequence within hours of a
+training run — unlike `correct_class`, which has read ~0 for a year and cannot be optimised against.
 
-**One tension recorded deliberately.** Item 5's prefix-tuning upgrade sits against the sweep's
-theme that control tags only become load-bearing at full-model, large-scale exposure — every clean
-success (CTRL, ZymCTRL, ProGen) trained the tag through the whole model, every LoRA-scale attempt
-including ours failed. Worth ONE test because it changes the mechanism (every layer) not just the
-scale; a null there should end prefix-tuning work rather than prompt another variant.
+1. **Annotation pass (~1 day, CPU, prerequisite).** Run pyhmmer/Pfam over the predicted proteins of
+   all 47,524 training cores, map domain hits back to nucleotide coordinates, store a per-record
+   mask. The records carry `strict_core_genes` as a COUNT only — there are no per-domain spans today.
+2. **Domain-weighted loss.** Weight cross-entropy up on positions inside class-defining domains.
+   Today the ~400 aa that make something an NRPS are ~5% of a core and get 5% of the gradient.
+   Precedent exists in genomic LMs for conservation- and repeat-weighted loss.
+3. **Reading-frame-aware penalty.** Penalise in-frame stop codons inside annotated genes — aimed
+   directly at the measured ORF-length wall.
+4. **Auxiliary head predicting upcoming DOMAIN content** (explicitly *not* class: the probe already
+   recovers class at 0.911, so a class head would teach nothing). Forces the representation to carry
+   a commitment about what is ahead, which next-base prediction never requires.
+5. *Reserve:* sequence-level reward on domain presence. Directly optimises the target; expensive and
+   high-variance.
 
-**Bank now (no further work needed):** exemplar-conditioned generation is a validated capability —
-correct_class 0.283 vs a 0.067 floor, memorization ruled out, all four pre-registered controls
-passed. Framed as "extend and diversify a known cluster", not "generate class X de novo".
+**Kill criterion, stated in advance:** if a domain-weighted / frame-aware run does not move
+`max_orf_aa` within a single training run, that is a fast clean negative — not another month.
+
+### C. Per-layer conditional adapters — DEFERRED, not dropped
+The ProCALM-style design and its precedent are sound and written up in the plan doc. They now target
+~7% of the seeded gap and nothing of the de novo one. **Revisit once de novo detection is
+non-trivial**, at which point it becomes the natural next step.
+
+### Also worth doing, cheap
+- **Continuation-scoped and length-matched reporting.** Every rate quoted against its measured 3 kb
+  ceiling (hybrids 0.00 — withdrawn; PKS 0.40; NRPS 0.76; RIPP 0.76; TERPENE 0.88).
+- **Emit `accession` in `antismash.tsv`** — pairing currently relies on row order.
+- **Add the max-vs-max Q1 test** to `analyze_guided_decoding.py`.
+- **GenomeOcean** remains the substrate hedge: a real single-token class label, 52.7 kb context.
+
+**Do NOT run:** another steering variant (layer, dose, or direction recipe — closed by a positive
+demonstration); another input-only conditioning mechanism (the tag is worth −0.0006 nats).
 
 **Standing methodological bar**, which three weakened-or-retracted findings in this project have
 now paid for: a paired design with the control built in, a continuous readout alongside the binary

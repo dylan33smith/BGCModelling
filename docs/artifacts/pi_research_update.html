@@ -140,8 +140,8 @@
     <div class="meta">
       <span class="chip"><b>Model</b> · Evo2 7B + LoRA</span>
       <span class="chip"><b>Data</b> · splits_core (47.5k / 22 classes)</span>
-      <span class="chip"><b>Updated</b> · Aug 11, 2026</span>
-      <span class="chip"><b>Status</b> · inference-time conditioning closed</span>
+      <span class="chip"><b>Updated</b> · Aug 12, 2026</span>
+      <span class="chip"><b>Status</b> · reframed — detection is the bottleneck</span>
       <span class="chip"><b>Works</b> · exemplar conditioning 0.283</span>
     </div>
   </header>
@@ -618,6 +618,54 @@
       <p><strong>This is the strongest closure in the project, because it rests on a positive demonstration rather than a null.</strong> The channel provably works. The model provably reads it. Its local output provably follows. And the multi-kilobase organisation that constitutes a compound class does not. Class is not controllable from a mid-layer representation at generation time — which leaves training-time coupling as the only route.</p>
     </div>
 
+    <h3>The reframing — class conditioning was the smaller problem</h3>
+    <p class="prose">Two measurements on 12 August, both on data already on disk, changed what this project should be working on. The first decomposes the headline metric into its two factors:</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>regime</th><th class="num">n</th><th class="num">P(detected)</th><th class="num">95% CI</th><th class="num">P(right class | detected)</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">de novo (no seed)</td><td class="num">81</td><td class="num zero">0.012</td><td class="num">[0.000, 0.067]</td><td class="num">1 detection — unestimable</td></tr>
+          <tr class="hi"><td class="rowlab">seeded</td><td class="num">120</td><td class="num metric-lead">0.367</td><td class="num">[0.281, 0.459]</td><td class="num metric-lead">0.932</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">The seed multiplies detection <strong>30×</strong>. In the seeded regime class-correctness is already <strong>0.932</strong> — roughly 7% is available to any conditioning mechanism. De novo, detection is <strong>0.012</strong>, so a mechanism that installed class perfectly would have nothing to install it into. <strong>In neither regime is class-correctness the binding constraint</strong>, which means the entire conditioning programme — including the per-layer adapters that were next on the list — was aimed at the smaller of two problems.</p>
+
+    <h3>Why the label was always inert, in the units the model is trained on</h3>
+    <p class="prose">The second measurement scores the same 500 bases while varying only how much preceding DNA the model may see.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>context given</th><th class="num">10 nt</th><th class="num">100</th><th class="num">300</th><th class="num">1,000</th><th class="num">6,000</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">nats per base</td><td class="num">0.9770</td><td class="num">0.9134</td><td class="num">0.8622</td><td class="num">0.8337</td><td class="num metric-lead">0.8285</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">A blind guess over the four bases is 1.386 nats. <strong>Ten bases of context already delivers 73% of everything the model achieves</strong>; going from 1,000 to 6,000 buys 0.005. All long-range context is worth <strong>0.149 nats</strong> — and against that budget, the right class tag versus the <em>wrong</em> one is worth <strong>−0.0006 nats</strong> (−0.0000 with the tag only 200 bases away).</p>
+    <div class="callout verdict">
+      <p class="k">One number explains three years of nulls</p>
+      <p><strong>The tag is not ignored out of stubbornness — using it never reduced the loss.</strong> Gradient descent builds what pays; a pathway carrying "NRPS" across 30,000 positions pays nothing, while "look harder at the last 60 bases" pays everywhere. The inert label, the absent CFG signal and the 0.003-nat soft prefix are one phenomenon, not three.</p>
+    </div>
+
+    <h3>What is actually broken: the model cannot hold a reading frame</h3>
+    <p class="prose">antiSMASH needs <em>clustered</em> genes, so before concluding a capability failure we re-scored with far more permissive instruments — does the DNA code for proteins, how long are the reading frames, and does <em>any single</em> class-defining domain appear anywhere, no clustering required.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>group</th><th class="num">coding density</th><th class="num">longest ORF</th><th class="num">≥1 class domain</th><th class="num">antiSMASH</th></tr></thead>
+        <tbody>
+          <tr class="hi"><td class="rowlab">real cores @3 kb</td><td class="num">0.972</td><td class="num metric-lead">702 aa</td><td class="num metric-lead">0.800</td><td class="num">~0.58</td></tr>
+          <tr><td class="rowlab">seeded @3 kb</td><td class="num">0.932</td><td class="num">591 aa</td><td class="num">0.467</td><td class="num">0.367</td></tr>
+          <tr><td class="rowlab">de novo @6 kb</td><td class="num">0.743</td><td class="num">505 aa</td><td class="num zero">0.033</td><td class="num zero">0.034</td></tr>
+          <tr><td class="rowlab">de novo @2 kb</td><td class="num">0.815</td><td class="num">332 aa</td><td class="num zero">0.050</td><td class="num zero">0.000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">Two instruments at very different strictness agree, so this is capability rather than measurement. And the diagnosis is specific: de novo output is <em>not</em> junk — but its longest reading frame is <strong>332–505 amino acids against ~1,000–1,500 for a single NRPS module</strong>. The model runs out of frame before it can encode one module, so there is nowhere for a catalytic domain to sit.</p>
+    <div class="callout">
+      <p class="k">A ladder to replace a gate that has read zero for a year</p>
+      <p>This finally supplies intermediate targets that are non-zero today and can be optimised and tracked: <code>max_orf_aa</code> → <code>domain_count</code> → antiSMASH detection → class. You cannot optimise against a metric that is always zero; you can absolutely optimise reading-frame length.</p>
+    </div>
+
     <h3>The organising hypothesis</h3>
     <p class="prose">Every mechanism we have tried injects the class condition <strong>at one place</strong> — one input token, one input position, an activation edit at a handful of hand-picked layers. The model conditions perfectly well on content present at <em>every</em> position, which is exactly what seeding provides. Across nine independent search angles in the literature sweep, the recurring answer is that conditioning which works <strong>enters at every layer, through a small gated module trained end-to-end</strong>. <em>Depth of injection is the one axis we have never varied.</em></p>
 
@@ -626,16 +674,15 @@
       <table>
         <thead><tr><th>#</th><th>Move</th><th>Cost</th><th>Why this one</th></tr></thead>
         <tbody>
-          <tr><td class="num">1</td><td class="rowlab">Attack detection, not class</td><td>—</td><td>The reframing above changes the target: the model lands on-class when it lands at all. Effort belongs on <em>producing a recognisable cluster</em>, which is also where the length ceiling bites hardest.</td></tr>
-          <tr><td class="num">2</td><td class="rowlab">Activation patching</td><td>~1 day</td><td>We know <em>where class is readable</em>; we have never asked <em>which components write it</em>. The direction audit makes this the one diagnostic still carrying weight.</td></tr>
-          <tr class="hi"><td class="num">3</td><td class="rowlab">Per-layer conditional adapters</td><td>weeks</td><td>The closest published precedent — same task family, same compute scale — whose own controlled comparison found the token-conditioned baseline (structurally our finding) overfits while the per-layer adapter generalises. Tests the depth hypothesis directly.</td></tr>
-          <tr><td class="num">4</td><td class="rowlab">Per-class LoRA routing</td><td>weeks</td><td>Highest prior of simply working: class becomes <em>which adapter is loaded</em>, so the symbolic-conditioning problem is removed rather than solved.</td></tr>
-          <tr><td class="num">5</td><td class="rowlab">Substrate change — GenomeOcean</td><td>parallel track</td><td>Accepts a genuine trainable class token (single atomic id), which Evo2's byte-level tokenizer structurally cannot provide. 5.15 bp/token gives a 52.7 kb context against Evo2's 32.8 kb.</td></tr>
+          <tr class="hi"><td class="rowlab">A</td><td class="rowlab">Bank exemplar conditioning</td><td>weeks, mostly CPU</td><td>It works — 0.283 against a 0.067 floor, controls passed, and the detection numbers now supply the mechanism. It is also the mode Evo's own published work validates experimentally. Scale n, characterise which classes work, add novelty analysis. Framed as <em>"extend and diversify a known cluster"</em>.</td></tr>
+          <tr class="hi"><td class="rowlab">B</td><td class="rowlab">Attack de novo capability</td><td>days per run</td><td><strong>Target reading-frame length first</strong> — 332–505 aa against ~1,000–1,500 for one module. Needs a one-off Pfam annotation pass over the 47.5k training cores (no per-domain coordinates exist today), then a domain-weighted and frame-aware objective. Measurable within a single run, unlike the gate that has read zero for a year.</td></tr>
+          <tr><td class="rowlab">C</td><td class="rowlab">Per-layer conditional adapters</td><td>weeks — <em>deferred</em></td><td>Sound design with a close precedent (ProCALM), but it now targets ~7% of the seeded gap and nothing of the de novo one. Revisit once de novo detection is non-trivial.</td></tr>
+          <tr><td class="rowlab">—</td><td class="rowlab">Substrate hedge — GenomeOcean</td><td>parallel track</td><td>Accepts a genuine trainable class token (single atomic id), which Evo2's byte-level tokenizer structurally cannot provide. 5.15 bp/token gives a 52.7 kb context against Evo2's 32.8 kb.</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p class="keyline"><b>The bottom line:</b> the negative results are now <b>mechanistic rather than merely empirical</b> — we can say what fails and why, not just that it failed. Inference-time conditioning is closed: the class direction is real, the edit lands, and the model does not read it. What has never been tried is conditioning that enters <b>at every layer during training</b>, which is what the literature says actually works. Alongside that, <b>exemplar conditioning is a real, controlled, publishable result</b> once its readout is de-confounded.</p>
+    <p class="keyline"><b>The bottom line:</b> the negative results are now <b>mechanistic rather than merely empirical</b> — we can say what fails and why. Inference-time conditioning is closed by a positive demonstration: the channel works, the model reads it, and class is not what travels down it. But the decisive finding is that <b>class conditioning was never the binding constraint</b>. De novo the model produces a recognisable cluster 1.2% of the time; seeded it is 36.7%, and when it lands it is already the right class 93% of the time. The work belongs on <b>reading-frame length and domain content</b> — measurable, non-zero, and improvable today — while <b>exemplar conditioning is a real, controlled, publishable result</b> that needs no further modelling.</p>
   </section>
 
   <!-- ===================== 15. DATASET ===================== -->

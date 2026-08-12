@@ -1,5 +1,41 @@
 # Class conditioning — what to try next, and why
 
+> ## ⚠️ SUPERSEDED AT THE TOP LEVEL — read this first (2026-08-12)
+>
+> **This document ranks ways to condition class. Two measurements taken on 2026-08-12 show that
+> class conditioning is not the binding constraint, in either regime.**
+>
+> | regime | n | P(detect) | P(right class \| detect) |
+> |---|---|---|---|
+> | de novo (unseeded) | 81 | **0.012** | 1 detection — unestimable |
+> | seeded | 120 | **0.367** | **0.932** |
+>
+> Seeded, class-given-detection is already 0.932 — roughly 7% is available to any conditioning
+> mechanism. De novo, detection is 0.012, so a mechanism that installed class perfectly would have
+> nothing to install it into. Separately, the class tag is worth **−0.0006 nats** to the training
+> loss (−0.0000 at 200 nt), against 0.149 nats for *all* long-range context, so the loss has never
+> been able to see class at all.
+>
+> **The real constraint is capability, and it is specific:** de novo generations reach a longest ORF
+> of **332–505 aa** against 702 for real cores and ~1000–1500 aa for a single NRPS module. The model
+> cannot hold a reading frame long enough to encode one module, so no domain can sit in it. Verified
+> against a permissive instrument (any single Pfam domain, no clustering), which agrees with
+> antiSMASH — so this is capability, not measurement.
+>
+> **What this means for the items below.** Tier A is closed end to end (A1 inconclusive-underpowered,
+> A2/A4/A5 run and closed, A3/A6 unrun and now low value). **B1 (per-layer conditional adapters) and
+> B2 (per-class routing) are demoted to third priority** — sound ideas aimed at the smaller problem.
+> Keep them: once de novo detection is non-trivial they become the natural next step and the ProCALM
+> precedent applies directly. The citation notes and caveats throughout remain accurate and were
+> verified; it is the *ranking* that is superseded, not the content.
+>
+> **The current plan is in `docs/project_memory/progress.md` → NEXT ACTIONS.** In brief:
+> **(A)** write up exemplar conditioning — it works, 0.283 vs 0.067, and it is the mode Evo's own
+> published work validates; **(B)** attack de novo capability via a domain-weighted / frame-aware
+> objective, tracked on the continuous ladder `max_orf_aa` → `domain_count` → detect → class;
+> **(C)** revisit per-layer adapters afterwards.
+
+
 **Written 2026-08-11**, after the steering programme closed (`steering_program.md`) and per-class
 soft prefixes also came back negative. Ranked from a 9-angle literature sweep (52 raw findings →
 18 deduplicated ideas), scored by how directly each one addresses a **measured** failure of ours
@@ -25,11 +61,21 @@ Stated precisely, because every idea below is judged against it:
 | 6 | **Exemplar conditioning works**: seed a real core → 0.283 vs a 0.067 floor | 2026-07-28 |
 | 7 | Byte-level tokenizer gives a class tag no pretrained prior; the mid-network representation has no path to the output | — |
 
-**The organising hypothesis this sweep produced.** Every mechanism we have tried injects the
-condition at **one place**: one input token (2), one input position (5), an activation edit at a
-few hand-picked layers (4). Meanwhile the model conditions perfectly well on content that is
-present at **every** position (6). The literature's consistent answer is that conditioning which
-works enters at **every layer** — and that is the axis we have never varied.
+**The organising hypothesis this sweep produced — CORRECTED 2026-08-12.** As originally written:
+*"every mechanism injects the condition at one place; what works enters at every layer, and depth
+is the axis we have never varied."* **The second half is false.** The multi-layer steering arm
+injected at **nine layers, each with its own direction and its own class-unit dose** — genuine
+per-layer injection — and returned 0/12. Depth WAS varied and it did not help.
+
+The real distinction between our steering and the literature's per-layer modules is not depth but
+that theirs are **trained**: learned by gradient descent against the generative loss, computed as a
+function of the current activation, with the model's own weights co-adapting. Ours was a fixed
+closed-form vector applied to a frozen model that had never been trained to respond to it.
+
+And as of 2026-08-12 even "training-time coupling" is too coarse: the label WAS present throughout
+training and is still inert, because it is worth **−0.0006 nats** to the loss. The precise statement
+is that **the conditioning signal has never been strong enough to compete with local statistics for
+gradient**, and — per the banner above — that this was the smaller of the two problems anyway.
 
 ---
 
