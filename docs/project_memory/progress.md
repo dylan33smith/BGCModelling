@@ -512,6 +512,13 @@ positive control that the patch propagates, never a layer profile. Likewise the 
 mid-layers was **leverage, not blindness** — one position out of a thousand has little influence,
 and the k-sweep is what separates those two readings. Both facts are recorded in the script.
 
+**REPLICATED ON THE FINE-TUNED MODEL.** The table above is base Evo2, but every steering experiment
+used the LoRA — so "patching works where steering didn't" was comparing across two different models.
+Rerun with `--adapter .../step_1200` (`activation_patching_ksweep_lora.json`), layer 16:
+**0.186 (k=1) → 0.350 → 0.694 → 0.920 (k=200)**, with same-class **−0.218**, shuffled 0.242 and
+noise 0.217 at k=200. Same shape, controls flat or negative throughout. The comparison is now
+apples-to-apples and the conclusion is unchanged.
+
 **What this does NOT yet show.** Evo2's vocabulary is bytes, so the next-token distribution is over
 A/C/G/T and class is not legible in it. At small k the patched positions *are* the local context of
 the next base, so high alignment may be ordinary sequence continuation rather than class transfer.
