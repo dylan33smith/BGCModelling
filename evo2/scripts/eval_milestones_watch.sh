@@ -7,8 +7,15 @@ set -euo pipefail
 #
 # Watches <run-dir>/checkpoints for milestone step_N checkpoints and runs
 # evo2/scripts/quick_eval.sh on each, appending one row per checkpoint to a single
-# master eval_track.jsonl so you can see how is_bgc / correct_class /
-# class_markers / any_domain_rate / coding_density change across training.
+# master eval_track.jsonl so you can see how the metrics change across training.
+#
+# TRACKS TWO LAYERS. quick_eval's gates (is_bgc / correct_class / class_markers /
+# any_domain_rate / coding_density) AND — since 2026-08-12 — the validated LADDER
+# (ladder_best_bio_bits, ladder_n_bio_domains, ladder_bio_span_frac, ladder_bio_fraction)
+# plus the novelty constraint. The gates read ~0 de novo (is_bgc 0.012, correct_class ~0),
+# so a run scored on them alone prints zeros for days and tells you nothing; the ladder is
+# what actually moves. Reference: base 0.0 | LoRA step_1200 56.9 | REAL 148.6 on
+# ladder_best_bio_bits.
 #
 # SINGLE-GPU SAFE (post-hoc, idle-gated). generate_bgc needs the GPU and loads
 # its own copy of Evo2 7B, so this NEVER co-runs with training: each eval only
@@ -42,7 +49,7 @@ Notes:
   - quick_eval knobs pass through via env: PER_CLASS, MAX_NEW, CLASSES, SEED, etc.
   - The master trajectory is <eval-root>/eval_track.jsonl (one row per checkpoint).
     View it sorted by step with:
-      jq -s 'sort_by(.step)[] | {step,is_bgc,correct_class,class_markers,any_domain_rate,coding_density}' \
+      jq -s 'sort_by(.step)[] | {step,ladder_best_bio_bits,ladder_n_bio_domains,ladder_bio_span_frac,ladder_novelty_verdict,is_bgc,correct_class}' \
         <eval-root>/eval_track.jsonl
 EOF
 }
@@ -201,7 +208,31 @@ while true; do
     sleep "$CHECK_EVERY_SEC"
     continue
   fi
+  # LADDER METRICS. quick_eval tracks is_bgc / correct_class, which read ~0 de novo (0.012 and
+  # ~0) — a training run scored on those alone prints zeros for days and tells us nothing, which
+  # is exactly how the original long fine-tune went wrong. Score the rungs that are non-zero
+  # today and were validated against the independent antiSMASH outcome, plus the novelty
+  # constraint that quick_eval skips.
+  if [[ -f "$OUT/gen.jsonl" ]]; then
+    log "  scoring ladder metrics on $OUT/gen.jsonl"
+    set +e
+    PY "$SCRIPT_DIR/score_ladder.py" --gen "$OUT/gen.jsonl" \
+       --out-json "$OUT/ladder.json" >>"$EVAL_ROOT/step_${STEP}.log" 2>&1
+    LRC=$?
+    set -e
+    [[ "$LRC" -ne 0 ]] && log "  ladder scoring FAILED (rc=$LRC) — see $EVAL_ROOT/step_${STEP}.log"
+  else
+    log "  no $OUT/gen.jsonl — ladder metrics NOT scored for step ${STEP}"
+  fi
+
   if [[ -f "$OUT/eval_track.jsonl" ]]; then
+    # merge the ladder row into the tracked row so one line carries both
+    if [[ -f "$OUT/ladder.json" ]]; then
+      TMP="$OUT/eval_track.merged.jsonl"
+      jq -c --slurpfile L "$OUT/ladder.json" '. + ($L[0] | with_entries(.key |= "ladder_" + .))' \
+        "$OUT/eval_track.jsonl" > "$TMP" 2>/dev/null && mv "$TMP" "$OUT/eval_track.jsonl" \
+        || log "  (jq merge failed; ladder.json kept separate)"
+    fi
     cat "$OUT/eval_track.jsonl" >> "$MASTER"
     log "  step ${STEP} done → appended to $MASTER"
     log "  $(tail -1 "$OUT/eval_track.jsonl")"

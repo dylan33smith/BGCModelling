@@ -283,7 +283,7 @@
     <p class="prose">Evo2 is a hybrid model: only 5 of 32 blocks are attention; the rest are long-convolution "Hyena" blocks that do the long-range mixing. Our LoRA spends <strong>~81% of its capacity on position-wise MLPs that cannot mix across positions</strong>, and the Hyena long-range pathway (its input projection + convolution kernels) is essentially frozen. That made "insufficient capacity" the leading structural hypothesis — but unfreezing it (B) changed nothing, cleanly <strong>ruling capacity out</strong> at this scale. Detail written up in <code>docs/evo2_lora_and_hyena.md</code>.</p>
 
     <h3>No cheap fast-iteration model</h3>
-    <p class="prose">The 1B Evo2 requires Transformer Engine / FP8 (not installed) and has no bf16 fallback; only the 7B does. So there is no small model to speed up probing — everything runs on the 7B.</p>
+    <p class="prose">The 1B Evo2 requires Transformer Engine / FP8 and has no bf16 fallback, and TE is not installed here — so in practice everything has run on the 7B. <strong>Corrected Aug 2026:</strong> this is a software gap, not a hardware one. The H100 is compute capability 9.0 with native FP8 tensor cores and TE wheels exist, so a smaller, faster probing model is an install away rather than unavailable.</p>
 
     <h3>antiSMASH-DB version drift</h3>
     <p class="prose">The GBK archive re-parsed for per-gene coordinates is a <em>different antiSMASH-DB version</em> than the one that originally built <code>splits_core</code> — region boundaries diverge for ~45% of records. Caught during a validation step; resolved by building the gene-aware probe dataset self-consistently from the re-parse. Flagged as a provenance item to reconcile before the production rebuild.</p>

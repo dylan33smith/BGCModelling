@@ -1127,7 +1127,16 @@ does not, full FT becomes the *next* question rather than a confound in this one
    `train.domain_spans.jsonl`, 47,524 records with per-domain forward-strand nucleotide spans,
    round-trip tested on both strands.
 
-2. **THE 2×2: frame-aware × domain-weighted.** These are not ranked, deliberately. They attack the
+**SEQUENCING DECIDED 2026-08-12: frame-aware FIRST, alone, at short context.** The arms want
+different lengths — frame-aware is length-agnostic and can run short and fast, while
+domain-weighted is least meaningful at short context (cores under 1 kb are already 78.6% domain, so
+there is nothing to reweight). A short pilot is therefore a valid test of one arm and a poor test of
+the other. Run frame-aware short; run domain-weighted afterwards at longer context if warranted.
+Weights are **per-record normalised**, so every core gets the same total up-weighting regardless of
+its coverage — a flat multiplier would silently become a length reweighting (78.6% coverage under
+1 kb vs 25.1% above 50 kb).
+
+2. **THE 2×2 (kept as the eventual design): frame-aware × domain-weighted.** These are not ranked, deliberately. They attack the
    same measured failure from different angles and the relationship between "gradient weight on
    domain positions" and "reading-frame length achieved" is **unmeasured**. An earlier draft ranked
    frame-aware above domain-weighted on the argument that 33.7% of training nucleotides already sit

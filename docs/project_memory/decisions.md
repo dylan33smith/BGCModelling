@@ -8,6 +8,67 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ## Modelling
 
+### [2026-08-12] B-track design decisions: frame-aware first, short context, per-record weights
+Settled before any training run, with the reasoning so a later reader can tell which parts were
+measured and which were judgement.
+
+**1. Per-record NORMALISED domain weights, not a flat multiplier.** Class-domain coverage is 78.6%
+in cores under 1 kb and 25.1% above 50 kb (measured, `train.domain_spans.jsonl`). A flat 2–3×
+therefore does almost nothing to short cores and a great deal to long ones, so the "reweighting"
+would silently become a length reweighting. Normalise per record so every core receives the same
+total up-weighting regardless of its coverage.
+
+**2. Run FRAME-AWARE first, alone — not the full 2×2.** The two arms want different sequence
+lengths, which is what settles the ordering:
+* *frame-aware* is length-agnostic (a stop is a stop) and can run at SHORT context, which is fast;
+* *domain-weighted* is least meaningful exactly where speed pushes us — short cores are already
+  78.6% domain, so there is almost nothing to reweight. It needs longer context to test fairly.
+
+So a short-context pilot is a valid test of frame-aware and a POOR test of domain-weighted. Run
+frame-aware short and fast; run domain-weighted afterwards at longer context if warranted.
+
+**3. Frame-aware targets a NECESSARY-BUT-NOT-SUFFICIENT condition, and is scored accordingly.**
+`max_orf_aa` was demoted because it does not predict domain content de novo (r = 0.051 / −0.120),
+so an arm aimed at reading-frame length is aimed at a demoted metric. The defence: an adenylation
+domain is ~400 aa and de novo ORFs top out at 336–549, so length may be a *gate* the model is
+failing rather than a quantity to maximise — and a gate can show zero within-group correlation
+while still being an absolute barrier. **This is a hypothesis, not an established fact**, so the run
+is scored on `best_bio_bits`. If ORF length rises and biosynthetic content does not, that is a
+clean informative negative: length was never the constraint.
+
+**4. Attention-level conditioning is NOT viable here, for a specific reason worth recording.**
+Biasing attention so in-domain tokens attend to in-gene tokens fails twice over: Evo2 is 27 Hyena
+convolution blocks to 5 attention blocks (indices 3/10/17/24/31) and a long convolution has no
+per-pair score to bias; and decisively, **at generation time there are no gene boundaries** — the
+model is creating the gene, so a gene-conditioned bias is computable in training and undefined at
+inference. The surviving version of the idea is the auxiliary head predicting upcoming domain
+content, which puts the structure in the representation instead of in the input.
+
+**5. Speed levers, measured rather than assumed.**
+* LoRA size is NOT the bottleneck — the adapter is 0.44% of the model and the cost is the
+  forward/backward through the frozen 7B. Rank could drop below 16 without loss (the 16/64/128
+  sweep was flat) but would not buy meaningful speed.
+* **Sequence length is the dominant lever.** Hence the short-context pilot.
+* **CORRECTION: the "no small Evo2" claim was wrong about the cause.** It is a SOFTWARE gap, not
+  hardware. This H100 PCIe is compute capability 9.0 (Hopper) with native FP8 tensor cores;
+  `transformer_engine` is simply not installed, and wheels exist (1.9–2.18). The evo2 package's own
+  message reads "For inference without TE, use any 7b model". So the 1B is plausibly usable after a
+  TE install — recorded as an open option rather than a closed door, though not worth the build
+  detour ahead of the short-context pilot.
+* GenomeOcean remains attractive for the LONG-context version (5.15 bp/token ⇒ ~5× fewer tokens per
+  nucleotide, 52.7 kb window, a stock `MistralForCausalLM`). Cost: every baseline we hold is
+  Evo2-specific, and BPE tokens span ~5 bases so per-position weighting needs overlap-weighted
+  assignment rather than a clean mask.
+
+**6. The eval watcher was pointing at metrics that read zero.** `eval_milestones_watch.sh` ran
+`quick_eval` only, which tracks `is_bgc` / `correct_class` — 0.012 and ~0 de novo — and explicitly
+skips `kmer_novelty`, so the anti-memorisation guard was not running either. A training run under
+it would have printed zeros for days: the original long fine-tune's failure repeated. **Fixed**: the
+watcher now also runs `evo2/scripts/score_ladder.py` on each checkpoint's `gen.jsonl` and merges
+`ladder_*` fields into the tracked row. Verified end to end on real generations
+(`best_bio_bits` 56.861, matching the base-vs-LoRA analysis exactly).
+
+
 ### [2026-08-12] Class conditioning was aimed at the smaller of two problems — the constraint is CAPABILITY
 Two cheap measurements, both on data already on disk, reframe the programme.
 
