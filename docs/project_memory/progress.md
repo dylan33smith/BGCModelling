@@ -876,6 +876,65 @@ not being aimed at the wrong positions — the model cannot *sustain* the frame,
 what the 332–505 aa ORF measurement said. The spans remain valuable regardless: they are what a
 frame-aware penalty, a per-domain evaluation, and any future conditioning work will key on.
 
+## ★★★ THE TARGET METRIC IS WRONG — and the model writes REAL proteins, just the wrong ones (2026-08-12)
+
+Prompted by "is ORF length the best thing to go after?". Three measurements say no.
+
+**1. `max_orf_aa` does not track domain content in the regime we care about.** Within generated
+sequences, correlation between longest ORF and best biosynthetic bitscore:
+
+| group | r(max_orf_aa, best bio bits) |
+|---|---|
+| de novo 2 kb | **0.051** |
+| de novo 6 kb | **−0.120** |
+| seeded 3 kb | 0.473 |
+
+It correlates only in the SEEDED regime — the one that already works. And only 3 of 64 codons are
+stops, so a model can lengthen ORFs by learning to avoid three triplets while becoming no more
+protein-like. **Optimising it risks producing longer garbage.**
+
+**2. The diagnosis it rested on was wrong. The model CAN write proteins — it writes the WRONG
+ones.** The biosynthetic-only scan cannot distinguish "no protein" from "wrong protein": both score
+zero. Scanned against the FULL Pfam-A:
+
+| group | ANY Pfam hit | families hit | best bits |
+|---|---|---|---|
+| de novo 2 kb | 0.69 | 1.9 | 32.4 |
+| de novo 6 kb | **1.00** | **13.6** | 102.0 |
+| seeded 3 kb | 0.94 | 6.4 | 179.3 |
+| real 3 kb | 1.00 | 9.6 | 195.0 |
+
+De novo output hits real families **100%** of the time at 6 kb — phage integrases, MFS
+transporters, ankyrin repeats, cyclins, cofilin. **The failure is SPECIFICITY, not coherence.**
+That is a materially different problem from "cannot sustain a reading frame", and it partly
+supersedes that framing: the ORF scaling failure is real (see the length-matched table) but it is
+not what is blocking domain content.
+
+**3. A better target: BIOSYNTHETIC FRACTION** (`evo2/scripts/biosynthetic_fraction.py`).
+
+    biosynthetic_fraction = best bitscore vs BIOSYNTHETIC Pfams / best bitscore vs ANY Pfam
+
+Both scans on the SAME sequences (the ratio is meaningless across different subsets):
+
+| group | best ANY | best BIO | **BIO fraction** | metric defined |
+|---|---|---|---|---|
+| de novo 2 kb | 33.6 | 0.7 | **0.015** | 76% |
+| de novo 6 kb | 102.0 | 15.7 | **0.100** | 100% |
+| seeded 3 kb | 144.8 | 72.3 | **0.464** | 97% |
+| real 3 kb | 195.0 | 148.6 | **0.836** | 100% |
+
+Cleanly monotonic across all four groups, **defined for 76–100% of sequences** against 3–4% for the
+binary domain gate, ungameable by stop-avoidance, and it measures the actual gap rather than a
+proxy. ⇒ **Primary target for the B runs. `max_orf_aa` is retained as a structural DIAGNOSTIC, not
+the objective.**
+
+**⇒ A NEW AND CHEAP TEST THIS IMPLIES, not yet run.** If the fine-tuned model still writes phage
+integrases and transporters de novo, did the LoRA move the output distribution into biosynthetic
+space at all? Compare biosynthetic_fraction for **base Evo2 vs our step_1200 LoRA** on matched
+prompts. If they are equal, the fine-tune changed the model's *likelihoods* without changing what it
+*generates* — which would reframe the objective work again and is worth knowing before spending a
+training run. Requires base-model generations, which we do not currently have on disk.
+
 ## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 
 **The previous list ranked ways to condition class. That was the wrong target.** See DETECTION IS
@@ -920,7 +979,13 @@ Framed as *"extend and diversify a known cluster"*, not *"generate class X de no
 
 ### B. Attack de novo capability — the real bottleneck
 
-**Target `max_orf_aa` first.** Length-matched against real cores it is **0.61 of real at a 2 kb
+**Primary target: `biosynthetic_fraction`** (see THE TARGET METRIC IS WRONG above) — 0.015 / 0.100
+de novo against 0.836 for real cores, defined for 76–100% of sequences where the binary gate fires
+for 3–4%. `max_orf_aa` is a **structural diagnostic, not the objective**: within de novo generations
+it does not track domain content (r = 0.051 at 2 kb, −0.120 at 6 kb) and it is gameable by avoiding
+three codons.
+
+**Structural diagnostic — `max_orf_aa`.** Length-matched against real cores it is **0.61 of real at a 2 kb
 window and 0.48 at 6 kb** — and the gap WIDENS with length, because real DNA scales its longest ORF
 with the room available (550 → 720 → 1,134 aa) while the model plateaus at ~340–550 aa. It also
 emits more, shorter ORFs (6.0 vs 4.0 at 6 kb): it hits stops and restarts. This is a **scaling
@@ -965,12 +1030,13 @@ does not, full FT becomes the *next* question rather than a confound in this one
 4. *Reserve:* sequence-level reward on domain presence. Directly optimises the target; expensive
    and high-variance.
 
-**Kill criterion, stated in advance:** if no cell of the 2×2 moves `max_orf_aa` above baseline
-within a single training run, that is a fast clean negative on the objective hypothesis — and the
+**Kill criterion, stated in advance:** if no cell of the 2×2 moves `biosynthetic_fraction` above
+baseline within a single training run, that is a fast clean negative on the objective hypothesis — and the
 question becomes scale/substrate, not another loss variant.
 
-**Read it on the ladder, not the gate:** `max_orf_aa` → `domain_count` → antiSMASH detect → class.
-Report the first two per run; the last two only when the first two move.
+**Read it on the ladder, not the gate:** `biosynthetic_fraction` (primary) → `max_orf_aa` and
+`best_bio_bits` (structural diagnostics) → `domain_count` → antiSMASH detect → class. Report the
+first three per run; the last two only once the first three move.
 
 ### C. Per-layer conditional adapters — DEFERRED, not dropped
 The ProCALM-style design and its precedent are sound and written up in the plan doc. They now target
