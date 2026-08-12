@@ -519,12 +519,39 @@ Rerun with `--adapter .../step_1200` (`activation_patching_ksweep_lora.json`), l
 noise 0.217 at k=200. Same shape, controls flat or negative throughout. The comparison is now
 apples-to-apples and the conclusion is unchanged.
 
-**What this does NOT yet show.** Evo2's vocabulary is bytes, so the next-token distribution is over
-A/C/G/T and class is not legible in it. At small k the patched positions *are* the local context of
-the next base, so high alignment may be ordinary sequence continuation rather than class transfer.
-**Phase B** (`evo2/scripts/patch_generate.py`, running) patches the context representation and then
-generates a full 3 kb continuation, scored by antiSMASH and Pfam markers — instruments that take no
-part in the intervention — to ask whether the continuation comes out as the DONOR's class.
+**Phase B — the transplant moves BEHAVIOUR but does not carry CLASS.** Phase A cannot settle class:
+Evo2's vocabulary is bytes, so the next-token distribution is over A/C/G/T, and at small k the
+patched positions *are* the local context of the next base. `patch_generate.py` therefore patches
+the context representation at layer L over the last k positions, generates a full 3 kb continuation,
+and scores it with antiSMASH — which took no part in the intervention. n=12 recipient contexts x 2
+layers x 2 k, run **with the LoRA adapter** so the arms sit above the floor.
+
+| arm | is_bgc | **DONOR class** | recipient class |
+|---|---|---|---|
+| unpatched | 0.333 | — | 0.333 |
+| cross_class L16 k50 | 0.167 | **0.000** | 0.167 |
+| cross_class L16 k200 | 0.083 | **0.000** | 0.083 |
+| cross_class L22 k50 | 0.250 | **0.000** | 0.250 |
+| cross_class L22 k200 | 0.333 | **0.000** | 0.333 |
+
+**INSTALLATION: 0 of 48.** The donor's class never once appeared. 95% upper bound on the true rate
+**6.1%**. For scale: if class transferred anywhere near as well as *behaviour* does (84-92%
+alignment at these settings), the donor's class should appear at roughly the recipient's own rate,
+~16 of 48. It appears zero times.
+
+**The degradation is generic, NOT class-specific deletion.** Recipient-class retention falls (10
+lost vs 4 gained, p=0.18) - but the **same-class control degrades identically** (10 lost, 3 gained,
+p=0.09). So unlike activation steering, where the class direction specifically *deleted* class,
+here any transplant merely disrupts. There is no deletion/installation asymmetry in this
+intervention; there is simply no class transfer in either direction.
+
+**=> THE STRONGEST CLOSURE OF INFERENCE-TIME INTERVENTION SO FAR.** This was the best intervention
+available: a genuine, in-distribution, fully-correlated activation pattern from a real forward pass,
+independently verified (Phase A) to move the model's behaviour most of the way toward the donor.
+The model reads it, its local output follows it - and the multi-kilobase organisation that
+constitutes a compound class does not follow. **Class is not controllable from a mid-layer context
+representation at generation time**, and that now rests on a positive demonstration that the channel
+works for everything except class, rather than on a series of nulls.
 
 ## ★★★ ACE PRE-CHECK (2026-08-11): A2 is CLOSED before spending GPU, and the doses were overdoses
 

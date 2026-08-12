@@ -29,9 +29,20 @@ control, not a measurement. (2) The one-position null at mid-layers was **levera
 only a k-sweep separates those, and without it the experiment would have "closed" the last open
 door on an artifact.
 
-*Still open:* whether what transfers includes CLASS. Byte-level vocabulary means the next-token
-distribution cannot show it, and at small k the patched positions are the local context of the next
-base. Phase B (`patch_generate.py`) settles it functionally.
+**RESOLVED by Phase B (`patch_generate.py`): what transfers is BEHAVIOUR, not CLASS.** Patch the
+context at layer 16 or 22 over the last 50-200 positions, generate 3 kb, score with antiSMASH:
+the donor's class appears in **0 of 48** cross-class transplants (95% upper bound 6.1%), against an
+unpatched recipient-class rate of 0.333. If class travelled as well as behaviour does at these
+settings (84-92% alignment), it should have appeared ~16 times. The degradation that does occur is
+**generic** - the same-class control loses the recipient's class just as often (10 vs 3, p=0.09,
+against cross-class 10 vs 4, p=0.18) - so there is no deletion/installation asymmetry here, unlike
+steering. Simply no class transfer in either direction.
+
+=> **This is the strongest closure of inference-time intervention in the project**, because it is
+the first one that rests on a POSITIVE demonstration rather than a null: the channel provably
+works (Phase A), the model provably reads it, its local output provably follows - and class does
+not. Class is not controllable from a mid-layer context representation at generation time. What
+remains is training-time coupling.
 
 ### [2026-08-11] A2 (Affine Concept Editing) closed by an offline pre-check; and a rank-1 edit cannot reach the class manifold
 `evo2/scripts/ace_precheck.py`, CPU-only. ACE written out is a **rank-1 edit along the same
