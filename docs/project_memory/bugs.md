@@ -474,3 +474,14 @@ these in minutes.
   layer 16, 200 gives 0.837. It was **leverage, not blindness**. *Rule: before reading a null off an
   intervention, vary its magnitude along the axis that controls leverage and show the effect stays
   flat. A single operating point cannot distinguish "no mechanism" from "too small to see".*
+
+- **[2026-08-11] An intervention experiment run on BASE Evo2 when the capability lives in the LoRA
+  has no floor, and its null is unreadable.** `patch_generate.py` defaults `--adapter None`. The
+  first Phase-B run therefore generated from base Evo2 and every arm — including the unpatched
+  control — returned `is_bgc = 0.000`, so "the transplant did not install the donor's class" was
+  indistinguishable from "nothing in this run was detectable at all". The seeded BGC capability
+  comes from the adapter (`.../phase1_lora_prod_20260617_095202_L32768/checkpoints/step_1200`),
+  which every earlier seeded experiment passed explicitly. **Fix:** rerun with `--adapter`, and
+  `analyze_patch_generate.py` now ABORTS when the unpatched control detects nothing rather than
+  printing a table of zeros. *Rule: a treatment arm can only be read against a control that is off
+  the floor — check the control first, and make the analyzer refuse otherwise.*
