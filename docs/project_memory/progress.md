@@ -508,6 +508,37 @@ that would have mismatched 12,217 records; a `truncate` default that biased the 
 true 33.7% class-domain *against the arm under test*; and a sanity check that passed a
 chance-level model three different ways.
 
+## ⚙️ CARRIED TO THE NEXT TRAINING ROUND (2026-08-12) — throughput, decided but NOT applied
+
+Two throughput items surfaced while the Phase-2 arms ran. **Neither is applied to the running
+arms**, for the same reason batch size is not: the design is *identical in every respect except the
+objective*, and a change made to arms 2 and 3 but not to arm 1 is a second difference.
+
+1. **Resolve the half-enabled determinism** — the actionable one. `finetune_evo2_lora.py:361,367`
+   sets `torch.use_deterministic_algorithms(True, warn_only=True)` and `cudnn.benchmark = False`,
+   but `CUBLAS_WORKSPACE_CONFIG` is **unset** in the run environment, and torch says so at runtime.
+   The GEMMs that dominate are nondeterministic anyway, while `benchmark = False` gives up kernel
+   autotuning — and Evo2 is a *convolutional* architecture (StripedHyena; 21 of the 1B's 25 blocks
+   are Hyena), which is precisely where cuDNN autotuning pays. So the cost may be larger here than
+   in a pure-attention model.
+   **Do not adopt blind — measure it first.** Written and ready:
+   `evo2_1b/experiments/probe_determinism_cost.sh` runs 40-step smokes at L=8192, identical except
+   for (a) as-is and (b) `CUBLAS_WORKSPACE_CONFIG=:4096:8` (real reproducibility), and reports
+   steady-state `tokens_per_sec`. A third arm — determinism dropped + `cudnn.benchmark = True`, the
+   pure-speed option — **is not runnable yet**: it needs a `--no-deterministic` flag that does not
+   exist (both settings are unconditional at `finetune_evo2_lora.py:361,367`). Add the flag rather
+   than hand-editing those lines, so a probe cannot leave the default path altered.
+   **Whichever wins, fix it for a WHOLE round** — never between arms of one comparison — and if the
+   spread is under ~5%, keep as-is: a change to the numerical path is not worth making for noise.
+
+2. **CUDA MPS — REJECTED, do not enable.** MPS is the only thing that makes separate CUDA processes
+   run concurrently rather than time-slice (see `bugs.md`), so it is the real fix for co-tenanting
+   arms. **It is nonetheless off the table on `gputee`:** the daemon is host-wide and this box had
+   35 logged-in users at the time. A throughput experiment does not justify changing the GPU
+   execution model out from under other people's jobs. Sequential arms + `WAIT=1` scoring (which
+   overlaps the finished arm's *generation* with the next arm's *training*) recovers the useful part
+   at zero risk to anyone else. Revisit only on a machine we hold exclusively.
+
 ## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 
 **The previous list ranked ways to condition class. That was the wrong target.** See DETECTION IS

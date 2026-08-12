@@ -20,9 +20,12 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
   *fraction of time a kernel was resident*, not occupancy. **Fix:** reverted to sequential arms
   (`PARALLEL=0`, the default) and kept the free half — `WAIT=1` in `score_arms.sh`, which scores
   each arm the moment its adapter lands, so the first arm's generation overlaps the others'
-  *training*. Sequential ordering makes that overlap **better**, not worse. **The real fix for
-  concurrent processes is CUDA MPS** (`nvidia-cuda-mps-control -d`), which is not something to
-  enable mid-experiment on a host with 35 logged-in users. Cost: ~25 min of GPU time.
+  *training*. Sequential ordering makes that overlap **better**, not worse. CUDA MPS
+  (`nvidia-cuda-mps-control -d`) is the only thing that makes separate processes run concurrently
+  rather than time-slice — and it is **REJECTED on `gputee`, do not enable it**: the daemon is
+  host-wide, this box had 35 logged-in users, and a throughput experiment does not justify changing
+  the GPU execution model under other people's jobs. Revisit only on a machine we hold exclusively.
+  Cost of the whole detour: ~25 min of GPU time.
   *Rule: idle SM capacity does not mean a second PROCESS can use it. Occupancy and concurrency are
   different questions, and only MPS connects them.*
 
