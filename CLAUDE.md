@@ -79,7 +79,9 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
   0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
   experimentally. The class comes from the seed, never the label.
-  ⇒ Current plan (A bank exemplar / B de novo capability / C per-layer adapters DEFERRED):
+  ⇒ Current plan — **A** bank exemplar conditioning as a characterisation paper / **B** attack de
+  novo capability with a LoRA + custom-loss **2×2 (frame-aware × domain-weighted)** / **C** per-layer
+  adapters DEFERRED:
   `docs/project_memory/progress.md` → NEXT ACTIONS. Superseded ranking + accurate citations:
   `docs/conditioning_next_steps.md`. Arc of the closed programme:
   `docs/steering_program.md`. Live state: `docs/project_memory/progress.md` → NEXT ACTIONS.

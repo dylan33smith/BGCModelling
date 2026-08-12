@@ -909,7 +909,8 @@ reconstruction, ours is functional (antiSMASH, Pfam domains, module architecture
 *they showed gLMs fail at long-range structure in general; we show what that costs in a concrete
 design task, quantify how much is recoverable by prompting, and close the conditioning mechanisms
 one at a time.*
-Exemplar conditioning is validated: `correct_class` **0.283 vs a 0.067 floor**, memorization ruled
+
+**The result being written up.** Exemplar conditioning is validated: `correct_class` **0.283 vs a 0.067 floor**, memorization ruled
 out, all four pre-registered controls passed, and the scored span provably contains no seed
 (0/1512). The detection numbers now supply the *mechanism* — the seed provides the recognisability
 the model cannot generate — and this is the mode Evo's own published work validates experimentally
@@ -918,35 +919,58 @@ the model cannot generate — and this is the mode Evo's own published work vali
 Framed as *"extend and diversify a known cluster"*, not *"generate class X de novo"*.
 
 ### B. Attack de novo capability — the real bottleneck
-**Target `max_orf_aa` first.** It is 332–505 aa de novo against 702 for real cores and ~1000–1500 aa
-for one NRPS module. It is continuous, non-zero today, and measurable per sequence within hours of a
-training run — unlike `correct_class`, which has read ~0 de novo since the project began (~4 months) and cannot be optimised against.
+
+**Target `max_orf_aa` first.** Length-matched against real cores it is **0.61 of real at a 2 kb
+window and 0.48 at 6 kb** — and the gap WIDENS with length, because real DNA scales its longest ORF
+with the room available (550 → 720 → 1,134 aa) while the model plateaus at ~340–550 aa. It also
+emits more, shorter ORFs (6.0 vs 4.0 at 6 kb): it hits stops and restarts. This is a **scaling
+failure**, and unlike `correct_class` it is continuous, non-zero today, and readable within hours
+of a run starting.
+
+**Form of the intervention: LoRA + a custom loss, NOT a full fine-tune.** Capacity has already been
+ruled out twice — the rank sweep (16/64/128, all at the floor, 128 *worse*) and unfreezing the Hyena
+long-range pathway (identical to control). A full FT would change capacity and objective at once and
+the result could not be attributed. If LoRA + custom loss moves `max_orf_aa`, that is clean; if it
+does not, full FT becomes the *next* question rather than a confound in this one.
 
 1. ~~**Annotation pass**~~ **DONE 2026-08-12** — `scripts/build_domain_spans.py` →
-   `train.domain_spans.jsonl`, 47,524 records with per-domain forward-strand nucleotide spans.
-**⚠️ Do NOT rank (2) against (3) — run them as a 2×2.** They attack the same measured failure from
-different angles, and the relationship between "gradient weight on domain positions" and
-"reading-frame length achieved" is unmeasured. Ranking them on an untested mechanistic story is the
-error that cost this project months on conditioning. Four cheap runs (frame-aware on/off ×
-domain-weighted on/off) resolve it and attribute the result.
+   `train.domain_spans.jsonl`, 47,524 records with per-domain forward-strand nucleotide spans,
+   round-trip tested on both strands.
 
-2. **Reading-frame-aware penalty.** Penalise in-frame stop codons inside annotated
-   genes, or weight by codon position. Aimed directly at the measured wall: longest ORF 332–505 aa
-   against ~1000–1500 aa for one module. Promoted above domain-weighting because 33.7% of training
-   nucleotides ALREADY sit inside class-defining domains — the gradient is not mis-aimed, the model
-   simply cannot hold the frame.
-3. **Domain-weighted loss — DEMOTED.** Its premise was that the machinery is a tiny share of the
-   gradient; measured, it is 33.7% per nucleotide, so this is a mild 2–3× reweighting rather than a
-   targeted fix. Still worth trying on the classes where the fraction IS small (NUCLEOSIDE 9.4%,
-   RESORCINOL 18.8%, RIPP 34.9%) and on long cores (>50 kb: 25.1%).
-4. **Auxiliary head predicting upcoming DOMAIN content** (explicitly *not* class: the probe already
-   recovers class at 0.911, so a class head would teach nothing). Forces the representation to carry
-   a commitment about what is ahead, which next-base prediction never requires.
-5. *Reserve:* sequence-level reward on domain presence. Directly optimises the target; expensive and
-   high-variance.
+2. **THE 2×2: frame-aware × domain-weighted.** These are not ranked, deliberately. They attack the
+   same measured failure from different angles and the relationship between "gradient weight on
+   domain positions" and "reading-frame length achieved" is **unmeasured**. An earlier draft ranked
+   frame-aware above domain-weighted on the argument that 33.7% of training nucleotides already sit
+   inside class-defining domains so the gradient cannot be mis-aimed — that is a mechanistic story,
+   not a measurement, and ranking on untested stories is the error that cost this programme months
+   on conditioning. Four runs resolve it and attribute the result:
 
-**Kill criterion, stated in advance:** if a domain-weighted / frame-aware run does not move
-`max_orf_aa` within a single training run, that is a fast clean negative — not another month.
+   | | domain-weighted OFF | domain-weighted ON |
+   |---|---|---|
+   | **frame-aware OFF** | baseline (current objective) | is reweighting alone enough? |
+   | **frame-aware ON** | is a direct frame penalty enough? | do they compose? |
+
+   - *Frame-aware:* penalise in-frame stop codons inside annotated genes, or weight by codon
+     position. The most direct lever on the measured wall.
+   - *Domain-weighted:* up-weight positions inside class-defining domains. A 2–3× reweighting at the
+     measured 33.7% coverage — mild, but the classes and lengths where coverage IS low are exactly
+     the hard ones (NUCLEOSIDE 9.4%, RESORCINOL 18.8%, RIPP 34.9%; cores >50 kb at 25.1%), so
+     consider a per-length or per-class weight rather than a flat one.
+
+3. **Auxiliary head predicting upcoming DOMAIN content** — explicitly *not* class, since the probe
+   already recovers class at 0.911 and such a head would teach nothing. Forces the representation to
+   carry a commitment about what is ahead, which next-base prediction never requires. Run only if
+   the 2×2 moves nothing.
+
+4. *Reserve:* sequence-level reward on domain presence. Directly optimises the target; expensive
+   and high-variance.
+
+**Kill criterion, stated in advance:** if no cell of the 2×2 moves `max_orf_aa` above baseline
+within a single training run, that is a fast clean negative on the objective hypothesis — and the
+question becomes scale/substrate, not another loss variant.
+
+**Read it on the ladder, not the gate:** `max_orf_aa` → `domain_count` → antiSMASH detect → class.
+Report the first two per run; the last two only when the first two move.
 
 ### C. Per-layer conditional adapters — DEFERRED, not dropped
 The ProCALM-style design and its precedent are sound and written up in the plan doc. They now target
