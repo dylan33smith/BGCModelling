@@ -8,15 +8,32 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Analysis / tooling
 
-- **[2026-08-12] `module_architecture` reports 0 modules on REAL full-length BGC cores — the check
-  never fires.** On a real 21,721 nt NRPS core it finds PF00501 (A) but neither PF00668 (C) nor
-  PF00550 (T), so `module_count` = 0. Root cause is upstream: pyrodigal called **16 ORFs averaging
-  ~1,360 nt** on that core, while real NRPS genes are 3–15 kb — the megasynthase is being
-  fragmented, so a C-A-T module straddles fragment boundaries and no single ORF carries the
-  pattern. Same family as the retired six-frame-scanner fragmentation. **Consequence:** the check
-  cannot serve as an evaluation rung and is currently a non-functional diagnostic, exactly like
-  `taxon_faithfulness` before it was removed (no_verdict on 870/870). Do not read a 0 from it as a
-  statement about the sequence. *Not yet fixed — recorded so nobody builds on it.*
+- **[2026-08-12] ~~`module_architecture` is broken~~ — RETRACTED SAME DAY. It works; it has a
+  LENGTH FLOOR, and my diagnosis blamed the wrong component twice.** The first claim was that the
+  check never fires and that pyrodigal was fragmenting megasynthase genes. Both are wrong:
+  * **pyrodigal is not fragmenting.** Its longest ORF matches the raw six-frame longest stop-free
+    stretch on real cores at ratio **1.00–1.04** — the DNA genuinely contains stops. Some real
+    cores do carry a full megasynthase (one NRPS core has a **5,951 aa** ORF), others top out
+    at 561–920 aa.
+  * **The check is correct.** On the core with the 5,951 aa megasynthase it finds 5 condensation,
+    5 adenylation and 5 carrier domains and reports **module_count = 5, ordered = 5**.
+  * **The zeros were a length artefact of my own measurement.** Everything in the ladder audit was
+    truncated to 3 kb, which holds at most ~1,000 aa, while one module needs ~1,000–1,500 aa. A
+    module cannot fit in the window. Measured on real ≥20 kb NRPS/PKS cores:
+
+    | window | mean modules | % with ≥1 module |
+    |---|---|---|
+    | 3,000 nt | 0.25 | 25% |
+    | 6,000 nt | 0.50 | 40% |
+    | 12,000 nt | 0.80 | 40% |
+    | 20,000 nt | 1.25 | 40% |
+
+  **Correct usage:** a DIAGNOSTIC at ≥6 kb only, never at 3 kb, and never a gate — its own ceiling
+  on real DNA is 0.40 even at 20 kb. Its AUROC of 0.500 in the ladder audit is right and
+  uninformative: it was constant-zero across a 3 kb cohort. *Same family as the antiSMASH hybrid
+  ceiling (0.00 at 3 kb): the instrument cannot fire in the window, which is not the same as the
+  instrument being broken.* **Rule: before calling an instrument broken, check it at the length it
+  was designed for.**
 
 - **[2026-08-12] Reading a metric out of a result dict by a key that does not exist returns 0 and
   looks like a measurement — TWICE in one day.** `soft_instrument_probe.py` read `any_pfam_hit` /
