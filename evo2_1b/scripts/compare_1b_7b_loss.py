@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """BASELINE 1: next-base cross-entropy on REAL held-out cores, 1B vs 7B.
 
-WHY THIS IS THE FIRST THING PHASE 2 MEASURES. The 1B is loaded in bf16 because Transformer Engine
-is absent, while its checkpoint was trained with FP8 input projections. That is a real numerical
-change, and a model that loads cleanly can still be damaged. The first sanity check written for
-this used a HAND-WRITTEN sequence and returned 1.3843 nats against a uniform guess of 1.386 --
-indistinguishable from chance -- which looked like a broken substrate but was actually a bad test:
-invented DNA is out-of-distribution for both models. Real held-out cores are the correct probe.
+WHY THIS IS THE FIRST THING PHASE 2 MEASURES. The 1B loads through Transformer Engine 1.13.0, which
+is REQUIRED: without TE the checkpoint's FP8 input-projection scales are read as raw bf16 and the
+model is destroyed -- 1.339 nats/base on real held-out cores, predictive entropy 1.357 against a
+uniform 1.386, i.e. at chance. The first sanity check missed that because it used a HAND-WRITTEN
+sequence and returned 1.3843 against a 1.386 threshold: invented DNA is out-of-distribution for
+every model, so the test PASSED a dead substrate. Real held-out cores are the correct probe -- and
+they are what proved TE is genuinely required. This run sizes the 1B-vs-7B handicap.
 
 It doubles as the first Phase-2 baseline, and as the headline 1B-vs-7B difference: if the 1B is far
 worse at modelling BGC DNA, every downstream comparison has to be read against that handicap.
@@ -88,7 +89,7 @@ def main() -> int:
         if tag == "1b":
             from evo2_1b_inference import load_1b
             w = load_1b(device=args.device)
-            model, tok, label = w.model, w.tokenizer, "1B base (bf16, no TE)"
+            model, tok, label = w.model, w.tokenizer, "1B base (TE 1.13.0)"
         else:
             from evo2_inference import load_evo2_wrapper_for_inference
             w = load_evo2_wrapper_for_inference(Path(args.adapter_7b), device=args.device)

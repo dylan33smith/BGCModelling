@@ -16,11 +16,16 @@
 > loss (−0.0000 at 200 nt), against 0.149 nats for *all* long-range context, so the loss has never
 > been able to see class at all.
 >
-> **The real constraint is capability, and it is specific:** de novo generations reach a longest ORF
-> of **332–505 aa** against 702 for real cores and ~1000–1500 aa for a single NRPS module. The model
-> cannot hold a reading frame long enough to encode one module, so no domain can sit in it. Verified
-> against a permissive instrument (any single Pfam domain, no clustering), which agrees with
-> antiSMASH — so this is capability, not measurement.
+> **The real constraint is capability, and it is specific — but it is NOT reading-frame length.**
+> (The original text here said the model "cannot hold a reading frame long enough to encode one
+> module"; the 2026-08-12 ladder audit overturned that.) The model **writes REAL proteins of the
+> WRONG kind**: at 6 kb **100% of de novo generations hit some Pfam family**, while the
+> **biosynthetic fraction is 0.100 against 0.836 for real cores** and the biosynthetic domains are
+> unclustered (`bio_span_frac` 0.051 vs 0.876). The permissive any-Pfam instrument does NOT agree
+> with antiSMASH; it is the class-specific biosynthetic instrument that does (0.033–0.050 vs
+> antiSMASH 0.000–0.034) — so this is capability, not measurement. `max_orf_aa` (332–505 aa vs 702
+> real) is retained as a structural diagnostic only: AUROC 0.709, and r = 0.051 / −0.120 *within*
+> de novo generations.
 >
 > **What this means for the items below.** Tier A is closed end to end (A1 inconclusive-underpowered,
 > A2/A4/A5 run and closed, A3/A6 unrun and now low value). **B1 (per-layer conditional adapters) and
@@ -32,7 +37,9 @@
 > **The current plan is in `docs/project_memory/progress.md` → NEXT ACTIONS.** In brief:
 > **(A)** write up exemplar conditioning — it works, 0.283 vs 0.067, and it is the mode Evo's own
 > published work validates; **(B)** attack de novo capability via a domain-weighted / frame-aware
-> objective, tracked on the continuous ladder `max_orf_aa` → `domain_count` → detect → class;
+> objective, tracked on the AUROC-validated ladder `best_bio_bits` (0.950) → `n_bio_domains` (0.919)
+> → `bio_span_frac` (0.896) → detect → class, with `max_orf_aa` (0.709) a diagnostic only and
+> novelty a hard constraint;
 > **(C)** revisit per-layer adapters afterwards.
 
 
@@ -230,8 +237,9 @@ comparable gains. Both differ from what we did — we picked a *layer* from wher
 best overall, never asked which *components within it* causally write the output. Either recipe
 is a candidate for a next attempt; they are not the same method and should not be conflated.
 
-- *Addresses:* **4**, by reframing it as "the surgical form of injection is untried" rather than a
-  closed negative.
+- *Addresses:* **4** — ORIGINAL FRAMING, SUPERSEDED BY THE RUN ABOVE. With the transplant result,
+  another localized-injection recipe is a **closed negative**, not an untried axis
+  (`progress.md` → NEXT ACTIONS: do NOT run another steering variant).
 - *Caveat:* the successes are coarse, single-decision behaviours (refuse / be truthful). Writing a
   multi-kb class-correct BGC is structurally harder, with no precedent at that complexity.
 - ITI <https://arxiv.org/abs/2306.03341> · Function Vectors <https://arxiv.org/abs/2310.15213> ·

@@ -2,14 +2,16 @@
 
 Fine-tune a genome foundation model to generate novel, correctly-classified
 **biosynthetic gene cluster (BGC)** nucleotide sequences conditioned on biosynthetic
-**class** and taxonomic **lineage** (**Phase 1**). **Phase 2+** adds explicit
-**compound** conditioning for named-product design.
+**class** and taxonomic **lineage** (**Phase 1**). **Phase 2** (opened 2026-08-12) is the
+objective-change programme on the 1B track; a **compound**-conditioned FT for named-product design
+remains the eventual goal, later.
 
-Two model tracks share one dataset and one eval instrument:
+Three model tracks share one dataset and one eval instrument:
 
 | Track | Model | Status |
 |---|---|---|
-| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; **every inference-time lever closed** — prefix labels (2026-07-21), CFG (2026-07-22), activation steering (2026-08-10) — and the cheap end of training-time coupling too (soft prefixes, 2026-08-10) |
+| [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; **every inference-time lever that edits the input or the activations is closed** — prefix labels (2026-07-21), CFG (2026-07-22), activation steering (2026-08-10) — and the cheap end of training-time coupling too (soft prefixes, 2026-08-10); **guided decoding is underpowered, not null** (Q2 5–0, p=0.0625, effective n=5) |
+| [`evo2_1b/`](evo2_1b/) | Evo2 1B (`evo2_1b_base`) + LoRA | **Phase 2, running since 2026-08-12** — objective-change arms (baseline / frame / weighted); requires Transformer Engine 1.13.0 |
 | [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | under evaluation since 2026-07-27; can take a **real trainable class token**, which is the capability Evo2's byte-level tokenizer cannot provide |
 
 See [`docs/model_comparison_evo2_vs_genomeocean.md`](docs/model_comparison_evo2_vs_genomeocean.md)
@@ -149,6 +151,8 @@ both tracks are scored on the same instrument.
 # ---- SHARED ----
 src/bgc_pipeline/evaluation.py   # the eval suite (CHECKS → QUESTIONS); see Evaluation
 src/bgc_pipeline/class_map.py    # load the antiSMASH-product → compound-class map
+src/bgc_pipeline/objective.py    # domain-weighted + frame-aware training objective (model-agnostic)
+src/bgc_pipeline/annotations.py  # window/prefix-offset alignment for the above
 scripts/eval_suite_driver.py     # batch eval: gen vs positive control, --skip-checks
 scripts/evaluate_bgc.py          # single-sequence eval
 scripts/memorization_check.py    # k-mer novelty vs a reference corpus
@@ -163,6 +167,12 @@ docs/project_memory/             # decisions / bugs / progress (working memory)
 docs/model_comparison_evo2_vs_genomeocean.md   # the two-track head-to-head
 docs/conditioning_next_steps.md  # ranked plan + literature for what to try next
 docs/steering_program.md         # the closed steering programme, start to finish
+
+# ---- EVO2 1B TRACK ----  (see evo2_1b/README.md; PHASE 2, requires TE 1.13.0)
+evo2_1b/scripts/evo2_1b_inference.py       # loader + substrate sanity check
+evo2_1b/scripts/compare_1b_7b_loss.py      # 1B-vs-7B next-base CE on real cores
+evo2_1b/experiments/run_objective_arms.sh  # baseline / frame / weighted
+evo2_1b/experiments/score_arms.sh          # generate, then ladder + novelty
 docs/archive/                    # archived runbooks, plans, and dated audits
 
 # ---- EVO2 TRACK ----  (see evo2/README.md)
@@ -216,7 +226,7 @@ Shell wrappers in `evo2/scripts/` are still invoked **from the repo root**, e.g.
 - **Leakage-clean:** genome-disjoint split (`split_dataset_grouped.py`) + exact-md5 +
   cross-split MMseqs2 near-dup removal (`dedup_core_splits.py`).
 - **MiBIG held out** (`exclude_mibig_from_core.py`): near-dups of the 2,636 MiBIG BGCs
-  removed from training, reserved for a possible **Phase-2 compound-conditioned** FT.
+  removed from training, reserved for a later **compound-conditioned** FT.
 
 Build pipeline: `build_core_records.py` → materialize strict cores →
 `split_dataset_grouped.py` → `curate_dataset.py` → `dedup_core_splits.py` →

@@ -32,7 +32,7 @@ consistent whenever behavior, flags, data, or decisions change.
 
 ## Repository Layout (reorganized 2026-07-27)
 
-Two model tracks, one shared instrument:
+Three model tracks, one shared instrument:
 
 - **Root = SHARED, model-agnostic.** `scripts/` (dataset pipeline + eval drivers),
   `src/bgc_pipeline/` (eval suite), `config/`, `tests/`, `data/`, `eval/`,
@@ -112,7 +112,7 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   - ACTIVE training/eval (v2): `/data2/ds85/bgcmodel_data/splits_core/{train,val,test}.jsonl`
     — strict antiSMASH **core** regions, native lowercase GTDB tags, leakage-clean
     (genome-disjoint + exact + cross-split MMseqs2); train 47,524 / val 8,048 / test 18,871;
-    22 classes; **MiBIG held out** (reserved for a Phase-2 compound-conditioned FT).
+    22 classes; **MiBIG held out** (reserved for a later compound-conditioned FT).
   - DEPRECATED (superseded — do not use): `splits_curated/` (~18K), `splits_combined_grouped/`,
     `splits_dedup/`, and `data/processed/splits_combined/` (leaky — 94.6% genome overlap).
 
@@ -190,7 +190,7 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
 - Validation uses first-window-only (prefix-aligned) loss, length-stratified
   (`val_by_length`), with early stopping (`--early-stopping-patience`). The old
   interior-window val loss did not reflect generation. Generation-based eval is
-  offline (depends on the not-yet-built generation script).
+  offline, via `evo2/scripts/generate_bgc.py` + `evo2/scripts/run_eval.sh`.
 - Metric 7 (organism compatibility) no longer hardcodes E. coli: it grades
   faithfulness vs the conditioned taxon (`scripts/build_taxon_profiles.py`,
   `data/processed/taxon_profiles.json`) and reports E. coli expressibility

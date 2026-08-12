@@ -531,7 +531,13 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
    **Whichever wins, fix it for a WHOLE round** — never between arms of one comparison — and if the
    spread is under ~5%, keep as-is: a change to the numerical path is not worth making for noise.
 
-2. **CUDA MPS — REJECTED, do not enable.** MPS is the only thing that makes separate CUDA processes
+2. **Re-run `compare_1b_7b_loss.py` under TE** (2 min, GPU, after the arms). The on-disk result was
+   produced *before* TE was installed and holds **1.327 nats** for the 1B — the broken bf16 number,
+   not the 0.990 the working substrate gives. The file is honestly labelled but is a trap for anyone
+   reading numbers rather than labels, so it is quarantined as
+   `compare_1b_7b_loss.NO_TE.STALE.json` until the real one replaces it.
+
+3. **CUDA MPS — REJECTED, do not enable.** MPS is the only thing that makes separate CUDA processes
    run concurrently rather than time-slice (see `bugs.md`), so it is the real fix for co-tenanting
    arms. **It is nonetheless off the table on `gputee`:** the daemon is host-wide and this box had
    35 logged-in users at the time. A throughput experiment does not justify changing the GPU
@@ -541,8 +547,8 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
 
 ## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 
-**The previous list ranked ways to condition class. That was the wrong target.** See DETECTION IS
-THE BOTTLENECK and IT IS A CAPABILITY FAILURE above. The ranked conditioning list survives as
+**The previous list ranked ways to condition class. That was the wrong target.** See LADDER AUDIT
+(2026-08-12) above and the two detection numbers below. The ranked conditioning list survives as
 reference in [`docs/conditioning_next_steps.md`](../conditioning_next_steps.md), now carrying a
 superseded banner; its citations and caveats are still accurate, its *ranking* is not.
 
@@ -601,18 +607,18 @@ of a run starting.
 **Form of the intervention: LoRA + a custom loss, NOT a full fine-tune.** Capacity has already been
 ruled out twice — the rank sweep (16/64/128, all at the floor, 128 *worse*) and unfreezing the Hyena
 long-range pathway (identical to control). A full FT would change capacity and objective at once and
-the result could not be attributed. If LoRA + custom loss moves `max_orf_aa`, that is clean; if it
+the result could not be attributed. If LoRA + custom loss moves `best_bio_bits` at unchanged novelty, that is clean; if it
 does not, full FT becomes the *next* question rather than a confound in this one.
 
 1. ~~**Annotation pass**~~ **DONE 2026-08-12** — `scripts/build_domain_spans.py` →
    `train.domain_spans.jsonl`, 47,524 records with per-domain forward-strand nucleotide spans,
    round-trip tested on both strands.
 
-**SEQUENCING DECIDED 2026-08-12: frame-aware FIRST, alone, at short context.** The arms want
-different lengths — frame-aware is length-agnostic and can run short and fast, while
+**⚠️ SEQUENCING SUPERSEDED SAME DAY — all three arms (baseline / frame / weighted) were launched
+together at L=8192; see "What is running right now" above.** The original argument, kept because the
+length reasoning still holds: frame-aware is length-agnostic and can run short and fast, while
 domain-weighted is least meaningful at short context (cores under 1 kb are already 78.6% domain, so
-there is nothing to reweight). A short pilot is therefore a valid test of one arm and a poor test of
-the other. Run frame-aware short; run domain-weighted afterwards at longer context if warranted.
+there is nothing to reweight). L=8192 proved affordable for every arm, so the trade-off was moot.
 Weights are **per-record normalised**, so every core gets the same total up-weighting regardless of
 its coverage — a flat multiplier would silently become a length reweighting (78.6% coverage under
 1 kb vs 25.1% above 50 kb).
@@ -649,9 +655,10 @@ its coverage — a flat multiplier would silently become a length reweighting (7
 (at unchanged novelty) within a single training run, that is a fast clean negative on the objective hypothesis — and the
 question becomes scale/substrate, not another loss variant.
 
-**Read it on the ladder, not the gate:** `biosynthetic_fraction` (primary) → `max_orf_aa` and
-`best_bio_bits` (structural diagnostics) → `domain_count` → antiSMASH detect → class. Report the
-first three per run; the last two only once the first three move.
+**Read it on the ladder, not the gate:** `best_bio_bits` (primary, AUROC 0.950) → `n_bio_domains`
+(0.919) → `bio_span_frac` (0.896) → antiSMASH detect → class, with `biosynthetic_fraction` (0.893) a
+specificity diagnostic and `max_orf_aa` (0.709) a structural diagnostic. Report the first three per
+run under the novelty guard; the last two only once the first three move.
 
 ### C. Per-layer conditional adapters — DEFERRED, not dropped
 The ProCALM-style design and its precedent are sound and written up in the plan doc. They now target
@@ -1143,7 +1150,7 @@ degrades *gene structure specifically*, not sequence statistics.
   MiBIG excluded. Pre-MiBIG backup at `splits_core_premibig/`.
 - **Eval suite rewritten** to named CHECKS → QUESTIONS (`src/bgc_pipeline/evaluation.py`).
   Gene caller is **pyrodigal** everywhere; synthesis/perplexity/BiG-SCAPE retired; E. coli
-  expressibility no longer gates. All `tests/run_all.py` pass (8 files).
+  expressibility no longer gates. All `tests/run_all.py` pass (18 files).
 - **antiSMASH recalibrated** to the `is_bgc`/`correct_class` gate: **0.97 / 0.97** on 237
   real held-out cores (was ~0.15). Full product→class map in
   `config/compound_class_map.yaml` (via `build_class_map.py`). Calibration data:

@@ -26,7 +26,7 @@ WHAT THESE ARE **NOT** EVIDENCE FOR, STATED UP FRONT
 `max_orf_aa` was demoted as a target because within de novo generations it does not track domain
 content (r = 0.051 at 2 kb, -0.120 at 6 kb). So the frame-aware term aims at a quantity we have
 NOT shown to be sufficient. The bet is that reading-frame length is a *gate* the model is failing
-(one adenylation domain is ~400 aa; de novo ORFs top out at 336-549) rather than a quantity to
+(one adenylation domain is ~400 aa; de novo ORFs top out at 340-550) rather than a quantity to
 maximise, and a gate can show zero within-group correlation while still being an absolute barrier.
 
 **Therefore these runs are scored on `best_bio_bits`, not on ORF length.** If ORF length rises and

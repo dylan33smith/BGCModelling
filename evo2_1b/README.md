@@ -79,9 +79,9 @@ objective change moves anything. It is **not** a substitute for a final number �
 should be confirmed on the 7B before it is reported as a project result.
 
 ⚠️ Both models share the byte-level tokenizer, so 1 token = 1 base in both. **The 1B's speed comes
-from depth/width, not from shorter sequences** — 3 kb is still 3,000 tokens. That caps the speedup
-at roughly the parameter ratio, and it is why GenomeOcean (5.15 bp/token) remains the better option
-if the *long*-context version is ever needed.
+from depth/width, not from shorter sequences** — 3 kb is still 3,000 tokens. Measured throughput is
+**8,770 vs 2,625 tok/s = 3.34×**, well short of the ~6× the parameter ratio suggests, and it is why
+GenomeOcean (5.15 bp/token) remains the better option if the *long*-context version is ever needed.
 
 ## Substrate sanity check — and why it took three tries
 

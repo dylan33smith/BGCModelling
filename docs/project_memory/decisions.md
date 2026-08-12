@@ -65,10 +65,10 @@ terminates the protein and junks everything downstream).
   or that swamps the CE, is invisible in a single total. Measured on the 1B: penalty 0.10–0.29
   against CE 0.93–1.45.
 
-**SEQUENCING — frame-aware first, and why the arms want different lengths.** frame-aware is
-length-agnostic (a stop is a stop) and can run short; domain-weighted is least meaningful at short
-context, because short cores are already 78.6% domain and there is nothing to reweight. A short
-pilot is therefore a valid test of one arm and a poor test of the other.
+**SEQUENCING — all three arms run together at L=8,192.** frame-aware is length-agnostic (a stop is
+a stop) and could have run shorter; domain-weighted is least meaningful at short context, because
+short cores are already 78.6% domain and there is nothing to reweight. Since L=8,192 proved
+affordable (7.7 GB peak, ~8,700 tok/s), every arm gets the context that tests it fairly.
 
 **L = 8,192, the 1B's NATIVE context — not 4,096.** At 4,096 the sequence budget is ~3,897 nt after
 the prefix, while ONE NRPS module is 3,000–4,500 nt: the window could barely hold the thing the
@@ -114,19 +114,21 @@ therefore does almost nothing to short cores and a great deal to long ones, so t
 would silently become a length reweighting. Normalise per record so every core receives the same
 total up-weighting regardless of its coverage.
 
-**2. Run FRAME-AWARE first, alone — not the full 2×2.** The two arms want different sequence
-lengths, which is what settles the ordering:
+**2. Run FRAME-AWARE first, alone — not the full 2×2.** ⚠️ **SUPERSEDED 2026-08-12 by the PHASE 2
+entry above: all three arms run together at L=8,192, one context for all.** Original reasoning, kept
+because the length argument still holds — the two arms want different sequence lengths:
 * *frame-aware* is length-agnostic (a stop is a stop) and can run at SHORT context, which is fast;
 * *domain-weighted* is least meaningful exactly where speed pushes us — short cores are already
   78.6% domain, so there is almost nothing to reweight. It needs longer context to test fairly.
 
-So a short-context pilot is a valid test of frame-aware and a POOR test of domain-weighted. Run
-frame-aware short and fast; run domain-weighted afterwards at longer context if warranted.
+So a short-context pilot is a valid test of frame-aware and a POOR test of domain-weighted. In the
+event L=8,192 was affordable for every arm, so the trade-off did not have to be made.
 
 **3. Frame-aware targets a NECESSARY-BUT-NOT-SUFFICIENT condition, and is scored accordingly.**
 `max_orf_aa` was demoted because it does not predict domain content de novo (r = 0.051 / −0.120),
 so an arm aimed at reading-frame length is aimed at a demoted metric. The defence: an adenylation
-domain is ~400 aa and de novo ORFs top out at 336–549, so length may be a *gate* the model is
+domain is ~400 aa and de novo ORFs top out at ~340–550 (length-matched sweep, `progress.md`; the
+soft-instrument cohort below reads 332–505), so length may be a *gate* the model is
 failing rather than a quantity to maximise — and a gate can show zero within-group correlation
 while still being an absolute barrier. **This is a hypothesis, not an established fact**, so the run
 is scored on `best_bio_bits`. If ORF length rises and biosynthetic content does not, that is a
@@ -147,10 +149,10 @@ content, which puts the structure in the representation instead of in the input.
 * **Sequence length is the dominant lever.** Hence the short-context pilot.
 * **CORRECTION: the "no small Evo2" claim was wrong about the cause.** It is a SOFTWARE gap, not
   hardware. This H100 PCIe is compute capability 9.0 (Hopper) with native FP8 tensor cores;
-  `transformer_engine` is simply not installed, and wheels exist (1.9–2.18). The evo2 package's own
-  message reads "For inference without TE, use any 7b model". So the 1B is plausibly usable after a
-  TE install — recorded as an open option rather than a closed door, though not worth the build
-  detour ahead of the short-context pilot.
+  `transformer_engine` was simply not installed, and wheels exist (1.9–2.18). **SUPERSEDED
+  2026-08-12 — the build detour was taken and was worth it:** TE **1.13.0 is installed** (2.18 will
+  not build against torch 2.5.1); the 1B reads **0.990 nats/base with TE vs 1.339 (chance)
+  without**, and it is now the Phase-2 substrate. See the PHASE 2 entry at the top of this file.
 * GenomeOcean remains attractive for the LONG-context version (5.15 bp/token ⇒ ~5× fewer tokens per
   nucleotide, 52.7 kb window, a stock `MistralForCausalLM`). Cost: every baseline we hold is
   Evo2-specific, and BPE tokens span ~5 bases so per-position weighting needs overlap-weighted
@@ -198,13 +200,16 @@ biosynthetic DNA and still fail. Re-scored with instruments needing only ONE dom
 | de novo @6 kb | 0.743 | 505 aa | 0.033 | 0.034 |
 | de novo @2 kb | 0.815 | 332 aa | 0.050 | 0.000 |
 
-Two instruments at very different strictness agree. De novo output is *not* junk — but **the longest
-ORF is 332–505 aa against ~1000–1500 aa for a single NRPS module**, so the model cannot hold a
-reading frame long enough to encode one and there is nowhere for a domain to sit.
+Two instruments at very different strictness agree. De novo output is *not* junk. **⚠️ UPDATED by
+the LADDER AUDIT (2026-08-12, `progress.md`): the reading-frame reading was the wrong diagnosis.**
+At 6 kb **100% of de novo generations hit some Pfam family**; the deficit is biosynthetic fraction
+(0.100 vs 0.836 real) and clustering (`bio_span_frac` 0.051 vs 0.876) — real proteins of the wrong
+kind.
 
-⇒ **Adopt a continuous ladder in place of the binary gate:** `max_orf_aa` → `domain_count` →
-antiSMASH detect → class. The first two are non-zero today and can be optimised and tracked;
-`correct_class` has read ~0 de novo since the project began and cannot.
+⇒ **Adopt a continuous ladder in place of the binary gate:** `best_bio_bits` (AUROC 0.950) →
+`n_bio_domains` (0.919) → `bio_span_frac` (0.896) → antiSMASH detect → class, under a hard novelty
+guard. `max_orf_aa` is a **structural diagnostic only** (0.709); `correct_class` has read ~0 de novo
+since the project began and cannot be optimised against.
 
 ⇒ **Why an objective change is warranted rather than merely plausible.** Next-base prediction is
 *locally satisfiable*: predicting base 900 from bases 850–899 works whether or not base 1,400
@@ -546,8 +551,10 @@ pretraining), not to relearn biology. LoRA (r=16, α=32, ~28.7M trainable ≈ 0.
 the base frozen, fits on one H100, and avoids catastrophic forgetting of Evo2's sequence
 prior. Full FT would be far more expensive and risk degrading the prior with our
 comparatively tiny dataset. The embedding + LM head are frozen (we condition via a text
-prefix, not new tokens). **Surface-level early results are expected from low training, not
-from LoRA capacity** — the adapter has ample capacity for the conditioning task.
+prefix, not new tokens). **Surface-level early results were attributed to low training, not
+LoRA capacity** — the adapter has ample capacity for the conditioning task. **SUPERSEDED
+2026-07-03 / 2026-08-12:** under-training was ruled out (step 400→1200 made `correct_class` worse)
+and the rank sweep separately ruled out capacity; the binding constraint is de novo capability.
 
 ### Native lowercase GTDB taxonomy tags
 Evo2 was pretrained with lowercase GTDB lineage strings
@@ -604,8 +611,10 @@ compound name, not just class — the eventual goal).
 ### Named CHECKS → QUESTIONS, not metric_1..metric_11
 The old flat metric numbering was a grab-bag of mixed value. The suite is now two layers:
 **checks** (compute units) combined into **questions** (what we actually want to know:
-is_bgc, correct_class, novel = gates; proteins_plausible, complete, conditioning_faithful
-= diagnostics). The suite is deliberately scoped to *is-it-a-BGC / correct-class /
+is_bgc, correct_class, novel = gates; proteins_plausible, complete, class_probe_agrees
+= diagnostics). `conditioning_faithful`/`taxon_faithfulness` was REMOVED from the suite 2026-08-10
+(no_verdict on 870/870; it grades taxon, not class — the function survives only for
+`evo2/scripts/conditioning_experiment.py`). The suite is deliberately scoped to *is-it-a-BGC / correct-class /
 plausible / novel / complete* — the **wet-lab axes (synthesizability, E. coli
 expressibility) were pruned** as out of scope.
 
@@ -646,7 +655,11 @@ antiSMASH is cheap (~3 s/core), so per-checkpoint `quick_eval` runs it for the r
 
 ---
 
-## Open architectural fork (undecided)
+## Per-class adapters — RESOLVED / DEFERRED (see 2026-07-27/28 and 2026-08-12 above)
+
+> The fork below is HISTORY. Decision: stop trying to INSTALL a class representation; per-layer /
+> per-class adapters are deferred to third priority until de novo detection is non-trivial. The
+> under-training question in it was answered (and falsified) on 2026-07-03.
 
 **Per-class adapters vs one conditional model (Step 2).** Whether to train one
 conditional adapter (current v2) or per-class adapters depends on whether class
