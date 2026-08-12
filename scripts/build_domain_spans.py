@@ -94,7 +94,7 @@ _HMM_CACHE: dict = {}
 
 def annotate(job):
     """Module-level for ProcessPoolExecutor picklability."""
-    rec, hmm_path, evalue = job
+    rec, hmm_path, evalue, row_idx = job
     import pyhmmer
     from pyhmmer.easel import Alphabet, TextSequence
     from pyhmmer.plan7 import HMMFile
@@ -103,10 +103,11 @@ def annotate(job):
     try:
         orfs = find_orfs(seq)
     except Exception as e:                       # a gene-caller failure must not look domain-free
-        return {"accession": rec.get("accession"), "error": f"find_orfs: {e}"}
+        return {"row": row_idx, "accession": rec.get("accession"), "error": f"find_orfs: {e}"}
     if not orfs:
-        return {"accession": rec.get("accession"), "compound_class": rec.get("compound_class"),
-                "length": len(seq), "n_orfs": 0, "spans": [], "n_domains": 0,
+        return {"row": row_idx, "accession": rec.get("accession"),
+                "compound_class": rec.get("compound_class"),
+                "length": len(seq), "n_orfs": 0, "spans": [], "n_domains": 0, "genes": [],
                 "domain_nt": 0, "class_domain_nt": 0}
 
     alphabet = Alphabet.amino()
@@ -155,7 +156,13 @@ def annotate(job):
     # starting at s is (p - s) % 3 on the forward strand, counted from the END on the reverse.
     # find_orfs already computes these and the first version of this script threw them away.
     genes = [[o.start, o.end, o.strand] for o in orfs]
-    return {"accession": rec.get("accession"), "compound_class": cls, "length": len(seq),
+    # ROW INDEX, not accession, is the join key. 5,219 accessions are shared by 12,217 training
+    # records with DIFFERENT sequences (e.g. GCF_043836905.1.region1 at 3,603 and 11,163 nt), so an
+    # accession-keyed join silently attaches one record's domain spans to another record's DNA --
+    # producing weights and codon phases that are confidently wrong and impossible to spot
+    # downstream.
+    return {"row": row_idx,
+            "accession": rec.get("accession"), "compound_class": cls, "length": len(seq),
             "n_orfs": len(orfs), "spans": spans, "n_domains": len(spans),
             "genes": genes,
             "domain_nt": _union(spans),
@@ -196,7 +203,8 @@ def main() -> int:
         rows, errs = [], 0
         with ProcessPoolExecutor(max_workers=args.workers) as ex, out.open("w") as w:
             for i, r in enumerate(ex.map(annotate,
-                                         ((rec, str(hmm), args.evalue) for rec in recs),
+                                         ((rec, str(hmm), args.evalue, j)
+                                          for j, rec in enumerate(recs)),
                                          chunksize=8)):
                 if r.get("error"):
                     errs += 1

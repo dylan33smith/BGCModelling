@@ -1116,7 +1116,15 @@ class BGCTextDataset(Dataset):
         pos_w = frame_ph = None
         if getattr(self, "annotation_index", None) is not None:
             from bgc_pipeline.annotations import window_annotations
-            a = self.annotation_index.get(rec.get("accession"))
+            a = self.annotation_index.get(record_idx)
+            # Cross-check the join rather than trusting it: if the sidecar row does not name the
+            # same accession, the sidecar was built from a DIFFERENT split file and every weight
+            # would land on the wrong sequence.
+            if a is not None and a.get("accession") not in (None, rec.get("accession")):
+                raise ValueError(
+                    f"Annotation row {record_idx} names accession {a.get('accession')!r} but the "
+                    f"training record is {rec.get('accession')!r} — the sidecar does not match "
+                    f"this split file.")
             if a is not None:
                 pos_w, frame_ph = window_annotations(
                     record_length=a["length"] or len(seq),
@@ -2121,8 +2129,9 @@ def main() -> None:
                 for _i, _l in enumerate(_f):
                     if _i >= 200:
                         break
-                    _acc.append(_json.loads(_l).get("accession"))
-            _cov = sum(1 for a in _acc if a in _idx) / max(len(_acc), 1)
+                    _acc.append((_i, _json.loads(_l).get("accession")))
+            _cov = sum(1 for _i, a in _acc
+                       if _i in _idx and _idx[_i].get("accession") in (None, a)) / max(len(_acc), 1)
             rank0_print(f"  objective: annotation coverage on the first {len(_acc)} train "
                         f"records = {_cov:.1%}")
             if _cov < 0.9:
@@ -2362,6 +2371,14 @@ def main() -> None:
                                 "step":           step,
                                 "epoch":          round(step / max(steps_per_epoch,1), 4),
                                 "train_loss":     round(avg_loss, 6),
+                                # Log the objective's COMPONENTS, not just the total. A stop
+                                # penalty that is silently zero (bad annotations, wrong phase) or
+                                # one that swamps the CE is invisible in a single number — and
+                                # either would make the arm uninterpretable.
+                                "loss_ce":        round(loss_comp.get("ce", float("nan")), 6),
+                                "loss_stop_pen":  round(loss_comp.get("stop_penalty", 0.0), 6),
+                                "domain_weight":  args.domain_weight,
+                                "frame_lambda":   args.frame_lambda,
                                 "lr":             lr,
                                 "grad_norm":      round(grad_norm, 4),
                                 "gpu_mem_gb":     [round(x, 2) for x in gpu_memory_gb()],

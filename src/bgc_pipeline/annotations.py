@@ -64,7 +64,12 @@ def window_annotations(
 
 
 def load_annotation_index(spans_jsonl) -> dict:
-    """accession -> {'length', 'genes', 'spans'} from a `*.domain_spans.jsonl` sidecar."""
+    """row index -> {'length', 'genes', 'spans'} from a `*.domain_spans.jsonl` sidecar.
+
+    KEYED BY ROW, NOT ACCESSION. 5,219 accessions are shared by 12,217 training records with
+    DIFFERENT sequences, so an accession-keyed join attaches the wrong record's spans — silently,
+    and with plausible-looking output.
+    """
     import json
     from pathlib import Path
     idx: dict = {}
@@ -75,13 +80,13 @@ def load_annotation_index(spans_jsonl) -> dict:
             f"`python scripts/build_domain_spans.py --splits train`. Running the weighted or "
             f"frame-aware objective without it would silently fall back to uniform weights and a "
             f"never-firing penalty — i.e. the baseline, reported as the treatment.")
-    for line in p.open():
+    for n, line in enumerate(p.open()):
         r = json.loads(line)
-        acc = r.get("accession")
-        if acc:
-            idx[acc] = {"length": r.get("length", 0),
-                        "genes": r.get("genes") or [],
-                        "spans": r.get("spans") or []}
+        key = r.get("row", n)
+        idx[key] = {"length": r.get("length", 0),
+                    "genes": r.get("genes") or [],
+                    "spans": r.get("spans") or [],
+                    "accession": r.get("accession")}
     if not idx:
         raise SystemExit(f"[annot] ABORT: {p} parsed to zero records")
     return idx
