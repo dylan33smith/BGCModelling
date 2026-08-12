@@ -8,6 +8,43 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Analysis / tooling
 
+- **[2026-08-12] Running training arms concurrently on one GPU bought NOTHING — without MPS, CUDA
+  contexts time-slice.** The 1B at `batch=1` reaches only ~75 TFLOPS of an H100's ~756 (**10% of
+  peak**): a 1.1B model on 8 k tokens with no batch dimension is launch-latency and HBM-bandwidth
+  bound and never fills the SMs. That headroom is real, and the inference drawn from it — "so a
+  second and third process can claim it" — was **wrong**. Measured: baseline alone **8,437 tok/s**;
+  the same process with two co-tenants **2,799**, i.e. almost exactly one third, with an aggregate
+  of 7,957 = **0.94x** solo. Separate CUDA processes do not run concurrently under
+  `Compute Mode: Default` — the driver time-slices whole contexts, so N processes get 1/N each plus
+  ~6% switching overhead. `nvidia-smi` "utilization.gpu 100%" never contradicted this: that field is
+  *fraction of time a kernel was resident*, not occupancy. **Fix:** reverted to sequential arms
+  (`PARALLEL=0`, the default) and kept the free half — `WAIT=1` in `score_arms.sh`, which scores
+  each arm the moment its adapter lands, so the first arm's generation overlaps the others'
+  *training*. Sequential ordering makes that overlap **better**, not worse. **The real fix for
+  concurrent processes is CUDA MPS** (`nvidia-cuda-mps-control -d`), which is not something to
+  enable mid-experiment on a host with 35 logged-in users. Cost: ~25 min of GPU time.
+  *Rule: idle SM capacity does not mean a second PROCESS can use it. Occupancy and concurrency are
+  different questions, and only MPS connects them.*
+
+- **[2026-08-12] Polling for `final_adapter/` (or for `adapter_config.json`) fires on a
+  half-written adapter.** The trainer publishes with `shutil.copytree`, which creates the directory
+  first and copies in directory order — so `adapter_config.json` lands **before**
+  `adapter_model.safetensors` finishes streaming. A watcher gated on either would launch generation
+  against truncated weights: an arm that still emits sequence, so the failure is a silent wrong
+  result rather than a crash. **Fix:** gate on `adapter_model.safetensors` *and* require its size to
+  be unchanged across a 15 s re-stat. *Rule: when waiting on a file another process is writing,
+  wait on the LAST byte of the LARGEST file, not on the existence of the first one.*
+
+- **[2026-08-12] Determinism is half-enabled, so we pay for it without getting it.**
+  `finetune_evo2_lora.py` sets `torch.use_deterministic_algorithms(True, warn_only=True)` and
+  `cudnn.benchmark = False`, but `CUBLAS_WORKSPACE_CONFIG` is **not** set in the run environment —
+  and torch says so at runtime ("this operation is not deterministic because it uses CuBLAS"). The
+  GEMMs that dominate runtime are nondeterministic regardless, while `benchmark = False` gives up
+  kernel autotuning. NOT changed mid-experiment (it would be a second difference between arms).
+  *Rule: resolve this in one direction or the other before the next training round — either set
+  `CUBLAS_WORKSPACE_CONFIG=:4096:8` and get real reproducibility, or drop the determinism flags and
+  get the speed.*
+
 - **[2026-08-12] An accession-keyed join silently mismatches 12,217 training records.** The
   Phase-2 annotation sidecar was keyed by `accession`, but **5,219 accessions are shared by 12,217
   records with DIFFERENT sequences** (`GCF_043836905.1.region1` appears at 3,603 nt *and* 11,163
