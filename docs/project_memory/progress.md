@@ -935,6 +935,51 @@ prompts. If they are equal, the fine-tune changed the model's *likelihoods* with
 *generates* — which would reframe the objective work again and is worth knowing before spending a
 training run. Requires base-model generations, which we do not currently have on disk.
 
+## ★★★ THE FINE-TUNE DID MOVE GENERATION (2026-08-12) — the B track is aimed correctly
+
+`evo2/scripts/analyze_base_vs_lora.py`. Identical prompts, identical decoding, identical RNG seed;
+the only difference is whether the adapter is loaded (prompt plans verified byte-identical apart
+from the model line). n=24 per arm at 6 kb, 4 classes.
+
+| arm | best ANY Pfam | **best BIO** | BIO fraction | % with any BIO signal |
+|---|---|---|---|---|
+| base Evo2 | 13.0 | **0.0** | **0.000** | **0%** |
+| LoRA step_1200 | 109.2 | **56.9** | **0.399** | **46%** |
+| *(real cores)* | *195.0* | *148.6* | *0.836* | *100%* |
+
+Paired, same prompt and seed:
+
+| metric | base | lora | delta | sign | p |
+|---|---|---|---|---|---|
+| **best_bio_bits** (primary) | 0.000 | 56.861 | **+56.9** | **11/11** | **0.0010** |
+| BIO fraction | 0.000 | 0.399 | +0.399 | 11/11 | 0.0010 |
+| best ANY bits | 13.047 | 109.225 | +96.2 | 21/23 | 0.0001 |
+
+Per class, BIO fraction delta: NRPS +0.409, PKS +0.540, RIPP +0.481, TERPENE +0.167 — all positive.
+
+**NOVELTY GATE: clean.** Max k-mer containment against the 47.5k-core training corpus is **0.012**
+for LoRA and 0.005 for base, against a 0.95 memorisation threshold — nothing is close. **The LoRA
+advantage is not copying.** This was the confound that would otherwise have made the result
+ambiguous, and it is now excluded rather than assumed.
+
+⇒ **The fine-tune moved what the model GENERATES, not merely what it scores.** base 0.000 →
+LoRA 0.399 → real 0.836: roughly halfway. The objective work (B) is aimed at a real remaining gap
+rather than at a generator that never left base behaviour, and the pre-registered "LoRA ≈ base"
+branch — which would have invalidated the whole B track — does not apply.
+
+**It also refines the de novo picture.** 46% of LoRA generations carry SOME biosynthetic signal
+while antiSMASH detects a cluster in only 1.2%. So the wall is not "no biosynthetic content at
+all" — it is between *some* content and *enough, clustered,* to be called a BGC. That is exactly
+what the `n_bio_domains` (0.20 vs 2.48) and `bio_span_frac` (0.051 vs 0.876) rungs measure, and it
+tells the 2×2 what to move.
+
+**⚠️ CAVEAT, stated because it is not controlled here.** The prompt format
+`|COMPOUND_CLASS:X||d__…|` is what the LoRA was trained on and base Evo2 has never seen it, so some
+of base's 0.000 may be an out-of-distribution prompt rather than an inability to write biosynthetic
+DNA. The question asked — *did the fine-tune move generation under the conditions we actually use*
+— is answered either way, but "base Evo2 cannot write biosynthetic sequence" is NOT established by
+this run. A fair test of that would prompt base with natural DNA context instead of our tag.
+
 ## ★★★ LADDER AUDIT (2026-08-12): the primary metric is `best_bio_bits`, not the fraction
 
 `evo2/scripts/ladder_audit.py`. `max_orf_aa` was adopted on BETWEEN-group evidence plus a
