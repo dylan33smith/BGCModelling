@@ -599,6 +599,25 @@
       <li><strong>Model capacity</strong> — LoRA rank, target modules, and unfreezing the long-range pathway all ruled out earlier.</li>
     </ul>
 
+    <h3>The last inference-time door, closed by a positive result</h3>
+    <p class="prose">Every closure above is a null: we tried something and nothing happened. The final experiment is different, and it is the one that makes the conclusion safe. <strong>Activation patching</strong> substitutes a <em>genuine</em> internal state — recorded from a real forward pass over real DNA of another class, in-distribution, every one of its 4,096 dimensions mutually consistent — rather than the hand-built direction steering used.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>positions substituted (of 1,000)</th><th class="num">1</th><th class="num">10</th><th class="num">50</th><th class="num">200</th></tr></thead>
+        <tbody>
+          <tr class="hi"><td class="rowlab">how far the output moves toward the donor</td><td class="num">0.06</td><td class="num metric-lead">0.41</td><td class="num">0.69</td><td class="num metric-lead">0.92</td></tr>
+          <tr><td class="rowlab">same-class donor (control)</td><td class="num zero">0.17</td><td class="num zero">0.27</td><td class="num zero">0.08</td><td class="num zero">−0.22</td></tr>
+          <tr><td class="rowlab">norm-matched noise (control)</td><td class="num zero">0.23</td><td class="num zero">0.27</td><td class="num zero">0.25</td><td class="num zero">0.22</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">So <strong>the model reads its mid-layer state perfectly well.</strong> Substituting 1% of the context moves its behaviour 41% of the way to the donor; 20% of the context moves it 92%. Our steering edit — applied to <em>every</em> position, at up to 11.4 class-units — moved it essentially nothing. <strong>Every steering null was about the shape of the edit, not the model's blindness</strong>, exactly as the ACE geometry predicted.</p>
+    <div class="callout verdict">
+      <p class="k">And yet class still does not travel — 0 of 48</p>
+      <p>Running the same transplant and then generating 3 kb, scored by antiSMASH: <strong>the donor's compound class appears zero times in 48 transplants</strong> (95% upper bound 6.1%), against an unpatched recipient-class rate of 0.333. If class travelled as well as <em>behaviour</em> does at these settings, it should have appeared roughly 16 times. The degradation that does occur is generic — a same-class transplant disrupts identically — so there is not even the delete-without-install asymmetry steering showed.</p>
+      <p><strong>This is the strongest closure in the project, because it rests on a positive demonstration rather than a null.</strong> The channel provably works. The model provably reads it. Its local output provably follows. And the multi-kilobase organisation that constitutes a compound class does not. Class is not controllable from a mid-layer representation at generation time — which leaves training-time coupling as the only route.</p>
+    </div>
+
     <h3>The organising hypothesis</h3>
     <p class="prose">Every mechanism we have tried injects the class condition <strong>at one place</strong> — one input token, one input position, an activation edit at a handful of hand-picked layers. The model conditions perfectly well on content present at <em>every</em> position, which is exactly what seeding provides. Across nine independent search angles in the literature sweep, the recurring answer is that conditioning which works <strong>enters at every layer, through a small gated module trained end-to-end</strong>. <em>Depth of injection is the one axis we have never varied.</em></p>
 

@@ -155,6 +155,26 @@ audit compared two *detection* estimators to each other; that comparison is now 
   AxBench <https://arxiv.org/abs/2501.17148>
 
 ### A5. Diagnostic: causally-localized injection (activation patching)
+**RUN 2026-08-11 — the decisive result of the diagnostic tier. `activation_patching.py` +
+`patch_generate.py`.**
+
+*Phase A (influence).* Substituting a REAL donor's activations over the last k context positions —
+in-distribution, all 4,096 coordinates mutually consistent — moves the next-token distribution
+toward the donor by 0.414 at k=10 and 0.837 at k=200 (layer 16; controls: same-class 0.128,
+shuffled 0.129, noise -0.099). Replicated with the LoRA. **The model reads mid-layer state
+perfectly well**; every steering null was about the SHAPE of the edit, not blindness.
+
+*Phase B (class).* The same transplant, followed by 3 kb of generation scored by antiSMASH:
+**the donor's class appears 0 times in 48** (95% upper bound 6.1%), against an unpatched
+recipient-class rate of 0.333 — where behaviour-level transfer of 84-92% predicts ~16. Degradation
+is generic (same-class control degrades identically), so there is not even the delete-without-
+install asymmetry steering showed.
+
+⇒ **This closes the diagnostic tier and inference-time intervention with it.** Unlike every earlier
+closure it rests on a positive demonstration rather than a null: the channel works, the model reads
+it, its local output follows, and class still does not travel. Tier A is exhausted; go to Tier B.
+
+
 Injection demonstrably *can* work when localized to a small component set, rather than the
 whole-residual-stream direction we injected. Two different localization recipes both beat the
 diffuse approach: ITI selects specific attention heads by **linear-probe validation accuracy per
