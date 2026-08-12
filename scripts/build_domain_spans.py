@@ -151,8 +151,13 @@ def annotate(job):
                 cur_e = max(cur_e, e)
         return tot + ((cur_e - cur_s) if cur_e is not None else 0)
 
+    # GENE spans are needed by the frame-aware loss: codon phase at position p inside a gene
+    # starting at s is (p - s) % 3 on the forward strand, counted from the END on the reverse.
+    # find_orfs already computes these and the first version of this script threw them away.
+    genes = [[o.start, o.end, o.strand] for o in orfs]
     return {"accession": rec.get("accession"), "compound_class": cls, "length": len(seq),
             "n_orfs": len(orfs), "spans": spans, "n_domains": len(spans),
+            "genes": genes,
             "domain_nt": _union(spans),
             "class_domain_nt": _union([s for s in spans if s[3]])}
 

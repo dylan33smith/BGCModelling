@@ -31,6 +31,7 @@ TESTS = [
     "test_scored_span.py",              # is the SEED inside the sequence antiSMASH scores? (no)
     "test_activation_patching.py",      # is the donor state really substituted, and measured right
     "test_domain_spans.py",             # aa -> nt domain mapping, incl. the reverse strand
+    "test_objective.py",                # frame-aware + domain-weighted loss; baseline must not drift
 ]
 
 

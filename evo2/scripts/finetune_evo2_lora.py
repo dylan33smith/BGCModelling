@@ -110,6 +110,12 @@ EVO2_MODEL_NAME = os.environ.get("EVO2_BASE_MODEL", "evo2_7b_262k")
 PAD_TOKEN_ID    = 0
 IGNORE_INDEX    = -100
 
+# Phase-2 custom objectives (frame-aware / domain-weighted). Model-agnostic, in the shared package
+# so the 1B track uses exactly the same code path.
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from bgc_pipeline.objective import custom_lm_loss  # noqa: E402
+
 # End-of-BGC sentinel (audit M11 / long-sequence support). Appended — supervised,
 # NOT loss-masked — to the *final* window of a BGC so the model learns where a
 # cluster ends and can terminate generation. "END" contains non-nucleotide chars,
@@ -209,6 +215,21 @@ def parse_args() -> argparse.Namespace:
                     action="store_false",
                     help="Disable block-level activation checkpointing.")
     p.set_defaults(activation_checkpointing=True)
+    # ── Phase-2 custom objective ────────────────────────────────────────────
+    # Defaults are the IDENTITY: weight 1.0 and lambda 0.0 reproduce causal_lm_loss bit for bit,
+    # so an un-flagged run is exactly the control cell of the factorial.
+    p.add_argument("--domain-weight", type=float, default=1.0,
+                   help="Up-weight class-defining domain positions by this factor. 1.0 = off. "
+                        "Weights are normalised PER RECORD so every core contributes the same "
+                        "total regardless of coverage (78.6%% in cores <1 kb vs 25.1%% >50 kb); an "
+                        "unnormalised weight silently becomes a LENGTH weighting.")
+    p.add_argument("--frame-lambda", type=float, default=0.0,
+                   help="Weight on the in-gene stop-completion penalty. 0.0 = off. Penalises "
+                        "probability mass on a base that would close a stop codon at codon phase 2 "
+                        "inside an annotated gene; real gene termini are exempt.")
+    p.add_argument("--annotations", type=Path, default=None,
+                   help="`*.domain_spans.jsonl` sidecar (scripts/build_domain_spans.py). REQUIRED "
+                        "when --domain-weight != 1.0 or --frame-lambda > 0.")
     # EOS / continuation conditioning (audit M11 + long-sequence support).
     eg = p.add_mutually_exclusive_group()
     eg.add_argument("--eos-token", dest="eos_token", action="store_true",
@@ -301,7 +322,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--resume-from", type=Path, default=None,
                    help="Adapter checkpoint directory to resume from")
     p.add_argument("--local_rank", type=int, default=-1)
-    return p.parse_args()
+    args = p.parse_args()
+    # A REQUESTED OBJECTIVE THAT SILENTLY DOES NOTHING IS THE WORST OUTCOME: the run completes,
+    # the curve looks normal, and the "treatment" arm is in fact the control.
+    if (args.domain_weight != 1.0 or args.frame_lambda > 0) and args.annotations is None:
+        raise SystemExit(
+            "ABORT: --domain-weight/--frame-lambda were set but --annotations was not. The "
+            "objective would fall back to uniform weights and a never-firing penalty — i.e. the "
+            "baseline, reported as the treatment. Build the sidecar with "
+            "`python scripts/build_domain_spans.py --splits train`.")
+    return args
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1080,7 +1110,25 @@ class BGCTextDataset(Dataset):
                 f"Increase --prefix-budget or refresh the auto-prefix-budget scan."
             )
 
+        # Phase-2: per-position annotations for the custom objective, sliced to THIS window and
+        # offset past the prefix. Built here because window bounds and record identity are only
+        # available at this point; skipped entirely when the objective does not use them.
+        pos_w = frame_ph = None
+        if getattr(self, "annotation_index", None) is not None:
+            from bgc_pipeline.annotations import window_annotations
+            a = self.annotation_index.get(rec.get("accession"))
+            if a is not None:
+                pos_w, frame_ph = window_annotations(
+                    record_length=a["length"] or len(seq),
+                    genes=a["genes"], domain_spans=a["spans"],
+                    nt_start=nt_start, nt_end=nt_end,
+                    prefix_token_count=prefix_token_count, total_tokens=len(ids),
+                    domain_weight=getattr(self, "domain_weight", 1.0),
+                )
+
         out: dict[str, Any] = {
+            "position_weights": pos_w,
+            "frame_phase": frame_ph,
             "input_ids": ids,
             "length": len(ids),
             "prefix_token_count": prefix_token_count,
@@ -1114,10 +1162,24 @@ def collate_pad(batch: list[dict[str, Any]],
         input_ids[i, :L] = ids
         if p < L:
             labels[i, p:L] = ids[p:]
+    # Phase-2 annotations, padded to the same width. Weight 1.0 and phase -1 are the identity:
+    # padded tail positions are ignored by the loss and never penalised.
+    pos_w = frame_ph = None
+    if batch[0].get("position_weights") is not None:
+        pos_w = torch.ones((B, content_max), dtype=torch.float32)
+        frame_ph = torch.full((B, content_max), -1, dtype=torch.int8)
+        for i, b in enumerate(batch):
+            L = b["length"]
+            if b.get("position_weights") is not None:
+                pos_w[i, :L] = b["position_weights"][:L]
+                frame_ph[i, :L] = b["frame_phase"][:L]
+
     first = batch[0]
     return {
         "input_ids":     input_ids,
         "labels":        labels,
+        "position_weights": pos_w,
+        "frame_phase":   frame_ph,
         "content_max_len": content_max,
         "first_record_idx": int(first["record_idx"]),
         "first_chunk_idx": int(first["chunk_idx"]),
@@ -2038,6 +2100,37 @@ def main() -> None:
         **ds_common,
     )
 
+    # Phase-2: load the annotation sidecar onto the TRAIN dataset only. Validation keeps the
+    # plain objective so val loss stays comparable across cells of the factorial — a weighted val
+    # loss would move for reasons unrelated to model quality and make the arms incomparable.
+    if args.annotations is not None:
+        from bgc_pipeline.annotations import load_annotation_index
+        _idx = load_annotation_index(args.annotations)
+        train_ds.annotation_index = _idx
+        train_ds.domain_weight = args.domain_weight
+        _hit = sum(1 for a in list(_idx)[:0]) if False else None
+        if is_main():
+            rank0_print(f"  objective: domain_weight={args.domain_weight} "
+                        f"frame_lambda={args.frame_lambda} "
+                        f"annotations={len(_idx):,} records from {args.annotations.name}")
+            # COVERAGE CHECK: annotations keyed by accession must actually match the training
+            # records, or the objective silently degrades to the baseline on the misses.
+            import json as _json
+            _acc = []
+            with args.train.open() as _f:
+                for _i, _l in enumerate(_f):
+                    if _i >= 200:
+                        break
+                    _acc.append(_json.loads(_l).get("accession"))
+            _cov = sum(1 for a in _acc if a in _idx) / max(len(_acc), 1)
+            rank0_print(f"  objective: annotation coverage on the first {len(_acc)} train "
+                        f"records = {_cov:.1%}")
+            if _cov < 0.9:
+                raise SystemExit(
+                    f"ABORT: only {_cov:.1%} of training records have annotations. The objective "
+                    f"would be the baseline on the rest, making the arm a blend of treatment and "
+                    f"control. Rebuild the sidecar for THIS split.")
+
     # H3 prefix-mask sanity: confirm a few rows of each split have >0
     # supervised (non-prefix, non-pad) tokens. Cheap rank-0-only check.
     if is_main():
@@ -2217,7 +2310,19 @@ def main() -> None:
                 collated_seq_len = int(input_ids.shape[1])
 
                 logits, _ = model_engine(input_ids)
-                loss = causal_lm_loss(logits, labels)
+                # CUSTOM OBJECTIVE (Phase 2). With --domain-weight 1.0 and --frame-lambda 0.0
+                # this is bit-identical to causal_lm_loss — the factorial's control cell must be
+                # the current objective exactly, or no delta is attributable. Pinned by
+                # tests/test_objective.py.
+                pw = batch.get("position_weights")
+                fp = batch.get("frame_phase")
+                loss, loss_comp = custom_lm_loss(
+                    logits, labels,
+                    input_ids=input_ids if args.frame_lambda > 0 else None,
+                    position_weights=pw.to(local_rank) if pw is not None else None,
+                    frame_phase=fp.to(local_rank) if fp is not None else None,
+                    frame_lambda=args.frame_lambda,
+                )
 
                 model_engine.backward(loss)
                 model_engine.step()
