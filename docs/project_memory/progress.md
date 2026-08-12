@@ -391,6 +391,35 @@ train-only pooled activations for 10,022 real cores at all 32 layers, so anythin
 activation space runs alongside a GPU job. Used below for the direction audit; the same route is
 open for an offline Affine-Concept-Editing pre-check (A2).
 
+## ★★★ IT IS A CAPABILITY FAILURE, NOT AN INSTRUMENT FAILURE (2026-08-12)
+
+Before concluding from the de novo result that the model cannot generate, the obvious alternative
+was tested: antiSMASH is strict (it needs *clustered* biosynthetic genes), so a generation could
+contain real biosynthetic protein-coding DNA and still fail. `evo2/scripts/soft_instrument_probe.py`
+re-scores the same sequences with much more permissive instruments — coding density, longest ORF,
+and whether ANY single class-defining Pfam domain appears anywhere (no clustering required).
+
+| group | n | coding density | longest ORF (aa) | ≥1 class domain | antiSMASH detect |
+|---|---|---|---|---|---|
+| **real cores @3 kb** | 30 | 0.972 | **702** | **0.800** | ~0.58 |
+| **seeded @3 kb** | 30 | 0.932 | 591 | **0.467** | 0.367 |
+| de novo @6 kb | 30 | 0.743 | 505 | **0.033** | 0.034 |
+| de novo @2 kb | 40 | 0.815 | 332 | **0.050** | 0.000 |
+
+**Two instruments at very different strictness agree.** The permissive one needs a single domain hit
+anywhere and still shows a 10–14× gap between seeded and de novo. So the de novo failure is
+**capability, not measurement**.
+
+**The precise diagnosis, which is more useful than "detection fails".** De novo output is *not*
+junk — coding density 0.74–0.82 against 0.97 for real DNA — but it almost never contains a
+biosynthetic domain. And its reading frames are short: **longest ORF 332–505 aa versus 702 for real
+cores**, while a single NRPS module is ~1,000–1,500 aa. **The model cannot sustain an open reading
+frame long enough to encode one module**, so there is nothing for a domain to sit in.
+
+⇒ This gives the programme a **ladder of continuous sub-goals** to replace the binary gate that has
+read ~0 for a year: `max_orf_aa` → `domain_count` → antiSMASH detection → class. The first two are
+non-zero today and can be optimised and tracked; `correct_class` cannot.
+
 ## ★★★ DETECTION IS THE BOTTLENECK, AND DE NOVO IT IS NEAR-TOTAL FAILURE (2026-08-12)
 
 Two cheap measurements, both on existing data, that together redirect the programme.
