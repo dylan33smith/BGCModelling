@@ -54,9 +54,11 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
 - Current production host focus: `gputee` (single H100 80 GB).
 - **STATE OF THE CENTRAL PROBLEM (2026-08-12) — REFRAMED. Class conditioning was the wrong
   target.** Evo2 *represents* compound class (linear probe 0.911, chance 0.091 — and 0.911 in
-  **base** Evo2, so the LoRA installed nothing). Every inference-time lever is closed: prefix
-  labels, CFG, activation steering (all variants), soft prefixes, affine concept editing, and
-  cross-class activation transplants. The last of those is the strongest closure because it is a
+  **base** Evo2, so the LoRA installed nothing). Every inference-time lever that edits the input or the
+  activations is closed: prefix labels, CFG, activation steering (all variants), affine concept
+  editing, and cross-class activation transplants — plus per-class soft prefixes (trained, but
+  input-only). **Guided decoding is the exception:** Q1 passed (+5.71, 39/40), Q2 is UNDERPOWERED
+  not null (5–0, p=0.0625, effective n=5). The last of those is the strongest closure because it is a
   POSITIVE demonstration: a real donor activation moves the model's behaviour 92% toward the donor
   yet carries its class 0/48 times.
   ⇒ **But two measurements on 2026-08-12 show conditioning was never the binding constraint.**
@@ -77,7 +79,9 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
   0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
   experimentally. The class comes from the seed, never the label.
-  ⇒ Plan and citations: `docs/conditioning_next_steps.md`. Arc of the closed programme:
+  ⇒ Current plan (A bank exemplar / B de novo capability / C per-layer adapters DEFERRED):
+  `docs/project_memory/progress.md` → NEXT ACTIONS. Superseded ranking + accurate citations:
+  `docs/conditioning_next_steps.md`. Arc of the closed programme:
   `docs/steering_program.md`. Live state: `docs/project_memory/progress.md` → NEXT ACTIONS.
   ⚠️ A same-day claim that the seeded readout was confounded by the seed was **RETRACTED**: the
   scored sequence contains no seed (0/1512 records), pinned by `tests/test_scored_span.py`.
@@ -103,7 +107,7 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   `README.md`
 - Live status + next actions:
   `docs/project_memory/progress.md`
-- Ranked plan for class conditioning after steering + soft prefixes closed (with citations):
+- Ranked conditioning list — **SUPERSEDED 2026-08-12 at the top level**; citations remain accurate:
   `docs/conditioning_next_steps.md`
 - Evo2 vs GenomeOcean head-to-head (measured, not quoted):
   `docs/model_comparison_evo2_vs_genomeocean.md`

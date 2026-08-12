@@ -494,7 +494,9 @@ def check_class_probe(
       2. IT READS THE MODEL, NOT BIOLOGY. The scores come from the generator's own hidden states.
          A model can write DNA its own probe calls PKS while antiSMASH finds nothing. antiSMASH
          is the ground truth for validity; this is a sensitivity instrument, not a verdict.
-      3. LEAKAGE. The probe in use is fit on val+test (the standing debt in decisions.md).
+      3. LEAKAGE: CLEARED 2026-08-10 — refit train-only (acts_v2_train500.npz, provenance-verified)
+       and _fit_probe refuses a non-train fit set. It still must never gate, for reasons 1-2 and
+       because it scores edited off-manifold points HIGHER than genuine class members, 10/10.
 
     Its real power is PAIRED comparison -- same seed exemplar, steered vs unsteered vs
     shuffled-label -- where the shared bias cancels and only the difference is read.

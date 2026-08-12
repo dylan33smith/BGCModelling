@@ -108,5 +108,6 @@ found the recurring pattern is that conditioning must enter at **every layer**, 
 gated, zero-initialised, end-to-end-trained module, rather than at one input position or as a
 hand-computed activation edit.
 
-**Standing debt:** steering directions and the class probe are fit on **val+test**; refit
-train-only before reporting any number externally.
+**Leakage debt — CLEARED 2026-08-10.** Steering directions and the class probe are both refit
+train-only (`trainonly.steerdirs.npz`, `acts_v2_train500.npz`); `_fit_probe` refuses a non-train
+fit set.

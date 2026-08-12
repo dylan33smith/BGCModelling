@@ -47,7 +47,7 @@ reading frame long enough to encode one and there is nowhere for a domain to sit
 
 ⇒ **Adopt a continuous ladder in place of the binary gate:** `max_orf_aa` → `domain_count` →
 antiSMASH detect → class. The first two are non-zero today and can be optimised and tracked;
-`correct_class` has read ~0 for a year and cannot.
+`correct_class` has read ~0 de novo since the project began and cannot.
 
 ⇒ **Why an objective change is warranted rather than merely plausible.** Next-base prediction is
 *locally satisfiable*: predicting base 900 from bases 850–899 works whether or not base 1,400
@@ -127,7 +127,7 @@ independent support for the rule already pinned by three tests.
 `evo2/scripts/direction_audit.py` (CPU-only, off the cached train activations) separates the two
 explanations that every steering null was compatible with and that we had never distinguished:
 the edit never landed (bad direction/dose ⇒ steering deserves another recipe), or it landed and
-was ignored (⇒ the model does not read that subspace ⇒ depth of injection is the axis).
+was ignored (⇒ the null is downstream of the edit).
 
 Take held-out **non-target** activations, add the same direction at the same doses, ask the probe
 what class it sees. Across **all nine layers (10–27)** and all five classes, the readout flips to
@@ -137,8 +137,9 @@ completely convert a linear readout in the very layer it was applied to.
 
 ⇒ **Explanation (ii) holds. The decision stands, now for a measured reason.** The representation
 moved exactly as intended at every depth we ever steered, and the output did not follow. The
-failure is downstream of the edit, which is what the depth hypothesis predicts and what Tier B
-tests. Had the flip needed >11.4 units, this would have REOPENED steering; it was written to be
+failure is downstream of the edit. This is NOT a depth result — depth was already varied across
+nine layers and found dead, and the activation-patching entry above shows the model reads mid-layer
+state fine. What remains untested is a TRAINED per-layer pathway, deferred to priority C. Had the flip needed >11.4 units, this would have REOPENED steering; it was written to be
 able to overturn our own conclusion, and did not.
 
 **The delete/install asymmetry is NOT geometric.** Ablation also works linearly (P(true class)

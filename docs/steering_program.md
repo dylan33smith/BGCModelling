@@ -486,8 +486,9 @@ direction recipes. The mechanism is identified and it is none of those.
 **Bank now:** exemplar-conditioned generation is a validated capability (0.283 vs a 0.067 floor,
 memorization ruled out, four pre-registered controls passed).
 
-**Standing debt:** directions AND the class probe are fit on val+test. Refit train-only before
-any externally reported number.
+**Standing debt — CLEARED 2026-08-10.** Directions and the class probe were fit on val+test; both
+are refit train-only (`trainonly.steerdirs.npz`, `acts_v2_train500.npz`) and `_fit_probe` refuses a
+non-train fit set.
 
 ---
 

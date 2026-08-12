@@ -42,8 +42,8 @@ soft prefixes also came back negative. Ranked from a 9-angle literature sweep (5
 rather than by how interesting it sounds.
 
 > Provenance: the sweep used live web search, and the citations below were collected rather than
-> recalled. They were **not** re-verified line by line afterwards. Treat the 2026 preprints
-> (ideas A4, B3) as needing a fresh check before they are cited outside this repo.
+> recalled. They were **not** re-verified line by line afterwards. Treat the unverified recent preprints under A4
+> (2606.24952, 2508.01892) as needing a fresh check before they are cited outside this repo.
 
 ---
 
@@ -56,7 +56,7 @@ Stated precisely, because every idea below is judged against it:
 | 1 | Class is linearly decodable at **0.911** (chance 0.091) mid-network — and equally well in **base** Evo2, so the LoRA installed nothing | `progress.md` |
 | 2 | The literal `\|COMPOUND_CLASS:X\|` prefix is **inert** (`v2_notag == v2_tag`) | 2026-07-21 |
 | 3 | CFG found **no amplifiable signal**; coherence collapsed before class moved | 2026-07-22 |
-| 4 | Steering **deletes** a class but never **installs** one, at any layer, dose, or 9-layer stack | `steering_program.md` |
+| 4 | Steering installs nothing at any layer, dose, or 9-layer stack. *(The companion "reliably deletes" claim was retracted as a probe-leakage artefact.)* | `steering_program.md` |
 | 5 | Soft prefixes trained and separated per class, but bought ~0.003 nats and gave `correct_class` **0/12** | `decisions.md` |
 | 6 | **Exemplar conditioning works**: seed a real core → 0.283 vs a 0.067 floor | 2026-07-28 |
 | 7 | Byte-level tokenizer gives a class tag no pretrained prior; the mid-network representation has no path to the output | — |
@@ -378,7 +378,7 @@ load-bearing with substantial training exposure, not a light adapter pass.
 2. **A4 + A5** (diagnostics, ~a day) — run *before* any further steering spend; they decide whether
    ideas in that family are worth anything.
 3. **B1** (ProCALM per-layer adapters) — best precedent-to-cost ratio of the real fixes, and it
-   tests the sweep's central hypothesis (depth of injection) directly.
+   is the only candidate that makes the per-layer module **trained** against the generative loss — the distinction that survives the 2026-08-12 correction (depth alone was already varied at nine layers and returned 0/12).
 4. **B2** (per-class LoRA) — highest prior of simply working, because it removes the symbolic
    conditioning problem instead of solving it.
 5. **A2, A3, A6** as cheap fill-in; **B3/B4** if B1 shows partial signal; Tier C only after that.

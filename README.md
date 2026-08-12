@@ -54,7 +54,7 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
   De novo output is *not* junk — but **the model cannot sustain a reading frame long enough to
   encode one module** (332–505 aa vs ~1000–1500 aa for a single NRPS module), so no domain can sit
   in it. ⇒ Track the **continuous ladder** `max_orf_aa` → `domain_count` → antiSMASH detect →
-  class. The first two are non-zero today; `correct_class` has read ~0 for a year.
+  class. The first two are non-zero today; `correct_class` has read ~0 de novo since the project began.
 
 - **Why the label was always inert, quantified** (`evo2/scripts/context_ablation.py`). Scoring the
   same 500 bases while varying preceding context: 10 nt already yields 73% of everything the model
@@ -63,9 +63,13 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
   the tag 200 nt away). Using the tag never reduced the loss, so nothing ever built a pathway to
   read it. This unifies the inert label, the absent CFG signal and the 0.003-nat soft prefix.
 
-- **Inference-time conditioning is closed, and the last closure is a positive demonstration.**
-  Labels, CFG, steering (every layer/dose/recipe), soft prefixes, affine concept editing, and
-  cross-class activation transplants. Patching showed the model **does** read mid-layer state — a
+- **Inference-time conditioning that edits the input or the activations is closed, and the last
+  closure is a positive demonstration.** Labels, CFG, steering (every layer/dose/recipe), affine
+  concept editing, and cross-class activation transplants — plus the cheap end of *training-time*
+  coupling (per-class soft prefixes: 65k trained parameters, input only). **The one arm not closed
+  is discriminator-guided decoding**: selection works (guide score best−random +5.71, 39/40), but
+  Q2 is UNDERPOWERED rather than null — 5–0 paired, p=0.0625, effective n=5 because 35 of 40 seeds
+  returned identical outcomes in every arm. Patching showed the model **does** read mid-layer state — a
   real donor moves its behaviour 92% — while carrying the donor's class **0/48**. So the channel
   works; class is not what travels down it.
 
@@ -83,7 +87,8 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 - The live, detailed state is in **[`docs/project_memory/progress.md`](docs/project_memory/progress.md)**
   — read that first when resuming work. The steering program's full arc is in
-  [`docs/steering_program.md`](docs/steering_program.md); the ranked plan in
+  [`docs/steering_program.md`](docs/steering_program.md); the ranked conditioning list —
+  superseded at the top level, citations still accurate — in
   [`docs/conditioning_next_steps.md`](docs/conditioning_next_steps.md).
 
 **Retraction, 2026-08-11 (same day it was made).** A claim that the seeded readout was confounded —
