@@ -380,6 +380,314 @@ class direction costs 3.1x more than deleting a shuffled one.
 A1 section below for the adjudicated result. All the cached-activation work runs CPU-only:
 `acts_v2_train500.npz` holds train-only pooled activations for 10,022 real cores at all 32 layers.
 
+## ★★★ IT IS A CAPABILITY FAILURE, NOT AN INSTRUMENT FAILURE (2026-08-12)
+
+Before concluding from the de novo result that the model cannot generate, the obvious alternative
+was tested: antiSMASH is strict (it needs *clustered* biosynthetic genes), so a generation could
+contain real biosynthetic protein-coding DNA and still fail. `evo2/scripts/soft_instrument_probe.py`
+re-scores the same sequences with much more permissive instruments — coding density, longest ORF,
+and whether ANY single class-defining Pfam domain appears anywhere (no clustering required).
+
+| group | n | coding density | longest ORF (aa) | ≥1 class domain | antiSMASH detect |
+|---|---|---|---|---|---|
+| **real cores @3 kb** | 30 | 0.972 | **702** | **0.800** | ~0.58 |
+| **seeded @3 kb** | 30 | 0.932 | 591 | **0.467** | 0.367 |
+| de novo @6 kb | 30 | 0.743 | 505 | **0.033** | 0.034 |
+| de novo @2 kb | 40 | 0.815 | 332 | **0.050** | 0.000 |
+
+**Two instruments at very different strictness agree.** The permissive one needs a single domain hit
+anywhere and still shows a 10–14× gap between seeded and de novo. So the de novo failure is
+**capability, not measurement**.
+
+**The precise diagnosis, which is more useful than "detection fails".** De novo output is *not*
+junk — coding density 0.74–0.82 against 0.97 for real DNA — but it almost never contains a
+biosynthetic domain. And its reading frames are short: **longest ORF 332–505 aa versus 702 for real
+cores**, while a single NRPS module is ~1,000–1,500 aa. **The model cannot sustain an open reading
+frame long enough to encode one module**, so there is nothing for a domain to sit in.
+
+⇒ This gives the programme a **ladder of continuous sub-goals** to replace the binary gate that has
+read ~0 de novo since the project began: `max_orf_aa` → `domain_count` → antiSMASH detection →
+class. The first two are non-zero today and can be optimised and tracked; `correct_class` cannot.
+
+**⚠️ CORRECTED 2026-08-12 — the ORF comparison above is NOT length-matched and understates the gap.**
+It sets de novo @6 kb (505 aa) against real @3 kb (702 aa). A longest-ORF statistic is capped by its
+window, so those are not comparable. Re-measured with real cores truncated to the SAME lengths
+(`evo2/scripts/orf_length_matched.py`, n=40 real / 24–34 generated):
+
+| window | REAL max ORF | generated | ratio | REAL % of window | gen % of window | n_orfs REAL / gen |
+|---|---|---|---|---|---|---|
+| 2,000 nt | 550 aa | **336** (de novo) | **0.61** | 82.5% | 50.5% | 1.5 / 2.2 |
+| 3,000 nt | 720 aa | **536** (seeded) | **0.74** | 72.0% | 53.6% | 2.1 / 2.9 |
+| 6,000 nt | 1,134 aa | **549** (de novo) | **0.48** | 56.7% | 27.4% | 4.0 / 6.0 |
+
+**The gap WIDENS with window length (0.61 → 0.48), and that is the finding.** Real DNA scales its
+longest ORF with the room available (550 → 720 → 1,134); the model plateaus at ~340–550 aa however
+much room it has, and emits MORE, SHORTER ORFs (6.0 vs 4.0 at 6 kb) — it is hitting stops and
+restarting. **A scaling failure, not a constant shortfall.** That distinction matters for the plan:
+a uniform reweighting is a plausible fix for "30% too short" and a much less obvious one for "does
+not scale".
+
+## ★★★ DETECTION IS THE BOTTLENECK, AND DE NOVO IT IS NEAR-TOTAL FAILURE (2026-08-12)
+
+Two cheap measurements, both on existing data, that together redirect the programme.
+
+### (a) The class tag is worth ~0.0000 nats to the training loss
+
+`evo2/scripts/context_ablation.py`. Score the SAME 500 bases of real cores, varying only how much
+preceding context the model sees (LoRA step_1200, n=32 cores, 4 classes):
+
+| context | 10 nt | 30 | 100 | 300 | 1,000 | 3,000 | 6,000 |
+|---|---|---|---|---|---|---|---|
+| nats/base | 0.9770 | 0.9475 | 0.9134 | 0.8622 | 0.8337 | 0.8298 | **0.8285** |
+
+A uniform guess is 1.386 nats. **10 bases of context already delivers 73% of everything the model
+achieves**; 1,000 -> 6,000 buys 0.005. All long-range context is worth **0.149 nats**.
+
+Against that budget: no tag 0.8285, +taxonomy 0.8295, +taxonomy+class 0.8306, +WRONG class 0.8301.
+**Right-vs-wrong class tag = -0.0006 nats**, i.e. the correct tag is if anything very slightly
+worse. Re-tested with the tag only 200 nt from the scored region (to rule out distance): **-0.0000**.
+
+=> **The tag is not ignored out of stubbornness; using it never reduced the loss.** Gradient descent
+had no incentive to build a tag-to-architecture pathway when local statistics pay immediately
+everywhere. This retro-explains findings 2 (label inert), 3 (no CFG signal) and 5 (soft prefixes
+bought 0.003 nats) as one phenomenon, and it bounds what ANY training-time mechanism can be driven
+by unless the objective changes.
+
+### (b) De novo, the model almost never produces a detectable cluster at all
+
+Decomposing `correct_class = P(detected) x P(right class | detected)` on the SAME step_1200 adapter:
+
+| regime | n | P(detected) | 95% CI | P(right \| detected) |
+|---|---|---|---|---|
+| **de novo (unseeded)** | 81 | **0.012** | [0.000, 0.067] | 1 detection — unestimable |
+| **seeded** | 120 | **0.367** | [0.281, 0.459] | **0.932** |
+
+**The seed multiplies detection by 30x.** The confidence intervals do not come close to overlapping.
+
+The pre-registered third outcome applies: too few de novo detections to estimate the conditional,
+*and that is the answer.* We cannot ask whether class-correctness survives without a seed, because
+essentially nothing survives without a seed.
+
+**⚠ STRATEGIC IMPLICATION, stated plainly.** In the SEEDED regime class is already 0.932 — there is
+almost nothing for a conditioning mechanism to win. In the DE NOVO regime detection is 0.012 — a
+conditioning mechanism that perfectly installed class would still have nothing to install it into.
+**In neither regime is class-correctness the binding constraint.** The conditioning programme,
+including the planned per-layer adapters, has been aimed at the smaller of the two problems.
+
+*Caveats.* The unseeded arms are pooled from control arms of different experiments (taxonomy-only
+prompts, differing decoding settings) — observational, not a controlled comparison; adequate to
+separate 0.01 from 0.37, not to quote a precise rate. A step-250 checkpoint arm (n=36, 0 detections
+at 16 kb) was excluded as not comparable. The class tag's absence in those arms is not a confound,
+since (a) shows the tag is worth ~0 nats.
+
+## ★★★ A1 GUIDED DECODING (2026-08-11): Q1 PASSES, Q2 is UNDERPOWERED
+### (a same-day claim that the readout was seed-confounded was RETRACTED — see below)
+
+Complete: 4 classes × 3 arms × n=10, `/data2/ds85/bgcmodel_runs/guided_decoding/`. Adjudicated by
+five independent adversarial reviewers, which **refuted one of the first-pass conclusions** and
+downgraded three others. Do not cite the first-pass reading.
+
+**Q1 — selection works.** Guide score best−random +5.71 pooled (39/40, p<1e-10); per-chunk gap grows
++0.244→+0.472. *Caveat found in review:* the "final full-sequence" test in
+`analyze_guided_decoding.py` is **not** a myopia test — `guided_generate.py` scores `seq + cand`, so
+best's final number is a max-of-4 and random's a uniform-of-4, and best wins by construction even
+under total myopia. The valid test is **max-vs-max** (best's chosen vs random's own
+`guide_p_target_max`): chunk 0 gives +0.000 with 40/40 exact ties — a perfect harness control, since
+both arms provably share candidate sets — then +0.225/+0.359/+0.370/+0.395, chunk 4 at 31/34,
+p=1e-6. **Myopia is ruled out, but by a test the analyzer does not yet run.** Note 57.8% of total
+selection pressure lands on chunk 0.
+
+**Q2 — UNDERPOWERED, not null.** antiSMASH `correct_class`: plain 0.350 / random 0.275 / best 0.400.
+Paired best-vs-random 5–0 (p=0.0625), best-vs-plain 2–0 (p=0.50), markers 4–1 (p=0.375).
+Direction is consistently positive with **zero reversals in 120 records**, but:
+
+- **35 of 40 seeds return an identical outcome in all three arms ⇒ effective n = 5 informative
+  seeds, not 40 pairs.** NRPS 10/10 and RIPP 10/10 are entirely frozen; only PKS (2) and TERPENE (3)
+  carry any paired information.
+- With zero reversals the sign test needs **6–0 for p<0.05**; we observed 5–0. The design missed
+  significance **by one seed**.
+- p=0.50 for best-vs-plain is the **design floor** (2 discordant ⇒ min two-sided p = 2×0.5² = 0.50),
+  so it carries no evidential weight — best never *loses* a pair to plain.
+
+**⚠️ RETRACTED 2026-08-11 (same day): "the readout was confounded with the seed".** The original
+text claimed that because `correct_class` agreed with `is_bgc` on 117/120 records, the gate had
+collapsed into detection — and that the cause was antiSMASH recognising the real class-X seed
+inside the scored sequence. **The seed is not in the scored sequence and never has been.**
+`guided_generate.py` starts `seq = ""` and only does `seq += cands[pick]`; `seed_generate.py`
+stores the prompt-stripped generation. Verified against every seeded run on disk: **0 of 1512
+records begin with their seed**; 8 (0.5%) contain any 60-mer of it. Pinned by
+`tests/test_scored_span.py`. Nothing needs rerunning, and **the 0.283 exemplar result is cleaner
+than the retraction implied, not weaker.**
+
+**★ What the 117/120 actually means — and it reframes the failure mode.** The inference was drawn
+without ever measuring the agreement rate on REAL DNA. On held-out real cores truncated to the
+lengths we generate, antiSMASH's off-class rate is large:
+
+| length | detections | detected but WRONG class |
+|---|---|---|
+| 1000 | 22 | 5 = 22.7% |
+| 2000 | 36 | 13 = 36.1% |
+| **3000** | 35 | **11 = 31.4%** |
+| 6000 | 45 | 13 = 28.9% |
+| full | 54 | 3 = 5.6% |
+
+`is_bgc == correct_class` on **84.7%** of real cores, against 97.5% in our generations. So the
+"detected but off-class" cell is well populated and `correct_class` **is** a discriminating
+metric — the concordance is a property of the GENERATIONS, not of the instrument.
+
+⇒ **When the model produces a detectable cluster, it is the target class ~92% of the time, versus
+~69% for a length-matched real core.** The failure mode is not "builds the wrong class" — it is
+**"usually builds nothing detectable, but lands on-class when it does."** Detection is the
+bottleneck, not class-correctness. This is the single most useful reframing to come out of the A1
+run, and it argues for effort on *making anything recognisable at all* rather than on class
+steering.
+
+**Methodological note.** This error survived a five-reviewer adversarial pass because it was handed
+to the reviewers as established CONTEXT rather than as a claim to attack — none checked the
+generator source. *Rule: a premise supplied to a verifier is not verified by it. Put the premises
+in the attack list.*
+
+**⚠️ RETRACTED before publication: the Goodhart reading.** The first pass claimed this was
+proxy-gaming, mechanistically linked to the same-day off-manifold finding. **Both halves are wrong.**
+(a) The guide **predicts** the independent readout — AUC **0.808** over all 120 records and **0.856**
+in the *unselected* arms, where selection took no part. A proxy that still tracks the target at
+AUC 0.86 has not been Goodharted. (b) Guided decoding performs **no activation edit** — every
+activation scored is a genuine forward pass over DNA the model emitted, whereas the off-manifold
+audit constructed `h + α·direction` at 3.4–19.5 sd. The two results are not the same mechanism.
+What *is* real is **calibration collapse under selection**: P(correct_class | guide>0.5) falls
+0.696 (unselected) → 0.516 (best), and the mean guide score on antiSMASH-negatives inflates
+0.141 → 0.613.
+
+**⇒ VERDICT: A1 is underpowered, not confounded.** Selection demonstrably works; the experiment
+could not resolve whether it mattered, because 35 of 40 seeds were frozen. Before any rerun:
+(1) **far more seeds** — the seed, not the arm, sets the outcome, and this is now the whole
+problem; (2) emit `accession` in `antismash.tsv` (pairing currently relies on row order; verified
+sound here via `length`, but 4 of 12 arms are all-3000 nt and give no ordering information);
+(3) add the max-vs-max Q1 test to the analyzer. The "continuation-scoped readout" item is
+**withdrawn** — the readout was already continuation-scoped.
+
+## ★★★ ACTIVATION PATCHING (2026-08-11) — the model DOES read mid-layer state. The steering null was about the EDIT'S SHAPE.
+
+`evo2/scripts/activation_patching.py`. The direction audit showed our edit lands and is ignored; the
+ACE pre-check showed the edit was rank-1 and 3–20 sd off the data manifold. That left a fork nobody
+had tested: is the model blind to these activations, or was our edit simply the wrong SHAPE to be
+read? Patching answers it by substituting a **genuine** activation pattern — recorded from a real
+forward pass over real DNA, in-distribution, all 4,096 coordinates mutually consistent.
+
+**Mean alignment to the donor** (0 = patch did nothing, 1 = recipient now behaves exactly like the
+donor), by layer × number of trailing context positions substituted, n=12 cross-class pairs:
+
+| layer | k=1 | k=10 | k=50 | k=200 | k=500 |
+|---|---|---|---|---|---|
+| 8 | 0.106 | 0.262 | 0.389 | **0.851** | 0.936 |
+| 16 | 0.056 | **0.414** | 0.575 | **0.837** | 0.905 |
+| 22 | 0.133 | 0.655 | 0.773 | 0.956 | 0.997 |
+| 26 | 0.327 | 0.931 | 0.962 | 0.996 | 1.001 |
+
+Controls at k=10 / layer 16: same-class donor **0.128**, position-shuffled donor **0.129**,
+norm-matched noise **−0.099**, against cross-class **0.414**. The transfer is donor-specific, not
+generic disruption.
+
+**⇒ The model reads mid-layer activations perfectly well.** Substituting 10 positions out of 1000 —
+1% of the context — at layer 16 moves the output 41% of the way to the donor. Our rank-1 steering
+edit, applied to EVERY position at 2.8–11.4 class-units, moved it essentially nothing. **The
+difference is the shape of the edit, exactly as the ACE analysis predicted.** A transplant works
+where a translation does not.
+
+**A first pass got this backwards and the design was fixed.** `mode='all'` (substitute every
+position) returns alignment 1.000 with an identical KL of 0.8508 at layers 0, 16 and 31 alike —
+because once every position at depth L is the donor's, layers L+1..31 compute from the donor alone
+and the model simply *becomes* the donor. Identical values across layers were the tell. It is a
+positive control that the patch propagates, never a layer profile. Likewise the k=1 null at
+mid-layers was **leverage, not blindness** — one position out of a thousand has little influence,
+and the k-sweep is what separates those two readings. Both facts are recorded in the script.
+
+**REPLICATED ON THE FINE-TUNED MODEL.** The table above is base Evo2, but every steering experiment
+used the LoRA — so "patching works where steering didn't" was comparing across two different models.
+Rerun with `--adapter .../step_1200` (`activation_patching_ksweep_lora.json`), layer 16:
+**0.186 (k=1) → 0.350 → 0.694 → 0.920 (k=200)**, with same-class **−0.218**, shuffled 0.242 and
+noise 0.217 at k=200. Same shape, controls flat or negative throughout. The comparison is now
+apples-to-apples and the conclusion is unchanged.
+
+**Phase B — the transplant moves BEHAVIOUR but does not carry CLASS.** Phase A cannot settle class:
+Evo2's vocabulary is bytes, so the next-token distribution is over A/C/G/T, and at small k the
+patched positions *are* the local context of the next base. `patch_generate.py` therefore patches
+the context representation at layer L over the last k positions, generates a full 3 kb continuation,
+and scores it with antiSMASH — which took no part in the intervention. n=12 recipient contexts x 2
+layers x 2 k, run **with the LoRA adapter** so the arms sit above the floor.
+
+| arm | is_bgc | **DONOR class** | recipient class |
+|---|---|---|---|
+| unpatched | 0.333 | — | 0.333 |
+| cross_class L16 k50 | 0.167 | **0.000** | 0.167 |
+| cross_class L16 k200 | 0.083 | **0.000** | 0.083 |
+| cross_class L22 k50 | 0.250 | **0.000** | 0.250 |
+| cross_class L22 k200 | 0.333 | **0.000** | 0.333 |
+
+**INSTALLATION: 0 of 48.** The donor's class never once appeared. 95% upper bound on the true rate
+**6.1%**. For scale: if class transferred anywhere near as well as *behaviour* does (84-92%
+alignment at these settings), the donor's class should appear at roughly the recipient's own rate,
+~16 of 48. It appears zero times.
+
+**The degradation is generic, NOT class-specific deletion.** Recipient-class retention falls (10
+lost vs 4 gained, p=0.18) - but the **same-class control degrades identically** (10 lost, 3 gained,
+p=0.09). So unlike activation steering, where the class direction specifically *deleted* class,
+here any transplant merely disrupts. There is no deletion/installation asymmetry in this
+intervention; there is simply no class transfer in either direction.
+
+**=> THE STRONGEST CLOSURE OF INFERENCE-TIME INTERVENTION SO FAR.** This was the best intervention
+available: a genuine, in-distribution, fully-correlated activation pattern from a real forward pass,
+independently verified (Phase A) to move the model's behaviour most of the way toward the donor.
+The model reads it, its local output follows it - and the multi-kilobase organisation that
+constitutes a compound class does not follow. **Class is not controllable from a mid-layer context
+representation at generation time**, and that now rests on a positive demonstration that the channel
+works for everything except class, rather than on a series of nulls.
+
+## ★★★ ACE PRE-CHECK (2026-08-11): A2 is CLOSED before spending GPU, and the doses were overdoses
+
+`evo2/scripts/ace_precheck.py` (CPU-only). Writing ACE down makes the key fact obvious: it is a
+**rank-1 edit along the same direction** as additive steering, differing only in that the dose is
+per-example and lands the coordinate exactly on the target class mean `m_c`.
+
+    additive   h' = h + (alpha * class_unit) * u      <- fixed dose
+    ACE        h' = h - ((h.u) - m_c) * u             <- per-example, lands on m_c
+
+Since `class_unit` is *defined* as the other-class-mean → class-c-mean distance, **ACE ≈ dose 1.0,
+applied per example.** So the question is not "does ACE move the probe" (the direction audit
+showed any sufficient move does) but "does the edited point look like a real member of the class".
+Measured as z along the class axis in units of the class's own spread, and k-NN distance to a bank
+of real target activations divided by how far real held-out target activations sit from that bank
+(1.00 = on-manifold). Pooled over 5 classes, L16 / L27:
+
+| arm | z (L16) | knn (L16) | z (L27) | knn (L27) | P(target) |
+|---|---|---|---|---|---|
+| REAL target (held-out) | +0.0 | **1.00** | +0.0 | **1.00** | 0.62–0.96 |
+| unedited (source) | −1.8 | 3.87 | −1.7 | 1.31 | ~0.01 |
+| add @1 cu | +0.1 | 3.80 | +0.0 | 1.28 | ~0.36 |
+| add @2.8 cu *(ran)* | +3.4 | 4.47 | +3.2 | 1.47 | ~0.96 |
+| add @11.4 cu *(ran)* | **+19.5** | **11.66** | **+18.2** | **4.24** | 1.000 |
+| ACE (reset to m_c) | +0.0 | 3.79 | +0.0 | 1.27 | ~0.39 |
+
+**⇒ A2 is closed on the pre-registered rule ("both far off-manifold ⇒ ACE is not the fix").**
+A rank-1 edit removes only **6.7% (L16) / 11.6% (L27)** of the source's off-manifold distance —
+negative for two classes. It corrects 1 coordinate of 4096 and leaves the other 4095 belonging to
+the source class. No GPU time spent to learn this.
+
+**Two findings that outlive A2.**
+
+1. **The doses we ran were overdoses, and that gives "a bigger dose buys damage, not class" a
+   mechanism.** 2.8 class-units lands **3.4 sd past** the target class mean; 11.4 lands **19.5 sd**
+   past it, and 12× further from the target manifold than real class members sit from each other.
+   We were not moving activations toward the class, we were leaving the distribution.
+   **This does NOT reopen steering:** Phase 3 already ran doses 1, 2 and 4 at L16, and dose 1 —
+   exactly the on-target dose, z≈+0.1, the ACE-equivalent — gave **0/48** target markers. The
+   correctly-dosed cell was tested (n=48, so effects above ~11% are excluded) and was null.
+2. **The probe scores edited off-manifold points HIGHER than genuine class members — 10/10
+   class-layer cells.** Real held-out NRPS activations score 0.762; a point dosed to 2.8 units,
+   sitting 3.9× further from the NRPS manifold, scores 0.963. This is an independent, mechanistic
+   confirmation of the standing rule that `class_probe` must **never gate**: it is linear, reads
+   one direction of 4096, and its confidence rises as the point becomes less like the real class.
+
 ## ★★★ DIRECTION AUDIT (2026-08-11): the steering edit LANDED at every layer — the null is downstream
 
 `evo2/scripts/direction_audit.py` (CPU-only). Every steering null was compatible with two
@@ -580,7 +888,27 @@ class-given-detection already **0.932**. And the class tag is worth **−0.0006 
 So there is ~7% for conditioning to win in the regime that works, and nothing to condition in the
 regime that doesn't.
 
-### A. Bank the result that works — weeks, mostly CPU
+### A. Bank the result that works — a CHARACTERISATION paper, weeks, mostly CPU
+
+**Framing (2026-08-12): descriptive paper about a known capability and its limits, not a novel
+tool.** The contribution is the measurement programme — what works, what does not, and *why*, every
+rate quoted against a measured ceiling and floor, with the negative results carried in full.
+
+**Independent corroboration, found 2026-08-12.** *"Fundamental limitations of genomic language
+models for realistic sequence generation"* (biorxiv 2026.01.17.700093 / PMC12871140) tested Evo 2
+and megaDNA on whole-genome reconstruction and found synthetic sequences **"captured local sequence
+statistics"** but **"consistently failed to preserve long-range genomic organization"** —
+discriminator AUROC 0.97 (eukaryote) / 0.82 (prokaryote), with classification accuracy rising
+monotonically with distance from the seed. That is our context-ablation result (73% of predictive
+power from 10 bases) and our ORF scaling failure, reached by a completely different method. A strong
+external check that we are not measuring an artefact of our own pipeline.
+
+**Verified against the paper: it does NOT scoop us.** It covers neither biosynthetic gene clusters,
+nor functional-class conditioning, nor ORF length; its readout is a CNN discriminator on genome
+reconstruction, ours is functional (antiSMASH, Pfam domains, module architecture). Positioning:
+*they showed gLMs fail at long-range structure in general; we show what that costs in a concrete
+design task, quantify how much is recoverable by prompting, and close the conditioning mechanisms
+one at a time.*
 Exemplar conditioning is validated: `correct_class` **0.283 vs a 0.067 floor**, memorization ruled
 out, all four pre-registered controls passed, and the scored span provably contains no seed
 (0/1512). The detection numbers now supply the *mechanism* — the seed provides the recognisability
@@ -596,7 +924,13 @@ training run — unlike `correct_class`, which has read ~0 de novo since the pro
 
 1. ~~**Annotation pass**~~ **DONE 2026-08-12** — `scripts/build_domain_spans.py` →
    `train.domain_spans.jsonl`, 47,524 records with per-domain forward-strand nucleotide spans.
-2. **Reading-frame-aware penalty — NOW FIRST.** Penalise in-frame stop codons inside annotated
+**⚠️ Do NOT rank (2) against (3) — run them as a 2×2.** They attack the same measured failure from
+different angles, and the relationship between "gradient weight on domain positions" and
+"reading-frame length achieved" is unmeasured. Ranking them on an untested mechanistic story is the
+error that cost this project months on conditioning. Four cheap runs (frame-aware on/off ×
+domain-weighted on/off) resolve it and attribute the result.
+
+2. **Reading-frame-aware penalty.** Penalise in-frame stop codons inside annotated
    genes, or weight by codon position. Aimed directly at the measured wall: longest ORF 332–505 aa
    against ~1000–1500 aa for one module. Promoted above domain-weighting because 33.7% of training
    nucleotides ALREADY sit inside class-defining domains — the gradient is not mis-aimed, the model
