@@ -34,6 +34,20 @@
 # already 78.6% domain), so the single arms run first and the interaction cell only if one of them
 # moves. Scored on best_bio_bits with novelty as a hard constraint — NOT on max_orf_aa, which does
 # not track domain content de novo (r = 0.051 / -0.120).
+# PARALLEL=1 CO-TENANTS ALL THREE ARMS ON THE ONE GPU. This is not a memory trick — it is a
+# compute one. At batch=1 the 1B reaches ~75 TFLOPS of an H100's ~756 peak (≈10%): a 1.1B model on
+# 8k tokens with no batch dimension is launch-latency and HBM-bandwidth bound, and never fills the
+# SMs. `nvidia-smi` showing 100% "utilization" does NOT contradict this — that field is the fraction
+# of time some kernel was resident, not occupancy. Memory is the easy half: 12.8 GB/proc x 3 = 38 GB
+# of 81.5 GB.
+#
+# IT CANNOT AFFECT THE COMPARISON. Co-tenancy changes scheduling, not arithmetic: each arm has its
+# own process, output dir, data order and RNG. The arms are compared on generated sequence, so the
+# only thing sharing the GPU buys or costs is wall-clock.
+#
+# EACH ARM NEEDS ITS OWN master_port. DeepSpeed defaults to 29500 and the second launcher dies with
+# "address already in use" — the failure is loud, but it lands AFTER the START line, which is the
+# same shape as the `deepspeed`-not-on-PATH bug in bugs.md.
 set -euo pipefail
 export HF_HOME=/data2/ds85/hf_cache
 export EVO2_BASE_MODEL=evo2_1b_base
@@ -43,6 +57,18 @@ ANN=$DATA/train.domain_spans.jsonl
 ROOT=${ROOT:-/data2/ds85/bgcmodel_runs/phase2_1b}
 STEPS=${STEPS:-400}
 L=${L:-8192}   # the 1B's NATIVE context; 4096 could not hold one module
+ARMS=${ARMS:-"baseline frame weighted"}   # subset selector, for resuming a partly-run set
+PARALLEL=${PARALLEL:-0}
+
+port_for () { case "$1" in baseline) echo 29500;; frame) echo 29501;; weighted) echo 29502;; *) echo 29510;; esac; }
+flags_for () {
+  case "$1" in
+    baseline) echo "--domain-weight 1.0 --frame-lambda 0.0";;
+    frame)    echo "--domain-weight 1.0 --frame-lambda 0.5";;
+    weighted) echo "--domain-weight 3.0 --frame-lambda 0.0";;
+    *) echo "[arms] unknown arm: $1" >&2; return 1;;
+  esac
+}
 
 run_arm () {
   local name="$1"; shift
@@ -50,8 +76,9 @@ run_arm () {
   if [[ -f "$out/final_adapter/adapter_config.json" ]]; then
     echo "[arms] $name already finished — skipping"; return 0
   fi
-  echo "[arms] $(date) START $name  ($*)"
-  micromamba run -n bgcmodel deepspeed --num_gpus=1 evo2/scripts/finetune_evo2_lora.py \
+  echo "[arms] $(date) START $name  ($* , port $(port_for "$name"))"
+  micromamba run -n bgcmodel deepspeed --num_gpus=1 --master_port "$(port_for "$name")" \
+    evo2/scripts/finetune_evo2_lora.py \
     --train "$DATA/train.jsonl" --val "$DATA/val.jsonl" \
     --output-dir "$out" \
     --max-seq-len "$L" --batch-size 1 --grad-accum 16 \
@@ -64,7 +91,12 @@ run_arm () {
 }
 
 mkdir -p "$ROOT"
-run_arm baseline --domain-weight 1.0 --frame-lambda 0.0
-run_arm frame    --domain-weight 1.0 --frame-lambda 0.5
-run_arm weighted --domain-weight 3.0 --frame-lambda 0.0
+for arm in $ARMS; do
+  if [[ "$PARALLEL" == "1" ]]; then
+    run_arm "$arm" $(flags_for "$arm") &
+  else
+    run_arm "$arm" $(flags_for "$arm")
+  fi
+done
+[[ "$PARALLEL" == "1" ]] && wait
 echo "[arms] ALL ARMS DONE"

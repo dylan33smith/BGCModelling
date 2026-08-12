@@ -12,6 +12,15 @@
 #
 # NOVELTY IS A CONSTRAINT, NOT A METRIC. Every ladder rung is maximised by copying training data,
 # so an arm that improves with containment climbing toward 0.95 has learned to recite, not to build.
+# WAIT=1 POLLS FOR EACH ARM'S ADAPTER AND SCORES IT THE MOMENT IT LANDS, instead of requiring all
+# training to finish first. Arms do not finish together (a partly-run arm plus two fresh ones stagger
+# by ~30 min), and generation is the serial GPU cost here — `score_ladder.py` is already CPU-parallel
+# via ProcessPoolExecutor and runs no antiSMASH. Overlapping the first arm's generation with the
+# others' training therefore spends GPU capacity that would otherwise idle.
+#
+# THIS CANNOT AFFECT THE COMPARISON. Generation is driven by --seed 0 with identical prompts and
+# decoding for every arm; sharing the GPU changes scheduling, not sampling. What it CAN do is slow
+# the still-training arms slightly, which costs wall-clock and nothing else.
 set -euo pipefail
 export HF_HOME=/data2/ds85/hf_cache
 export EVO2_BASE_MODEL=evo2_1b_base
@@ -20,11 +29,32 @@ ROOT=${ROOT:-/data2/ds85/bgcmodel_runs/phase2_1b}
 DATA=/data2/ds85/bgcmodel_data/splits_core
 N_PER_CLASS=${N_PER_CLASS:-6}
 MAX_NEW=${MAX_NEW:-6000}
+WAIT=${WAIT:-0}
+WAIT_TIMEOUT=${WAIT_TIMEOUT:-21600}   # 6 h, then give up rather than poll forever
 PY() { micromamba run -n bgcmodel python "$@"; }
 
 for arm in baseline frame weighted; do
   ADP="$ROOT/$arm/final_adapter"
   GEN="$ROOT/$arm/gen.jsonl"
+  if [[ "$WAIT" == "1" ]]; then
+    # GATE ON THE WEIGHTS FILE, AND ON ITS SIZE SETTLING. The trainer publishes the adapter with
+    # shutil.copytree, which copies in directory order -- so `adapter_config.json` appears BEFORE
+    # `adapter_model.safetensors` finishes streaming. Polling for the directory, or for the config,
+    # fires on a half-written adapter and generation would load truncated weights: a corrupt arm
+    # that still produces sequence, i.e. a silent wrong result rather than a crash.
+    W="$ADP/adapter_model.safetensors"
+    waited=0
+    while (( waited < WAIT_TIMEOUT )); do
+      if [[ -f "$W" ]]; then
+        s1=$(stat -c%s "$W"); sleep 15; s2=$(stat -c%s "$W")
+        [[ "$s1" == "$s2" && "$s1" != "0" ]] && break
+      else
+        sleep 60; waited=$((waited + 60))
+      fi
+    done
+    [[ -f "$W" ]] || { echo "[score] $arm: no adapter weights after ${WAIT_TIMEOUT}s — skipped"; continue; }
+    echo "[score] $(date) $arm adapter landed (${waited}s waited, $(stat -c%s "$W") bytes)"
+  fi
   [[ -d "$ADP" ]] || { echo "[score] $arm: no final_adapter — skipped"; continue; }
   if [[ ! -s "$GEN" ]]; then
     echo "[score] $(date) generating from $arm"
