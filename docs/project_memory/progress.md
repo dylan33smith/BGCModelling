@@ -391,6 +391,59 @@ train-only pooled activations for 10,022 real cores at all 32 layers, so anythin
 activation space runs alongside a GPU job. Used below for the direction audit; the same route is
 open for an offline Affine-Concept-Editing pre-check (A2).
 
+## ★★★ DETECTION IS THE BOTTLENECK, AND DE NOVO IT IS NEAR-TOTAL FAILURE (2026-08-12)
+
+Two cheap measurements, both on existing data, that together redirect the programme.
+
+### (a) The class tag is worth ~0.0000 nats to the training loss
+
+`evo2/scripts/context_ablation.py`. Score the SAME 500 bases of real cores, varying only how much
+preceding context the model sees (LoRA step_1200, n=32 cores, 4 classes):
+
+| context | 10 nt | 30 | 100 | 300 | 1,000 | 3,000 | 6,000 |
+|---|---|---|---|---|---|---|---|
+| nats/base | 0.9770 | 0.9475 | 0.9134 | 0.8622 | 0.8337 | 0.8298 | **0.8285** |
+
+A uniform guess is 1.386 nats. **10 bases of context already delivers 73% of everything the model
+achieves**; 1,000 -> 6,000 buys 0.005. All long-range context is worth **0.149 nats**.
+
+Against that budget: no tag 0.8285, +taxonomy 0.8295, +taxonomy+class 0.8306, +WRONG class 0.8301.
+**Right-vs-wrong class tag = -0.0006 nats**, i.e. the correct tag is if anything very slightly
+worse. Re-tested with the tag only 200 nt from the scored region (to rule out distance): **-0.0000**.
+
+=> **The tag is not ignored out of stubbornness; using it never reduced the loss.** Gradient descent
+had no incentive to build a tag-to-architecture pathway when local statistics pay immediately
+everywhere. This retro-explains findings 2 (label inert), 3 (no CFG signal) and 5 (soft prefixes
+bought 0.003 nats) as one phenomenon, and it bounds what ANY training-time mechanism can be driven
+by unless the objective changes.
+
+### (b) De novo, the model almost never produces a detectable cluster at all
+
+Decomposing `correct_class = P(detected) x P(right class | detected)` on the SAME step_1200 adapter:
+
+| regime | n | P(detected) | 95% CI | P(right \| detected) |
+|---|---|---|---|---|
+| **de novo (unseeded)** | 81 | **0.012** | [0.000, 0.067] | 1 detection — unestimable |
+| **seeded** | 120 | **0.367** | [0.281, 0.459] | **0.932** |
+
+**The seed multiplies detection by 30x.** The confidence intervals do not come close to overlapping.
+
+The pre-registered third outcome applies: too few de novo detections to estimate the conditional,
+*and that is the answer.* We cannot ask whether class-correctness survives without a seed, because
+essentially nothing survives without a seed.
+
+**⚠ STRATEGIC IMPLICATION, stated plainly.** In the SEEDED regime class is already 0.932 — there is
+almost nothing for a conditioning mechanism to win. In the DE NOVO regime detection is 0.012 — a
+conditioning mechanism that perfectly installed class would still have nothing to install it into.
+**In neither regime is class-correctness the binding constraint.** The conditioning programme,
+including the planned per-layer adapters, has been aimed at the smaller of the two problems.
+
+*Caveats.* The unseeded arms are pooled from control arms of different experiments (taxonomy-only
+prompts, differing decoding settings) — observational, not a controlled comparison; adequate to
+separate 0.01 from 0.37, not to quote a precise rate. A step-250 checkpoint arm (n=36, 0 detections
+at 16 kb) was excluded as not comparable. The class tag's absence in those arms is not a confound,
+since (a) shows the tag is worth ~0 nats.
+
 ## ★★★ A1 GUIDED DECODING (2026-08-11): Q1 PASSES, Q2 is UNDERPOWERED — and the readout was confounded with the seed
 
 Complete: 4 classes × 3 arms × n=10, `/data2/ds85/bgcmodel_runs/guided_decoding/`. Adjudicated by
