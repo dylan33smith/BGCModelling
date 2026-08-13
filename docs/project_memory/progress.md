@@ -374,6 +374,67 @@ class direction costs 3.1x more than deleting a shuffled one.
 
 **Operating point: dose ≈ 1 class-unit.** Higher doses are noisier, not stronger.
 
+## ★★★ PHASE-2 PROBES (2026-08-13): the frame objective WORKED, and length is not the bottleneck
+
+Two follow-up probes on the finished adapters. Together they turn the arm result from "underpowered
+null" into a **positive demonstration with a clean dissociation**.
+
+**PROBE 2 — did the frame arm learn to hold frame, or just to never stop?**
+(`evo2_1b/experiments/probe_stop_suppression.py`.) Same real held-out cores, same pyrodigal gene
+calls, only the model differs; the metric is the trained quantity itself — probability mass on the
+base that would CLOSE an in-gene stop codon.
+
+| model | stop-completion mass |
+|---|---|
+| base Evo2 (no adapter) | 0.1215 |
+| baseline | 0.1227 |
+| **frame** | **0.0147 (−88%)** |
+| weighted | 0.1228 |
+
+⇒ The frame arm is **8× less willing to end a gene**, and baseline/weighted are untouched — the
+control works. Stops are **suppressed, not abolished** (abolition would read ~0), so the longer ORFs
+are a real learned change rather than pure runaway.
+⚠️ **This RETRACTS the same-day reading that the penalty was a weak intervention** because
+`loss_stop_pen` was only 1–4% of the loss magnitude. A small loss term produced an 8× behavioural
+change. *Rule: the size of a loss term is not the size of its effect.*
+
+**PROBE 1 — extend generation 6,000 → 8,000 nt (the 1B's full context).**
+
+| arm | median `max_orf_aa` | mean | max | ≥2000 (old cap) | at the 8 kb wall |
+|---|---|---|---|---|---|
+| baseline | 468 | 528 | 1,157 | 0/24 | 0/24 |
+| **frame** | **1,038** | 1,330 | 2,666 | **6/24** | 4/24 |
+
+A = 0.850, **p < 0.0001**.
+
+⇒ **The 6 kb measurement was CENSORED, and only for one arm.** Baseline never approached the cap
+(max 1,157), so it was measured cleanly; frame had 6/24 records above the old ceiling. The original
+"1.5× median" was therefore an UNDERSTATEMENT — with room, it is **2.2×**, and the effect size rises
+from A = 0.715 to A = 0.850. *Rule: a ceiling that binds on one arm only is a confound, not a
+nuisance.* 4/24 do run to the new wall, so a runaway tail exists — but 20/24 terminate on their own.
+
+**⇒ THE DISSOCIATION, which is the actual result.**
+
+| | baseline | frame |
+|---|---|---|
+| gene length | 468 | **1,038** (p<0.0001) |
+| **any**-Pfam signal (`best_any_bits`) | 31.34 | 22.92 — **A = 0.512, p = 0.89, no difference** |
+| **biosynthetic** signal (`best_bio_bits`) | 17.12 | **1.19** |
+| records with any bio signal | 4/24 | 1/24 (Fisher p = 0.348, n.s.) |
+
+The frame arm writes protein that is **just as recognisable as baseline's** — the any-Pfam
+comparison is a clean null — it is simply **not biosynthetic**. Making the model write LONGER genes
+produced longer protein of the same wrong kind.
+
+⇒ **LENGTH IS NOT THE BOTTLENECK — now shown three independent ways:** observationally (ladder
+audit, r = 0.051 / −0.120), and causally at two generation lengths. The direction replicates across
+6 kb and 8 kb; the two are **not pooled** (different conditioning — sequential@6kb vs batched@8kb,
+see `bugs.md`), and neither is individually significant on domain content at n=24. It is the
+*dissociation* that is strong, not the domain-content difference.
+
+⇒ **DO NOT build another loss variant aimed at reading-frame length.** The remaining question is
+domain *identity*, which the weighted arm targets and which has never been tested at adequate power.
+
 ## ★★★ PHASE-2 ARM RESULTS (2026-08-12, completed 20:45) — the frame loss MOVED ITS OWN
 ## VARIABLE AND DOMAIN CONTENT DID NOT FOLLOW. Primary metric was underpowered by construction.
 
