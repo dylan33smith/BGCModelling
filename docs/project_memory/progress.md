@@ -415,6 +415,45 @@ Frame's protein is significantly *less* recognisable in general, not just less b
 forcing the model past the point where it wants to stop produces **longer AND worse** protein, not
 longer-but-equivalent. *Rule: a null at low n is not a finding; it is the absence of one.*
 
+## ★★★ DOMAIN WEIGHTING AT 10x (2026-08-13): the lever has an almost FLAT DOSE-RESPONSE.
+## Closed on a measured curve, not on a null.
+
+`evo2_1b/experiments/run_weighted10.sh`. Identical to the 3x arm in every other respect (L=8192,
+chunk/1024, bs1 x ga16, 400 steps, same seed and data order). The script GATES on the treatment
+landing before it will spend an hour generating — the rule that was violated twice on 2026-08-12/13.
+**The gate fired and generation was skipped.**
+
+| condition | in/out CE ratio | shift vs untrained base | as % of what plain training buys |
+|---|---|---|---|
+| untrained base | 0.9042 | — | — |
+| 3-step smoke runs (×5) | 0.9042–0.9043 | +0.0000 | ~0% |
+| **400 steps, weight 1× (baseline)** | 0.9011 | **−0.0031** | **100%** |
+| 400 steps, weight 3× | 0.9006 | −0.0036 | 117% |
+| 400 steps, weight **10×** | 0.9002 | −0.0040 | **130%** |
+
+⇒ **3.3× more weight bought 1.8× more effect.** Ordinary fine-tuning moves this ratio −0.0031; ten-
+fold domain weighting adds only −0.0009 on top of that, i.e. **30% of what simply training does at
+all**. Extrapolating the curve, the weight needed to match plain fine-tuning is ~10³ — the lever is
+not merely weak at 3×, it barely responds to dose.
+
+**An unintended control made this readable.** The probe auto-discovers arms, so it also scored five
+3-step smoke runs. All five sit at 0.9042–0.9043, indistinguishable from the untrained base — which
+pins the "no training happened" end of the scale and confirms the probe measures training, not noise.
+
+⇒ **DIFFUSENESS WAS THE WRONG EXPLANATION.** The 3× null was hypothesised to be a too-broad nudge
+(40.2% of positions). At 10× the contrast is unambiguous and the model still barely moves. So
+**per-token loss weighting is a weak lever on this substrate**, and that is now established by a
+dose-response curve rather than by a single null — a stronger form of evidence.
+
+⚠️ **What this does NOT establish.** Both arms trained on 6.7% of one epoch. The flat dose-response
+holds *at this training budget*; it does not rule out the weighting biting after 15× more training.
+That is the one remaining variable never varied.
+
+⇒ **NEXT, in order.** (1) If domain focus is still wanted, change the **DATA, not the loss** — train
+on domain-dense regions directly, rather than reweighting them inside full windows; per-token
+weighting has now been measured and found weak. (2) Train past 6.7% of an epoch before any further
+objective claim. (3) Track A (exemplar conditioning) remains the path that works today.
+
 ## ⚠️ CORRECTION (2026-08-13, same day): THE CLOSURE APPLIES TO THE FRAME ARM ONLY.
 ## The weighted arm's treatment NEVER LANDED, so its null is uninterpretable.
 

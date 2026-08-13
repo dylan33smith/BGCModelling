@@ -60,12 +60,13 @@ L=${L:-8192}   # the 1B's NATIVE context; 4096 could not hold one module
 ARMS=${ARMS:-"baseline frame weighted"}   # subset selector, for resuming a partly-run set
 PARALLEL=${PARALLEL:-0}
 
-port_for () { case "$1" in baseline) echo 29500;; frame) echo 29501;; weighted) echo 29502;; *) echo 29510;; esac; }
+port_for () { case "$1" in baseline) echo 29500;; frame) echo 29501;; weighted) echo 29502;; weighted10) echo 29503;; *) echo 29510;; esac; }
 flags_for () {
   case "$1" in
     baseline) echo "--domain-weight 1.0 --frame-lambda 0.0";;
     frame)    echo "--domain-weight 1.0 --frame-lambda 0.5";;
     weighted) echo "--domain-weight 3.0 --frame-lambda 0.0";;
+    weighted10) echo "--domain-weight 10.0 --frame-lambda 0.0";;
     *) echo "[arms] unknown arm: $1" >&2; return 1;;
   esac
 }

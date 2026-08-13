@@ -46,12 +46,20 @@ sys.path.insert(0, str(REPO / "src"))
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO / "evo2_1b" / "scripts"))
 
-ARMS = {
-    "base (no adapter)": None,
-    "baseline": "baseline/final_adapter",
-    "frame": "frame/final_adapter",
-    "weighted": "weighted/final_adapter",
-}
+# Auto-discovered so a new arm is picked up without editing this file. `base` and `baseline` are
+# pinned first: base fixes the untrained reference and baseline is the comparator every ratio is
+# quoted against, so both must be present before any treatment arm is interpreted.
+_PINNED = ["baseline", "frame", "weighted"]
+
+
+def discover_arms(root: Path) -> dict:
+    arms = {"base (no adapter)": None}
+    found = [d.name for d in sorted(root.iterdir())
+             if (d / "final_adapter" / "adapter_model.safetensors").exists()]
+    for name in _PINNED + [f for f in found if f not in _PINNED]:
+        if name in found:
+            arms[name] = f"{name}/final_adapter"
+    return arms
 
 
 def annotated_cores(n: int, length: int, pfam: Path, workers: int) -> list[tuple[str, list]]:
@@ -104,7 +112,7 @@ def main() -> int:
 
     from evo2_1b_inference import load_1b
     rows = {}
-    for label, rel in ARMS.items():
+    for label, rel in discover_arms(Path(args.root)).items():
         adapter = None if rel is None else Path(args.root) / rel
         if adapter is not None and not adapter.exists():
             continue

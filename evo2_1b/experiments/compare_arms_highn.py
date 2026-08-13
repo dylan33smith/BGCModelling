@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "evo2" / "scripts"))
 sys.path.insert(0, str(REPO / "src"))
 
-ARMS = ["baseline", "frame", "weighted"]
+ARMS = ["baseline", "frame", "weighted", "weighted10"]
 
 
 def score(root: Path, arm: str) -> list[dict]:
