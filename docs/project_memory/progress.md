@@ -374,7 +374,57 @@ class direction costs 3.1x more than deleting a shuffled one.
 
 **Operating point: dose ≈ 1 class-unit.** Higher doses are noisier, not stronger.
 
-## What is running right now
+## ★★★ PHASE-2 ARM RESULTS (2026-08-12, completed 20:45) — the frame loss MOVED ITS OWN
+## VARIABLE AND DOMAIN CONTENT DID NOT FOLLOW. Primary metric was underpowered by construction.
+
+All three arms trained (400 steps, L=8192, chunked), generated (24 de novo each, identical
+prompts/decoding/seed) and scored. **Novelty PASS_novel in every arm** (max containment 0.012 /
+0.003 / 0.003) — nothing here is memorisation.
+
+| arm | `best_bio_bits` | detection | `n_bio_domains` | `max_orf_aa` (diag) | novelty max |
+|---|---|---|---|---|---|
+| baseline | 11.82 | **3/24** | 0.208 | 468.4 | 0.012 |
+| frame | 2.14 | **3/24** | 0.125 | **826.2** | 0.003 |
+| weighted | 11.83 | **3/24** | 0.375 | 437.5 | 0.003 |
+
+**⚠️ THE HEADLINE DELTAS THE DRIVER PRINTED (frame −10.201, weighted −0.503) ARE NOISE.** Per-record
+scoring shows **exactly 3 of 24 records carry any biosynthetic signal in every arm**, and the mean
+is dominated by one draw: baseline's top record is **64% of its arm total** (182.6 bits), frame's is
+45%. Pairwise Mann-Whitney on `best_bio_bits` gives **A = 0.508 / 0.497 / 0.492 — indistinguishable
+from 0.5**, and detection is 3/24 in all three arms (**Fisher p = 1.000**). The primary metric did
+not separate the arms in either direction.
+
+**WHAT DID MOVE — and it is the pre-registered informative negative.** `max_orf_aa`, the variable
+the frame loss manipulates directly: median **453.5 → 700.0**, A = 0.715, **p = 0.0109**. The
+intervention worked. Domain content did not follow — same 3/24 detection, `n_bio_domains` if
+anything *lower* (0.208 → 0.125). This is the second, now **causal**, line of evidence for the
+ladder audit's demotion of `max_orf_aa`: the audit found r = 0.051 / −0.120 *observationally*; here
+we pushed ORF length up ~54% at the median and domain content did not move. **Length was never the
+constraint.**
+
+**TWO HONEST QUALIFICATIONS, both of which cut against reading this as a strong result.**
+
+1. **The frame arm partly Goodharted its own penalty.** 2/24 records have a single ORF spanning the
+   *entire* 6 kb generation (`max_orf_aa` = 2000 = the cap: the model never emitted a stop at all),
+   and 5/24 are ≥75% of cap. Dropping the saturated tail attenuates the effect to **A = 0.640,
+   p = 0.1204** (≥50% of cap: p = 0.0651). Direction and median shift survive; significance does
+   not. A stop-completion penalty can be satisfied by suppressing stops outright, which is not the
+   same as learning to hold frame.
+2. **THE DESIGN COULD NOT HAVE DETECTED A MODERATE EFFECT ON THE PRIMARY METRIC.** At a baseline
+   detection of 3/24 = 0.125, the n needed per arm (α=.05, 80% power) is **152 to detect a doubling,
+   46 to detect a tripling**. We ran **24**. The kill criterion in `score_arms.sh` was written
+   assuming the test would be sensitive; that assumption failed. Firing it here would discard the
+   hypothesis on the basis of a test that could not have rejected it.
+
+⇒ **VERDICT.** The `max_orf_aa` dissociation is real and worth keeping — it corroborates the ladder
+audit independently and causally. The comparison *between arms on domain content* is **not a clean
+negative, it is an underpowered one**, and must not be written up as a closure.
+
+⇒ **THE FIX IS CHEAP AND NEEDS NO RETRAINING.** The three adapters exist. Regenerating at
+**n ≥ 150 per arm** (~34 s/record solo ⇒ ~4 h for all three) makes the existing arms interpretable.
+Do that BEFORE running any further loss variant.
+
+## What was running (now complete)
 
 **PHASE 2, three objective arms on the 1B.** `evo2_1b/experiments/run_objective_arms.sh` →
 `/data2/ds85/bgcmodel_runs/phase2_1b/{baseline,frame,weighted}`. Identical in every respect except
@@ -388,7 +438,8 @@ the objective:
 
 Config: **L=8192** (the 1B's native context), `--long-seq-strategy chunk --chunk-overlap 1024`
 (95,759 windows over all 467 Mbp), batch 1 × grad-accum 16, 400 steps, LoRA. ~15 s per optimiser
-step at ~8,700 tok/s ⇒ **~100 min per arm, ~5 h for all three**.
+step at ~8,700 tok/s ⇒ **~100 min per arm**. Actual: baseline 16:29→17:46, frame 17:48→19:16,
+weighted 19:17→20:45, all scored by 21:00.
 
 Scored afterwards by `evo2_1b/experiments/score_arms.sh`: de novo generation with identical
 prompts/decoding/seed, then the validated ladder + novelty. **Primary = `best_bio_bits`**;

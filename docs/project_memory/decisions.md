@@ -6,6 +6,43 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 ---
 
+
+## [2026-08-12] Phase-2 arm results: keep the ORF dissociation, do NOT fire the kill criterion
+
+**Decision: treat the domain-content comparison as UNDERPOWERED, not as a closure — and regenerate
+at n≥150 before running any further loss variant.**
+
+`score_arms.sh` carried a pre-registered kill criterion: *"no arm moving `best_bio_bits` above
+baseline at unchanged novelty is a clean negative on the objective hypothesis — not a reason for
+another loss variant."* Read literally it fires. It should not be applied, and the reason is not a
+post-hoc preference for the hypothesis:
+
+- **Detection was 3/24 in EVERY arm** (Fisher p = 1.000); `best_bio_bits` Mann-Whitney A = 0.508 /
+  0.497 / 0.492. The metric did not separate the arms in *either* direction — this is a
+  non-measurement, not a negative result.
+- **Power:** at p₀ = 0.125, detecting a doubling needs n = 152/arm, a tripling n = 46/arm. We ran
+  24. The criterion was written assuming a sensitive test; that assumption failed.
+- The printed deltas (frame −10.201) are **one record**: baseline's top draw is 64% of its arm total.
+
+*Rule this encodes: a pre-registered stopping rule protects against post-hoc rationalisation, but it
+cannot protect against an underpowered design. Check that the test could have rejected the
+hypothesis before honouring a rule that says it did.*
+
+**What IS kept, because it does not depend on the between-arm comparison:** the frame loss moved
+`max_orf_aa` (median 453.5 → 700.0, A = 0.715, p = 0.0109) and domain content did not follow — same
+3/24 detection, `n_bio_domains` 0.208 → 0.125. That is a **causal** replication of the ladder
+audit's observational finding (r = 0.051 / −0.120): length was never the constraint. Two independent
+lines, one observational and one interventional, now agree.
+
+**Recorded against the frame arm:** it partly satisfies the penalty degenerately — 2/24 generations
+contain a single ORF spanning the whole 6 kb (never emitted a stop), 5/24 ≥75% of cap, and dropping
+the saturated tail attenuates the shift to p = 0.1204. A stop-completion penalty is satisfiable by
+suppressing stops outright. If this objective is revisited, the penalty needs a term that does not
+reward never terminating.
+
+**Next, in order:** (1) regenerate all three existing adapters at n ≥ 150 — no retraining, ~4 h;
+(2) only then decide whether the objective hypothesis lives or dies.
+
 ## Modelling
 
 ### [2026-08-12] PHASE 2 OPENED — the 1B track, and the custom training objective
