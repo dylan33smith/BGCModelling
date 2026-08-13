@@ -99,6 +99,8 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=24)
     ap.add_argument("--root", default="/data2/ds85/bgcmodel_runs/phase2_1b")
     ap.add_argument("--device", default="cuda:0")
+    ap.add_argument("--arms", nargs="*", default=None,
+                    help="restrict to these arm names (base is always included)")
     args = ap.parse_args()
 
     cores = annotated_cores(args.n, args.len, args.pfam, args.workers)
@@ -111,8 +113,11 @@ def main() -> int:
           f"mean {frac*100:.1f}% of positions in-domain")
 
     from evo2_1b_inference import load_1b
-    rows = {}
-    for label, rel in discover_arms(Path(args.root)).items():
+    rows, per_core = {}, {}
+    _arms = discover_arms(Path(args.root))
+    if args.arms:
+        _arms = {k: v for k, v in _arms.items() if v is None or k in args.arms}
+    for label, rel in _arms.items():
         adapter = None if rel is None else Path(args.root) / rel
         if adapter is not None and not adapter.exists():
             continue
@@ -136,6 +141,7 @@ def main() -> int:
                 li.append(float(nll[mask].mean()))
                 lo.append(float(nll[~mask].mean()))
         rows[label] = (st.mean(li), st.mean(lo))
+        per_core[label] = (li, lo)
         print(f"[dw-probe]   in-domain {rows[label][0]:.4f}  out {rows[label][1]:.4f}  "
               f"ratio {rows[label][0]/rows[label][1]:.4f}")
         del w
@@ -150,21 +156,44 @@ def main() -> int:
         r = i_ / o_
         delta = "" if not b or label == "baseline" else f"{(r/(b[0]/b[1]) - 1)*100:+.2f}%"
         print(f"{label:<20} {i_:>10.4f} {o_:>10.4f} {r:>14.4f} {delta:>13}")
-    if b and "weighted" in rows:
-        wr = rows["weighted"][0] / rows["weighted"][1]
-        br = b[0] / b[1]
+    # VERDICT KEYS OFF THE NUMERATOR, NOT THE RATIO. Reporting the ratio alone once made 3x and
+    # 10x look different when their in-domain losses are IDENTICAL (0.8763 both) and the whole gap
+    # was the denominator degrading. A ratio improvement bought by damaging the down-weighted
+    # positions is not the intervention working.
+    treatments = [k for k in rows if k.startswith("weighted")]
+    if b and treatments:
         print()
-        if wr < br * 0.99:
-            print("  ⇒ THE TREATMENT LANDED. The weighted arm reallocated capacity toward domain")
-            print("    positions, so its n=152 null is a REAL negative: domain weighting was")
-            print("    delivered and did not improve de novo biosynthetic content.")
-        else:
-            print("  ⇒ THE TREATMENT NEVER LANDED. The weighted model predicts domain positions no")
-            print("    better, relatively, than baseline — so `--domain-weight 3.0` changed the loss")
-            print("    arithmetic without changing the model. The n=152 weighted null is")
-            print("    UNINTERPRETABLE, and 'domain weighting' remains UNTESTED, not refuted.")
-            print("    Next: raise the weight substantially, and/or train past 6.7% of one epoch.")
-    json.dump({k: {"in": v[0], "out": v[1], "ratio": v[0] / v[1]} for k, v in rows.items()},
+        base_in = rows.get("base (no adapter)", (b[0], b[1]))[0]
+        train_effect = base_in - b[0]          # what plain fine-tuning bought on domain loss
+        for k in treatments:
+            gain = b[0] - rows[k][0]
+            harm = rows[k][1] - b[1]
+            print(f"  {k:<12} domain gain {gain:+.5f} = {gain/train_effect*100:5.1f}% of what training "
+                  f"alone buys | non-domain harm {harm:+.5f}")
+        print("\n  See the paired tests below before reading any of these as real.")
+    from scipy.stats import wilcoxon
+    if "baseline" in per_core:
+        print("\n" + "=" * 78)
+        print("PAIRED TEST ON THE IN-DOMAIN LOSS ITSELF (same cores, so pair them)")
+        print("=" * 78)
+        bi, bo = per_core["baseline"]
+        for label, (li, lo) in per_core.items():
+            if label == "baseline":
+                continue
+            di = [a - b for a, b in zip(li, bi)]
+            do = [a - b for a, b in zip(lo, bo)]
+            try:
+                _, pi = wilcoxon(di)
+                _, po = wilcoxon(do)
+            except ValueError:
+                pi = po = float("nan")
+            print(f"  {label:<20} in-domain {st.mean(di):+.5f} (p={pi:.4f})   "
+                  f"out {st.mean(do):+.5f} (p={po:.4f})")
+        print("\n  A ratio can improve because the NUMERATOR fell or because the DENOMINATOR rose.")
+        print("  Only the first is the intervention working; the second is collateral damage.")
+    json.dump({k: {"in": v[0], "out": v[1], "ratio": v[0] / v[1],
+                   "per_core_in": per_core[k][0], "per_core_out": per_core[k][1]}
+               for k, v in rows.items()},
               open(Path(args.root) / "domain_weight_probe.json", "w"), indent=1)
     return 0
 

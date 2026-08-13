@@ -431,10 +431,31 @@ landing before it will spend an hour generating — the rule that was violated t
 | 400 steps, weight 3× | 0.9006 | −0.0036 | 117% |
 | 400 steps, weight **10×** | 0.9002 | −0.0040 | **130%** |
 
-⇒ **3.3× more weight bought 1.8× more effect.** Ordinary fine-tuning moves this ratio −0.0031; ten-
+⚠️ **CORRECTED SAME DAY — the ratio hid which side moved, and it was the wrong side.** The table
+above reports `in/out`, which controls for a model that is simply better everywhere. It also
+conceals whether the numerator fell or the denominator rose. Splitting them, with a PAIRED
+Wilcoxon over the same 35 cores:
+
+| | in-domain (the target) | non-domain (collateral) |
+|---|---|---|
+| plain fine-tuning (base → baseline) | **−0.00556, p < 0.0001** | −0.00284 |
+| + weight 3× | −0.00039, p = 0.036 | +0.00012, p = 0.39 |
+| + weight **10×** | **−0.00041, p = 0.15** | **+0.00054, p = 0.0001** |
+
+⇒ **3× and 10× have IDENTICAL in-domain loss (0.8763 both).** The entire ratio difference between
+them is the *denominator degrading*. So there is **no dose-response in domain learning at all** —
+only a dose-response in damage to everything else.
+⇒ The domain gain is **7.0% (3×) and 7.4% (10×) of what plain fine-tuning buys**, marginal at 3×
+(p=0.036, one of several comparisons) and **not significant at 10×** (p=0.15).
+⇒ **At 10× the harm (+0.00054, p=0.0001) is LARGER than the benefit (−0.00041, p=0.15)** — the only
+thing that reliably scales with the weight is neglect of the down-weighted positions.
+*Rule: when a ratio is the headline, print the numerator and denominator beside it; a ratio can
+improve by fixing the thing you want or by breaking the thing you don't.*
+
+⇒ ~~3.3× more weight bought 1.8× more effect.~~ Ordinary fine-tuning moves this ratio −0.0031; ten-
 fold domain weighting adds only −0.0009 on top of that, i.e. **30% of what simply training does at
-all**. Extrapolating the curve, the weight needed to match plain fine-tuning is ~10³ — the lever is
-not merely weak at 3×, it barely responds to dose.
+all**. The lever does not merely respond weakly to dose — on the quantity that matters it does not
+respond to dose at all.
 
 **An unintended control made this readable.** The probe auto-discovers arms, so it also scored five
 3-step smoke runs. All five sit at 0.9042–0.9043, indistinguishable from the untrained base — which
