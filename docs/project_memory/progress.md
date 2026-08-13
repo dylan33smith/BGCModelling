@@ -415,7 +415,47 @@ Frame's protein is significantly *less* recognisable in general, not just less b
 forcing the model past the point where it wants to stop produces **longer AND worse** protein, not
 longer-but-equivalent. *Rule: a null at low n is not a finding; it is the absence of one.*
 
-⇒ **PLAN: track B is closed. Track A (bank exemplar conditioning) is now the path** — it works
+## ⚠️ CORRECTION (2026-08-13, same day): THE CLOSURE APPLIES TO THE FRAME ARM ONLY.
+## The weighted arm's treatment NEVER LANDED, so its null is uninterpretable.
+
+`evo2_1b/experiments/probe_domain_weighting.py`. The weighted arm was declared closed alongside
+frame. It should not have been: it is indistinguishable from baseline on **every** measured
+quantity (gene length p=0.23, any-Pfam p=0.25, best_bio_bits p=0.81, n_bio_domains p=0.88,
+bio_span_frac p=0.89, stop-completion mass 0.1228 vs 0.1227). For frame, the intervention was
+verified BEFORE its null was trusted. For weighted, it never was — and the null was reported as a
+closure anyway. Same error as the n=24 pass, one day later.
+
+**The check.** Score fixed real held-out cores under each adapter; split per-position CE into
+in-domain and out-of-domain (35 cores, 40.2% of positions in-domain, same pipeline that built the
+training sidecar). The statistic is the RATIO in/out — a model simply better everywhere would show a
+lower domain loss without having been steered at all.
+
+| model | in-domain | out | ratio | vs baseline |
+|---|---|---|---|---|
+| base (no adapter) | 0.8823 | 0.9758 | 0.9042 | +0.34% |
+| baseline | 0.8767 | 0.9729 | 0.9011 | — |
+| frame *(control)* | 0.8829 | 0.9790 | 0.9019 | +0.09% |
+| **weighted** | 0.8763 | 0.9731 | **0.9006** | **−0.06%** |
+
+⇒ **−0.06% is nothing.** The whole spread across four models — including one that never saw domain
+weighting at all — is 0.4%, and ordinary fine-tuning moved the ratio **+0.34%**, roughly 6× more
+than the weighting did. Frame, the negative control, sits at +0.09% as expected, which fixes the
+noise floor.
+
+**NOT a plumbing bug — checked.** The trainer logged `domain_weight=3.0`, 47,524 annotation records,
+**100% coverage** on the first 200 records, and the weighted loss differs from plain CE on all 40
+logged steps. The weighting was applied and simply did not move the model.
+
+**Two live explanations, both testable:**
+1. **TOO DIFFUSE.** 40.2% of positions are in-domain. "Attend 3× harder to 40% of the text" is a
+   broad, mild nudge. The frame penalty bit hard because it was SHARP — a rare, specific event
+   (a stop-completing base at codon phase 2) with a large relative penalty. *Fix: much larger
+   weight, or a narrower target.*
+2. **TOO LITTLE TRAINING.** Every arm saw 6,400 windows = **6.7% of ONE epoch**; the 7B reference
+   (best_bio_bits 56.9) saw 24× more. *Fix: train longer.*
+
+⇒ **REVISED PLAN: the frame/length question is CLOSED. Domain weighting is UNTESTED, not refuted.**
+Track A (bank exemplar conditioning) is still the safe path, — it works
 (correct_class 0.283 vs a 0.067 floor, controls passed, memorisation ruled out) and is the mode
 Evo's own published work validates. Track C (per-layer adapters) stays deferred: it targets class,
 and class was never the binding constraint.

@@ -8,6 +8,28 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 
 
+
+## [2026-08-13, correction] Track B is HALF closed, not closed. The weighted arm was never tested.
+
+**Supersedes the same-day entry below in one respect only.** The frame/length closure stands — that
+intervention was verified three ways (8× stop suppression, 1.9× gene length at p=1.1e-12, effect
+grew when the ceiling was removed) and its null is real. **The weighted arm's closure is withdrawn.**
+
+`probe_domain_weighting.py` measured the in-domain/out-of-domain CE ratio on fixed real cores.
+Baseline 0.9011, weighted 0.9006 — a **−0.06%** difference, against **+0.34%** for plain fine-tuning
+and a 0.4% spread across four models including one that never saw the weighting. The treatment did
+not land. Not a plumbing bug: `domain_weight=3.0`, 47,524 annotations, 100% coverage, and the
+weighted loss differs from CE at every logged step.
+
+*Rule, now violated twice in two days and therefore worth stating as a standing requirement:*
+**never accept a null without first demonstrating the intervention changed the model.** Verify the
+manipulation, then read the outcome. Frame had that check; weighted did not, and I closed it anyway.
+
+**Working hypothesis for why it did not land:** the weighting is DIFFUSE — 40.2% of positions
+in-domain at 3×. The frame penalty bit because it was SHARP: a rare, specific event with a large
+relative penalty. Compounded by training on 6.7% of one epoch. Both are testable and neither has
+been tested.
+
 ## [2026-08-13] Track B (objective change) is CLOSED on a powered test. Track A is the path.
 
 **Decision: stop building loss variants aimed at de novo capability. Bank exemplar conditioning.**
