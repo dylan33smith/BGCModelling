@@ -374,6 +374,52 @@ class direction costs 3.1x more than deleting a shuffled one.
 
 **Operating point: dose ≈ 1 class-unit.** Higher doses are noisier, not stronger.
 
+## ★★★★ PHASE-2 VERDICT (2026-08-13, n=152/arm): THE OBJECTIVE HYPOTHESIS IS CLOSED.
+## The kill criterion now applies on its own terms — this test WAS powered.
+
+`evo2_1b/experiments/rerun_arms_highn.sh` → `compare_arms_highn.py`. No retraining: the same three
+adapters, regenerated at **152 records per arm** (the power-analysis target), at **8,000 nt** so the
+6 kb ceiling can no longer censor one arm only, batched (12.05×, validated), scored per record.
+
+| arm | n | detection | `best_bio_bits` mean | median ORF | novelty |
+|---|---|---|---|---|---|
+| baseline | 152 | **17/152** (0.112) | 7.43 | 528 | 0.011 PASS |
+| frame | 152 | **10/152** (0.066) | 3.48 | **992** | 0.009 PASS |
+| weighted | 152 | **16/152** (0.105) | 5.24 | 502 | 0.014 PASS |
+
+| comparison | detection | `best_bio_bits` |
+|---|---|---|
+| frame vs baseline | Fisher **p = 0.226** | A = 0.477, p = 0.152 |
+| weighted vs baseline | Fisher **p = 1.000** | A = 0.496, p = 0.810 |
+
+**NOVELTY CLEAN IN ALL THREE** (max containment 0.009–0.014, `PASS_novel`). Nothing here is recited.
+
+**ACHIEVED POWER — the reason this null counts and the n=24 null did not.** At the observed baseline
+rate of 0.112, this design has power **0.74 to detect a doubling**, 0.96 for 2.5×, 1.00 for 3×. The
+n=24 pass had ~0.15 for a doubling. ⚠️ Power for a **1.5× rise is only 0.29**, so a *modest*
+improvement would still be missed — the closure is on effects of roughly 2× and above.
+
+⇒ **THE PRE-REGISTERED KILL CRITERION NOW APPLIES.** It was correctly *withheld* at n=24, where the
+test could not have rejected the hypothesis; it is correctly *applied* here, where it could.
+**Neither objective moved de novo biosynthetic content. Do not build another loss variant.**
+
+**AND THE INTERVENTION DEMONSTRABLY WORKED — that is what makes this a closure rather than a
+failure.** The frame arm at n=152: median ORF **992 vs 528**, A = 0.736, **p = 1.1e-12**. It also
+suppresses in-gene stop codons 8× (probe 2). The lever was pulled hard, verified three ways, and the
+outcome did not follow.
+
+**⚠️ CORRECTION TO THE n=24 READING.** At n=24 the *any*-Pfam comparison was a clean null (A=0.512,
+p=0.89) and it was reported as "frame writes protein just as recognisable as baseline's, merely not
+biosynthetic." **At n=152 that is false:** any-Pfam signal **21.94 vs 35.18, A = 0.406, p = 0.004**.
+Frame's protein is significantly *less* recognisable in general, not just less biosynthetic. So
+forcing the model past the point where it wants to stop produces **longer AND worse** protein, not
+longer-but-equivalent. *Rule: a null at low n is not a finding; it is the absence of one.*
+
+⇒ **PLAN: track B is closed. Track A (bank exemplar conditioning) is now the path** — it works
+(correct_class 0.283 vs a 0.067 floor, controls passed, memorisation ruled out) and is the mode
+Evo's own published work validates. Track C (per-layer adapters) stays deferred: it targets class,
+and class was never the binding constraint.
+
 ## ★★★ PHASE-2 PROBES (2026-08-13): the frame objective WORKED, and length is not the bottleneck
 
 Two follow-up probes on the finished adapters. Together they turn the arm result from "underpowered

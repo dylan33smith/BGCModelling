@@ -7,6 +7,41 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 ---
 
 
+
+## [2026-08-13] Track B (objective change) is CLOSED on a powered test. Track A is the path.
+
+**Decision: stop building loss variants aimed at de novo capability. Bank exemplar conditioning.**
+
+The 2×2 was never completed and should not be: both single arms ran at n=152 and neither moved de
+novo biosynthetic detection (frame 10/152 vs baseline 17/152, Fisher p=0.226; weighted 16/152,
+p=1.000), at clean novelty in all three arms.
+
+**Why this null binds where the n=24 null did not.** Achieved power at the observed baseline rate
+(0.112) is 0.74 for a doubling and 0.96 for 2.5×, against ~0.15 at n=24. The pre-registered kill
+criterion was WITHHELD on 2026-08-12 because the test could not have rejected the hypothesis, and is
+APPLIED now because it could. That asymmetry is the whole point of checking power before honouring a
+stopping rule — recorded here so the withholding does not read as special pleading in hindsight.
+⚠️ Power for a 1.5× rise is only 0.29. The closure covers effects of ~2× and up, not modest ones.
+
+**The closure rests on a positive demonstration, not an absence.** The frame objective verifiably
+worked, three independent ways: it suppresses in-gene stop codons **8×** (0.0147 vs 0.1227 on fixed
+real cores, with baseline and weighted untouched); it lengthens generated genes **1.9×** at n=152
+(median 992 vs 528, p=1.1e-12); and the effect grew when the 6 kb ceiling was removed. We pulled the
+lever hard and biosynthetic content did not follow. **Reading-frame length is not the bottleneck** —
+now established observationally (r = 0.051 / −0.120) and causally at two generation lengths.
+
+**What the frame arm actually does, corrected at power.** At n=24 the any-Pfam comparison was null
+and I wrote that frame produces "protein just as recognisable, merely not biosynthetic". At n=152
+that is wrong: any-Pfam 21.94 vs 35.18, A=0.406, **p=0.004**. Suppressing stops past the point the
+model wants to end a gene yields **longer AND worse** protein. *Rule: a null at low n is not a
+finding.*
+
+**Next:** (A) write up exemplar conditioning as a characterisation result — it works, 0.283 vs a
+0.067 floor, and it is the mode Evo's published work validates. (C) per-layer adapters stay deferred;
+they target class, and class was never the binding constraint. Any future capability attempt should
+change what the model IS (scale, substrate, pretraining) rather than how the same 1B is scored — and
+note that 2% of real BGC genes are longer than this model's entire context.
+
 ## [2026-08-12] Phase-2 arm results: keep the ORF dissociation, do NOT fire the kill criterion
 
 **Decision: treat the domain-content comparison as UNDERPOWERED, not as a closure — and regenerate
