@@ -803,6 +803,87 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
    overlaps the finished arm's *generation* with the next arm's *training*) recovers the useful part
    at zero risk to anyone else. Revisit only on a machine we hold exclusively.
 
+## ★★★ OPTIONS AFTER PHASE 2 (2026-08-13) — what is left to try, and what each would settle
+
+**State going in.** Class conditioning closed (Phase 1). Reading-frame length closed causally.
+Per-token loss weighting closed on converging evidence from two measurement families. Exemplar
+conditioning works. Every Phase-2 arm carries ONE unaddressed asterisk: **6.7% of one epoch**.
+
+### 1. THE TWO-ARM LONG RUN — running 2026-08-13 (baseline + weighted 3x, 2,000 steps)
+
+**Design corrected after a good objection.** The first plan was baseline-only, to ask "is the 1B
+budget-limited or capacity-limited?". That does not answer the more interesting question — *does an
+intervention start working once the model is good enough* — and training the TREATMENT alone answers
+nothing either, because with no baseline at matched steps any improvement is unattributable.
+⇒ **Both arms, checkpointed every 500.** The GAP between the curves at each step is the intervention
+effect as a function of training budget.
+- n at intermediate checkpoints: **50, not 152.** 152 was sized for one powered comparison; a TREND
+  across checkpoints is read from monotone movement, and 50 x 4 checkpoints x 2 arms is ~100 min of
+  batched generation. Use 152 at the final point.
+- Fresh run dirs, not a resume: the LR schedule is defined over `max_steps`, so a 400-step run has
+  already decayed to ~0 and resuming it would train on a schedule no native 2,000-step run has.
+- ⚠️ **Prior is weak for `weighted` specifically.** Its dose-response was FLAT (10x did no more than
+  3x on domain loss). If the mechanism worked but needed time, dose should matter more, not less.
+  The budget objection is still legitimate; the expectation should not be high.
+
+### 2. GENOMEOCEAN — the documented case AGAINST has partly EXPIRED
+
+*Why it was not adopted:* the deciding experiment was the class linear probe, and it showed **both**
+models separate class strongly, so the reason to switch evaporated; then the 2026-08-12 reframe
+retired its headline advantage (a real trainable class token) by showing class was never the
+constraint.
+
+*Risks that still stand* (`docs/model_comparison_evo2_vs_genomeocean.md` §5):
+- **`bgcFM`'s training corpus (1.72M SMC BGCs) overlaps antiSMASH-derived BGCs; leakage against
+  `splits_core` is UNQUANTIFIED.** This is the gating one — novelty is a hard constraint on every
+  rung, so an unquantified overlap invalidates any capability claim.
+- metagenome-trained ⇒ our GTDB taxon tags have **no pretrained meaning**; taxon conditioning would
+  have to be rebuilt or dropped
+- BPE breaks the k=21 novelty calibration
+- 4B < 7B capacity
+
+*Advantages that became MORE relevant once the target became capability, not class:*
+- **64% of BGC regions fit whole vs Evo2's 0%** — directly addresses the megasynthase wall (2% of
+  real BGC genes are longer than the 1B's ENTIRE context)
+- **unconditioned GenomeOcean already makes megasynthases as its dominant output** — the thing our
+  1B cannot do
+- 12.8x more nucleotides/step ⇒ n>=100 evaluation is cheap
+
+⇒ **The leakage quantification is the gating experiment and it is cheap.** Running 2026-08-13.
+
+### 3. THE FRAME OBJECTIVE IS NOT A "PARTWAY POSITIVE" — but it validates the METHOD
+
+Frame made genes longer AND protein significantly WORSE (any-Pfam p=0.0045 at 6 kb, p=0.0001 at
+8 kb). That is movement away from the target, not partway toward it, and it should not be written up
+as partial success.
+⇒ **The legitimate reframe:** frame proves we can install a specific, independently-verified
+structural behaviour into this model with a custom loss (8x stop suppression). **The METHOD is
+validated; the HYPOTHESIS (length) was wrong.** That is a working instrument in search of the right
+target, and it is the one thing Phase 2 produced that is reusable.
+⇒ The frame x weighted interaction cell remains unrun, and starts from a deficit.
+
+### 4. THE SEED LADDER — how to make exemplar conditioning worth reporting
+
+Track A's weakness is real: *seed a real BGC -> get a BGC* is unimpressive. There is a ladder, and
+the project sits on the bottom rung:
+
+| rung | seed | status |
+|---|---|---|
+| 1 | one real BGC | **where we are** — correct_class 0.283 vs 0.067 floor |
+| 2 | **centroid of many real BGCs of a class** | untried, CHEAP with existing pipeline |
+| 3 | interpolation between two exemplars | untried |
+| 4 | a sample from a learned latent prior | build required |
+| 5 | nothing but a label | CLOSED (Phase 1) |
+
+**Rung 2 is the high-upside cheap experiment.** If generation from a class CENTROID stays on-class
+*and* novelty containment stays low, that demonstrates generation from a learned class
+representation rather than instance copying — which answers the "not impressive" objection directly.
+Also worth listing: **chimeric seeds** (domain regions from several BGCs concatenated — real parts,
+novel combination), and **a soft prefix trained for BIOSYNTHETIC CONTENT rather than class** (soft
+prefixes failed for class at 0.003 nats; nobody has trained one against the capability target).
+⚠️ Activation-space seeding for CLASS is closed (transplant moves behaviour 92%, carries class
+0/48). That closure does NOT cover content, which is now the target.
+
 ## NEXT ACTIONS — REWRITTEN 2026-08-12 after the detection/capability measurements
 
 **The previous list ranked ways to condition class. That was the wrong target.** See LADDER AUDIT
