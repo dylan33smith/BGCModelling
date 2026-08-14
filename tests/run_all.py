@@ -32,11 +32,33 @@ TESTS = [
     "test_activation_patching.py",      # is the donor state really substituted, and measured right
     "test_domain_spans.py",             # aa -> nt domain mapping, incl. the reverse strand
     "test_objective.py",                # frame-aware + domain-weighted loss; baseline must not drift
+    "test_novelty_battery.py",          # T3.2/T3.3/T6.1: protein novelty, mode collapse, joint pass
 ]
 
 
 def main():
     here = Path(__file__).resolve().parent
+
+    # DRIFT GUARD. This list is hand-maintained so each entry can carry a note explaining WHY the
+    # test exists -- that is worth keeping. But a hand-maintained list silently omits new files,
+    # and this repo has now done exactly that twice: the 2026-07-31 hardening pass (see the comment
+    # above) and test_novelty_battery.py on 2026-08-14, which ran green as "ALL 18 PASSED" while
+    # sitting unwired on disk. A guard that does not run is not a guard, so the omission is now an
+    # ERROR rather than something you notice by counting.
+    on_disk = {f.name for f in here.glob("test_*.py")}
+    listed = set(TESTS)
+    missing = sorted(on_disk - listed)
+    if missing:
+        print("ERROR: test files on disk but NOT in TESTS -- they would never run:")
+        for m in missing:
+            print(f"  {m}")
+        print("Add them to TESTS (with a note saying what they pin).")
+        return 1
+    stale = sorted(listed - on_disk)
+    if stale:
+        print(f"ERROR: TESTS lists files that do not exist: {stale}")
+        return 1
+
     failed = []
     for t in TESTS:
         print(f"\n{'=' * 70}\nRUN {t}\n{'=' * 70}")

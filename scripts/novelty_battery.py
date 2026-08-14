@@ -1,0 +1,243 @@
+#!/usr/bin/env python
+"""T3.2 / T3.3 / T6.1 — the novelty tests the old battery did NOT have.
+
+See `docs/phase3_evaluation_battery.md`. Three tests, each closing a hole through which a model
+could pass every check we previously ran while having invented nothing.
+
+────────────────────────────────────────────────────────────────────────────────────────────
+T3.2  PROTEIN-LEVEL NOVELTY
+Our novelty guard compares DNA letter-for-letter (k=21 containment). DNA is redundant: many
+letters can change while the encoded protein stays identical. So a model can copy a training
+cluster, swap synonymous codons, score as fully novel at the nucleotide level, and have invented
+nothing. This translates predicted ORFs and searches them against the proteins of the TRAINING
+set, reporting best amino-acid identity (AAI).
+Reference: the phage paper (Hie et al., Science 2026) reported AAI as low as 63% to natural
+proteins as its novelty evidence — protein identity is the standard this field expects.
+
+T3.3  INTRA-SET DIVERSITY
+Every novelty check we own compares generations to TRAINING DATA. None compares generations to
+EACH OTHER. A model that emits one good sequence 150 times passes all of them. Mode collapse was
+invisible — and it becomes more likely the moment many generations share a seed, which is exactly
+what the Phase-3 seeding arms introduce.
+
+T6.1  JOINT PASS RATE
+An arm can post 30% on-class and 100% novel while the on-class records are precisely the non-novel
+ones. Marginal rates cannot see that; only the per-record intersection can. This is the analogue of
+the phage paper's "302 candidates from hundreds of thousands" — the count that survives every
+filter AT ONCE, which is the only number describing what could actually be taken forward.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import statistics as st
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO / "evo2" / "scripts"))
+
+K = 21
+
+
+# ──────────────────────────── shared ────────────────────────────
+def kmers(seq: str, k: int = K) -> set[str]:
+    return {seq[i:i + k] for i in range(len(seq) - k + 1)} if len(seq) >= k else set()
+
+
+def containment(q: str, r: str, k: int = K) -> float:
+    a, b = kmers(q, k), kmers(r, k)
+    return len(a & b) / len(a) if a else 0.0
+
+
+def translate_orfs(seqs: list[str], min_aa: int = 30) -> list[list[str]]:
+    from bgc_pipeline.evaluation import find_orfs
+    out = []
+    for s in seqs:
+        try:
+            out.append([o.aa_seq for o in find_orfs(s, min_aa=min_aa)])
+        except Exception:
+            out.append([])
+    return out
+
+
+# ──────────────────────────── T3.2 ────────────────────────────
+def build_protein_db(train_jsonl: Path, out_fasta: Path, limit: int | None = None) -> Path:
+    """Translate the TRAINING set's ORFs into one FASTA — the thing generations are novel *against*."""
+    if out_fasta.exists() and out_fasta.stat().st_size:
+        return out_fasta
+    seqs = []
+    for i, line in enumerate(train_jsonl.open()):
+        if limit and i >= limit:
+            break
+        seqs.append(json.loads(line)["sequence"])
+    print(f"[T3.2] translating {len(seqs):,} training records …", flush=True)
+    prot = translate_orfs(seqs)
+    n = 0
+    with out_fasta.open("w") as w:
+        for i, ps in enumerate(prot):
+            for j, p in enumerate(ps):
+                w.write(f">train_{i}_{j}\n{p}\n")
+                n += 1
+    print(f"[T3.2] wrote {n:,} training proteins -> {out_fasta}")
+    return out_fasta
+
+
+def protein_novelty(gen_seqs: list[str], db_fasta: Path, env: str = "bgcmodel",
+                    threads: int = 16) -> list[float]:
+    """Best AAI per GENERATION (max over its ORFs). 0.0 = no protein resembles anything in train."""
+    prot = translate_orfs(gen_seqs)
+    best = [0.0] * len(gen_seqs)
+    with tempfile.TemporaryDirectory() as tmp:
+        qf = Path(tmp) / "q.fa"
+        with qf.open("w") as w:
+            for i, ps in enumerate(prot):
+                for j, p in enumerate(ps):
+                    w.write(f">gen_{i}_{j}\n{p}\n")
+        if qf.stat().st_size == 0:
+            return best
+        out = Path(tmp) / "hits.tsv"
+        r = subprocess.run(
+            ["micromamba", "run", "-n", env, "mmseqs", "easy-search",
+             str(qf), str(db_fasta), str(out), str(Path(tmp) / "t"),
+             "--format-output", "query,target,fident", "-e", "1e-3",
+             "--threads", str(threads), "-s", "5.7"],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            print("[T3.2] mmseqs failed:", r.stderr[-500:])
+            return best
+        for line in out.open():
+            q, _, fid = line.rstrip("\n").split("\t")[:3]
+            i = int(q.split("_")[1])
+            best[i] = max(best[i], float(fid))
+    return best
+
+
+# ──────────────────────────── T3.3 ────────────────────────────
+def intra_set_diversity(seqs: list[str], thresh: float = 0.80) -> dict:
+    """All-vs-all containment WITHIN one arm's output. Catches mode collapse."""
+    ks = [kmers(s) for s in seqs]
+    n = len(seqs)
+    pair, dup = [], [False] * n
+    for i in range(n):
+        for j in range(i + 1, n):
+            if not ks[i] or not ks[j]:
+                continue
+            c = len(ks[i] & ks[j]) / min(len(ks[i]), len(ks[j]))
+            pair.append(c)
+            if c >= thresh:
+                dup[i] = dup[j] = True
+    # greedy distinct-cluster count at the same threshold
+    reps: list[set] = []
+    for kk in ks:
+        if not kk:
+            continue
+        if not any(len(kk & r) / min(len(kk), len(r)) >= thresh for r in reps):
+            reps.append(kk)
+    return {
+        "n": n,
+        "median_pairwise_containment": st.median(pair) if pair else 0.0,
+        "max_pairwise_containment": max(pair) if pair else 0.0,
+        "n_distinct_clusters": len(reps),
+        "frac_distinct": len(reps) / n if n else 0.0,
+        "frac_with_a_near_duplicate": sum(dup) / n if n else 0.0,
+    }
+
+
+# ──────────────────────────── T6.1 ────────────────────────────
+def joint_pass(on_class: list[bool], nt_containment: list[float], aai: list[float],
+               distinct: list[bool], nt_thresh: float = 0.80,
+               aai_thresh: float = 0.95) -> dict:
+    """The per-record INTERSECTION. Marginal rates cannot detect an arm whose on-class records
+    are exactly its non-novel ones."""
+    n = len(on_class)
+    rows = [(oc, c < nt_thresh, a < aai_thresh, d)
+            for oc, c, a, d in zip(on_class, nt_containment, aai, distinct)]
+    both = sum(1 for r in rows if all(r))
+    return {
+        "n": n,
+        "on_class": sum(1 for r in rows if r[0]),
+        "nt_novel": sum(1 for r in rows if r[1]),
+        "protein_novel": sum(1 for r in rows if r[2]),
+        "distinct": sum(1 for r in rows if r[3]),
+        "JOINT_PASS": both,
+        "joint_rate": both / n if n else 0.0,
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--gen", type=Path, required=True, help="generations jsonl")
+    ap.add_argument("--train", type=Path, required=True, help="the class TRAIN jsonl")
+    ap.add_argument("--cls", default="RIPP")
+    ap.add_argument("--window", type=int, default=2000)
+    ap.add_argument("--db-fasta", type=Path,
+                    default=Path("/data2/ds85/bgcmodel_data/splits_class/RIPP/train_proteins.fa"))
+    ap.add_argument("--out", type=Path, default=None)
+    args = ap.parse_args()
+
+    gens = [json.loads(l).get("sequence", "")[: args.window] for l in args.gen.open()]
+    gens = [g for g in gens if g]
+    train = [json.loads(l)["sequence"] for l in args.train.open()]
+    print(f"[battery] {len(gens)} generations, {len(train):,} training records, "
+          f"window {args.window} nt\n")
+
+    # on-class + nucleotide containment (existing instruments, re-used not reimplemented)
+    from concurrent.futures import ProcessPoolExecutor
+
+    from ladder_audit import one
+    with ProcessPoolExecutor(max_workers=24) as ex:
+        scored = list(ex.map(one, [("b", g, args.cls, i) for i, g in enumerate(gens)]))
+    on_class = [s["bio"] > 0 for s in scored]
+    tk = [kmers(t) for t in train]
+    nt_cont = []
+    for g in gens:
+        kg = kmers(g)
+        nt_cont.append(max((len(kg & t) / len(kg) for t in tk if kg), default=0.0))
+
+    db = build_protein_db(args.train, args.db_fasta)
+    aai = protein_novelty(gens, db)
+    div = intra_set_diversity(gens)
+
+    # per-record distinctness for the joint test
+    ks = [kmers(g) for g in gens]
+    distinct = []
+    for i, ki in enumerate(ks):
+        near = any(ki and kj and len(ki & kj) / min(len(ki), len(kj)) >= 0.80
+                   for j, kj in enumerate(ks) if i != j)
+        distinct.append(not near)
+
+    jp = joint_pass(on_class, nt_cont, aai, distinct)
+
+    print("=" * 74)
+    print(f"NOVELTY BATTERY — {args.gen.name}")
+    print("=" * 74)
+    print(f"T1.1 on_class_rate         {jp['on_class']}/{jp['n']} = {jp['on_class']/jp['n']:.3f}")
+    print(f"T3.1 nucleotide novelty    max containment {max(nt_cont):.3f}  "
+          f"median {st.median(nt_cont):.3f}   (FAIL >=0.95, WARN >=0.80)")
+    print(f"T3.2 protein novelty       median best AAI {st.median(aai):.3f}  "
+          f"max {max(aai):.3f}   ({sum(1 for a in aai if a>=0.98)} records >=0.98 = paraphrase)")
+    print(f"T3.3 intra-set diversity   {div['n_distinct_clusters']}/{div['n']} distinct "
+          f"({div['frac_distinct']:.2f})  median pairwise {div['median_pairwise_containment']:.3f}")
+    print()
+    print(f"T6.1 JOINT PASS            on-class {jp['on_class']}  nt-novel {jp['nt_novel']}  "
+          f"protein-novel {jp['protein_novel']}  distinct {jp['distinct']}")
+    print(f"     -> ALL FOUR AT ONCE:  {jp['JOINT_PASS']}/{jp['n']} = {jp['joint_rate']:.3f}")
+    print()
+    if jp["on_class"] and jp["JOINT_PASS"] < jp["on_class"]:
+        print(f"  ⚠️ {jp['on_class'] - jp['JOINT_PASS']} on-class record(s) fail a novelty or")
+        print("     diversity gate. Marginal rates would have hidden this.")
+    res = {"on_class": on_class, "nt_containment": nt_cont, "aai": aai,
+           "distinct": distinct, "diversity": div, "joint": jp}
+    if args.out:
+        args.out.write_text(json.dumps(res, indent=1))
+        print(f"[battery] wrote {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
