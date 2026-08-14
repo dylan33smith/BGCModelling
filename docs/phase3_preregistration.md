@@ -114,6 +114,33 @@ For reference, at p0=0.15 a doubling needs ~120/arm; at p0=0.05 it needs ~430/ar
 is unaffordable, the honest response is to say the experiment cannot be run as designed — NOT to run
 it underpowered and interpret the null.
 
+### 8.1 PILOT RESULT (2026-08-14) and the fixed n
+
+| arm | n | on-class | rate | 95% CI |
+|---|---|---|---|---|
+| **real cores (CEILING)** | 50 | 29/50 | **0.580** | [0.442, 0.706] |
+| shuffled (instrument FPR) | 50 | 0/50 | **0.000** | [0.000, 0.071] |
+| **base 1B (FLOOR)** | 50 | 0/50 | **0.000** | [0.000, 0.071] |
+| general Phase-2 adapter | 50 | 4/50 | 0.080 | [0.032, 0.188] |
+
+**THE FLOOR IS EXACTLY ZERO.** The pilot script's power calculation substituted `p0 = 1/n = 0.02`
+as a divide-by-zero guard and printed 376–1,140 per arm. That is wrong for a *true* zero floor:
+against 0/n, Fisher's exact reaches p<0.05 at **6 successes regardless of n**.
+
+**⇒ CONFIRMATORY n = 150 PER ARM.** At n=150 vs a zero control: k≥6 is significant, giving power
+**0.89** for a true rate of 0.06 and **0.98** at 0.08. n=100 gives only 0.56 at 0.06, which is the
+same underpowered regime as Phase 2. n=150 × 4 arms × 4 seed lengths is affordable at ~2 kb/sample.
+
+**⚠️ THE CEILING IS 0.580, NOT 1.0, AND MY PRE-REGISTERED THRESHOLD WAS ≥0.60 — A MARGINAL MISS.**
+Recorded rather than adjusted: the 95% CI [0.442, 0.706] contains 0.60, so this is not a significant
+failure, but the threshold was set without data and RIPP sits right at it. The substantive point is
+that **only 58% of REAL RIPP cores carry a detectable RIPP-specific biosynthetic Pfam domain** —
+RiPP precursor peptides are short and poorly covered by Pfam. Every generated rate must therefore be
+read against **0.58**, not against 1.0. The threshold is NOT being moved to accommodate the result.
+
+**Instrument FPR is 0.000** — the negative control is clean, so a non-zero generated rate cannot be
+explained by the scorer.
+
 ## 9. Decision rules — fixed in advance
 
 - **An arm SUCCEEDS** iff its `on_class_rate` exceeds the A0 floor by Fisher's exact p < 0.05 **and**
