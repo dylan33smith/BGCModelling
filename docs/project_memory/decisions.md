@@ -9,6 +9,38 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 
 
+
+## [2026-08-14] Phase 3: TERPENE is the target, and the 1B is the testing substrate
+
+**Decision 1 — build per-class datasets FROM SCRATCH, not by filtering the global split.**
+Filtering inherits leakage-cleanliness for free but also inherits what the 22-class global split did
+to each small class, and that was unusable: MELANIN 2,877/0/0, CDPS 1,395/15/20, TERPENE with twice
+as much test as train. Re-splitting breaks the inherited guarantee — new cross-split neighbour pairs
+appear that the original MMseqs2 pass never saw — so the builder RE-EARNS it: genome-disjoint
+assignment of whole genomes, exact-dup check, and a fresh MMseqs2 pass at the same >=80% id / >=50%
+cov criterion the v2 corpus used, with genome-disjointness ASSERTED rather than assumed.
+
+**Decision 2 — the target is TERPENE, not ECTOINE.** Ectoine was the obvious pick on length (396 nt)
+and count (2,492), and re-splitting disqualified it: **85% of held-out clusters are near-duplicates
+of training clusters** (*ectABC* is a conserved 3-gene operon). The general finding is more useful
+than the specific one — **length and diversity are anti-correlated across these classes** (MELANIN
+95% loss, ECTOINE 85%, CDPS 85%, BUTYROLACTONE 81%, HSERLACTONE 69%, TERPENE 46%). Picking a small
+class trades the context problem for a novelty problem. TERPENE is the only class that is both short
+(960 nt median, 93% under 8 kb) and diverse (46%, 732 held-out records, 8,936 genomes).
+
+**Decision 3 — SUBSTRATE POLICY.** All Phase-3 testing on the **Evo2 1B**; the **7B** is for
+confirmation of anything that becomes a publishable claim; **GenomeOcean** stays live as a third
+option but is not the working substrate. A final paper likely reports all three as a cross-substrate
+comparison.
+*Why not fan out now:* running method comparisons on multiple substrates confounds method with
+model. One substrate for testing, then confirm.
+*Why the 1B despite Phase 2:* Phase 2 showed the 1B is capacity-limited **on the general problem**,
+where targets exceed its context. Phase-3 targets are 1/8th of its context — a different regime, and
+the capacity finding does not automatically carry over. This is an assumption, and the TERPENE
+baseline is what tests it.
+*Why GenomeOcean is available but unused:* its leakage gate PASSED on 2026-08-14 (0.0000 containment
+under greedy decoding, positive control demonstrated first). It is no longer blocked — it is held.
+
 ## [2026-08-13, correction] Track B is HALF closed, not closed. The weighted arm was never tested.
 
 **Supersedes the same-day entry below in one respect only.** The frame/length closure stands — that

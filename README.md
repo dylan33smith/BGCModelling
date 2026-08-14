@@ -2,17 +2,17 @@
 
 Fine-tune a genome foundation model to generate novel, correctly-classified
 **biosynthetic gene cluster (BGC)** nucleotide sequences conditioned on biosynthetic
-**class** and taxonomic **lineage** (**Phase 1**). **Phase 2** (opened 2026-08-12) is the
-objective-change programme on the 1B track; a **compound**-conditioned FT for named-product design
-remains the eventual goal, later.
+**class** and taxonomic **lineage** (**Phase 1**, closed). **Phase 2** (2026-08-12, closed) tested
+objective changes on the 1B track. **Phase 3** (opened 2026-08-14) narrows to one small compound
+class at a time; a **compound**-conditioned FT for named-product design remains the eventual goal.
 
 Three model tracks share one dataset and one eval instrument:
 
 | Track | Model | Status |
 |---|---|---|
 | [`evo2/`](evo2/) | Evo2 7B + LoRA | incumbent; **every inference-time lever that edits the input or the activations is closed** — prefix labels (2026-07-21), CFG (2026-07-22), activation steering (2026-08-10) — and the cheap end of training-time coupling too (soft prefixes, 2026-08-10); **guided decoding is underpowered, not null** (Q2 5–0, p=0.0625, effective n=5) |
-| [`evo2_1b/`](evo2_1b/) | Evo2 1B (`evo2_1b_base`) + LoRA | **Phase 2, running since 2026-08-12** — objective-change arms (baseline / frame / weighted); requires Transformer Engine 1.13.0 |
-| [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | under evaluation since 2026-07-27; can take a **real trainable class token**, which is the capability Evo2's byte-level tokenizer cannot provide |
+| [`evo2_1b/`](evo2_1b/) | Evo2 1B (`evo2_1b_base`) + LoRA | **THE TESTING SUBSTRATE for Phase 3.** Phase 2 (objective arms) closed here 2026-08-14; requires Transformer Engine 1.13.0 |
+| [`genomeocean/`](genomeocean/) | GenomeOcean-4B / `bgcFM` | live but HELD — **leakage gate passed 2026-08-14** (0.0000 containment, greedy); fits 64% of BGC regions whole vs Evo2's 0%; takes a real trainable class token |
 
 See [`docs/model_comparison_evo2_vs_genomeocean.md`](docs/model_comparison_evo2_vs_genomeocean.md)
 for the head-to-head and the recommendation.
@@ -23,9 +23,21 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 ---
 
-## Current status (snapshot, 2026-08-12)
+## Current status (snapshot, 2026-08-14)
 
-- **▶ PHASE 2 IS RUNNING — the 1B track.** `evo2_1b/` holds a clean, fast track for the
+- **▶ PHASE 3 IS OPEN (2026-08-14) — one small class at a time, target TERPENE.** Phase 2 closed
+  the objective and training-budget levers on the general problem. A single small class **deletes**
+  the long-context problem (terpene median 960 nt vs the 1B's 8,192) and a per-class LoRA means the
+  model never reads a class label, retiring every Phase-1 closure. Per-class datasets are split
+  **from scratch** at `/data2/ds85/bgcmodel_data/splits_class/`.
+  ⚠️ **ECTOINE looked ideal (396 nt, 2,492 records) and is disqualified — 85% of its held-out
+  clusters are near-duplicates of training ones.** Length and diversity are anti-correlated across
+  these classes; TERPENE is the only one that is both short and diverse (46% near-dup loss, 732
+  held-out records, 8,936 genomes).
+  **Substrate policy:** the **1B is the testing substrate**, the 7B confirms publishable claims, and
+  GenomeOcean is available (leakage gate passed) but held so method is not confounded with model.
+
+- **PHASE 2 (2026-08-12) — CLOSED. The 1B track.** `evo2_1b/` holds a clean, fast track for the
   objective-change experiments (frame-aware and domain-weighted loss) on `evo2_1b_base`:
   **0.990 nats/base vs 0.859 for the 7B base, and 3.34× the throughput** (8,770 vs 2,625 tok/s —
   a depth/width win only, since both models are byte-level). **Transformer Engine 1.13.0 is

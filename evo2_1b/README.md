@@ -1,4 +1,12 @@
-# Phase 2 — the small-model track
+# The 1B track — Phase 2 (closed), and the Phase-3 TESTING SUBSTRATE
+
+> **STATUS 2026-08-14.** Phase 2 closed here: objective changes do not move de novo biosynthetic
+> content, and neither does 5x the training budget (flat baseline curve, `progress.md`).
+> **This model is now the designated testing substrate for Phase 3** — every method comparison runs
+> here first; the 7B confirms anything publishable; GenomeOcean is held so method is not confounded
+> with model. Phase-3 targets are ~1 kb, i.e. 1/8th of this model's context, which is a different
+> regime from the one Phase 2 found it capacity-limited in.
+
 
 **Opened 2026-08-12.** A clean track for the objective-change experiments, on a substrate small
 enough to iterate on. Phase 1 (the 7B) answered *where the problem is*; Phase 2 asks *whether

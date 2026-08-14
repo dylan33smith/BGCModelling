@@ -1,4 +1,13 @@
-# GenomeOcean track
+# GenomeOcean
+
+> **STATUS 2026-08-14 — LIVE BUT HELD.** The long-standing blocker (unquantified SMC leakage
+> against `splits_core`) was **measured and cleared**: bgcFM reconstructs our held-out cores at
+> **0.0000** k=21 containment under greedy decoding, positive control demonstrated first
+> (`scripts/quantify_smc_leakage.py`). It bounds the risk rather than proving zero overlap.
+> GenomeOcean is not the working substrate for Phase 3 — the **1B is** — because running method
+> comparisons on two models at once confounds method with model. Revisit for long-context work
+> (it fits 64% of BGC regions whole vs Evo2's 0%) and as a third arm in any final comparison.
+ track
 
 Everything specific to **GenomeOcean** (Zhou et al., bioRxiv 2025.01.30.635558) lives
 here. The Evo2 track lives in [`../evo2/`](../evo2/). Both tracks share the repo-root

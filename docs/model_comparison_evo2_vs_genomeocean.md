@@ -247,8 +247,14 @@ that, GenomeOcean changes the following:
   conditioning that does work on Evo2 would have to be re-installed (or dropped).
 - BPE means a class token sits in a vocabulary the model has strong priors over; token-level
   novelty/memorization checks need re-calibrating for BPE.
-- `bgcFM`'s training set (SMC) overlaps antiSMASH-derived BGCs, so **leakage against our
-  `splits_core` is unquantified** and must be measured before any novelty claim.
+- ~~`bgcFM`'s training set (SMC) overlaps antiSMASH-derived BGCs, so **leakage against our
+  `splits_core` is unquantified**~~ — **MEASURED AND CLEARED 2026-08-14**
+  (`genomeocean/scripts/quantify_smc_leakage.py`). Under GREEDY decoding, bgcFM reconstructs our
+  held-out cores at **0.0000** k=21 containment against a **0.0000** mismatched floor, identical to
+  the un-fine-tuned base. The positive control was demonstrated first — identical 1.0000, 5%-mutated
+  0.3520 — so the instrument has dynamic range and would still have caught a 5%-diverged memorised
+  copy. ⚠️ This BOUNDS the risk; it does not prove zero overlap, since a model can be trained on a
+  sequence without reconstructing it from a 500 nt prompt.
 - vLLM is not usable on gputee as installed (CUDA 13 wheels vs 12.9 driver) — see
   `genomeocean/README.md`.
 

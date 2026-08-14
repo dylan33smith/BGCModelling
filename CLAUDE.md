@@ -39,8 +39,8 @@ Three model tracks, one shared instrument:
   `docs/project_memory/`.
 - **`evo2/`** — Evo2-specific: `scripts/` (trainer, generation, queue wrappers,
   `quick_eval.sh`/`run_eval.sh`), `experiments/{probes,quartz}/`, `docs/`.
-- **`evo2_1b/`** — **PHASE 2 (opened 2026-08-12): the fast 1B track** for objective-change
-  experiments. `scripts/` (loader + 1B-vs-7B baselines), `experiments/` (arm drivers), `docs/`.
+- **`evo2_1b/`** — **THE TESTING SUBSTRATE (Phase 3, 2026-08-14).** Opened 2026-08-12 as the
+  fast 1B track for the Phase-2 objective-change experiments, which closed here. `scripts/` (loader + 1B-vs-7B baselines), `experiments/` (arm drivers), `docs/`.
   Reuses the shared eval suite, ladder, novelty guard and domain spans rather than copying them;
   re-derives only model-specific numbers. **Requires Transformer Engine 1.13.0** — without it the
   1B loads and is at chance. Select with `EVO2_BASE_MODEL=evo2_1b_base` (training and eval switch
@@ -58,7 +58,7 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
 
 - Goal: fine-tune a genome foundation model for BGC sequence generation/evaluation.
 - Current production host focus: `gputee` (single H100 80 GB).
-- **STATE OF THE CENTRAL PROBLEM (2026-08-12) — REFRAMED. Class conditioning was the wrong
+- **STATE OF THE CENTRAL PROBLEM (updated 2026-08-14; reframed 2026-08-12). Class conditioning was the wrong
   target.** Evo2 *represents* compound class (linear probe 0.911, chance 0.091 — and 0.911 in
   **base** Evo2, so the LoRA installed nothing). Every inference-time lever that edits the input or the
   activations is closed: prefix labels, CFG, activation steering (all variants), affine concept
@@ -90,7 +90,23 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
   0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
   experimentally. The class comes from the seed, never the label.
-  ⇒ **PHASE 2 IS RUNNING (2026-08-12):** B is under way on the new 1B track — frame-aware and
+  ⇒ **PHASE 3 IS OPEN (2026-08-14) — ONE SMALL CLASS AT A TIME, target TERPENE.** Phase 2 closed
+  the objective and budget levers (frame-aware loss verified to work 8x and change nothing
+  downstream; domain weighting verified never to land; 5x training on a flat baseline curve).
+  Restricting to a small class DELETES the long-context problem rather than working around it, and
+  a per-class LoRA means the model never reads a class label — so every Phase-1 closure stops
+  applying. Datasets: `/data2/ds85/bgcmodel_data/splits_class/<CLASS>/` via
+  `scripts/build_single_class_splits.py` (split FROM SCRATCH, genome-disjoint + fresh MMseqs2
+  cross-split pass, NOT filtered from `splits_core`).
+  ⚠️ **ECTOINE was the obvious target and is DISQUALIFIED: 85% of its held-out clusters are
+  near-duplicates of training clusters.** Length and diversity are ANTI-CORRELATED across these
+  classes (MELANIN 95% near-dup loss, ECTOINE 85%, BUTYROLACTONE 81%, HSERLACTONE 69%, TERPENE
+  46%). TERPENE is the only class both short (960 nt median) and diverse.
+  ⇒ **SUBSTRATE POLICY (2026-08-14): the 1B is the TESTING substrate for all of Phase 3**; the 7B
+  is for confirming anything publishable; GenomeOcean is live-but-held (its leakage gate PASSED —
+  0.0000 containment, greedy, positive control demonstrated first). A final paper may compare all
+  three; testing does not fan out, because that confounds method with model.
+  ⇒ **PHASE 2 (2026-08-12, CLOSED):** B is under way on the new 1B track — frame-aware and
   domain-weighted arms against a bit-identical baseline, L=8192, chunked, scored on
   `best_bio_bits` with novelty as a hard constraint. Current plan — **A** bank exemplar
   conditioning as a characterisation paper / **B** attack de novo capability with a LoRA +

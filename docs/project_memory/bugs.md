@@ -8,6 +8,29 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Analysis / tooling
 
+- **[2026-08-14] A dataset that looks ideal on length and count can have almost no DIVERSITY, and
+  filtering an existing split hides it.** ECTOINE was selected as the Phase-3 target on the two
+  visible numbers: 396 nt median (1/20th of the 1B's context) and 2,492 records. Re-splitting it
+  from scratch with a fresh MMseqs2 cross-split pass (>=80% id / >=50% cov) removed **85% of val and
+  test** — held-out ectoine clusters are near-duplicates of training ones, because *ectABC* is a
+  highly conserved 3-gene operon. Training on it could only have produced recitation, and the
+  novelty guard would have failed it AFTER a full run. MELANIN was worse: **95%**.
+  **Why filtering hid it:** taking a class subset of a global split inherits leakage-cleanliness
+  (a subset of disjoint groups is still disjoint) but never re-examines the NEW cross-split
+  neighbour pairs that a per-class split creates — so the near-dup rate is simply never computed.
+  **Fix:** `scripts/build_single_class_splits.py` re-splits from scratch and re-earns the property,
+  reporting near-dup loss per class as a first-class number. *Rule: length and count describe a
+  dataset's size, not its information content. Before adopting a corpus, measure how much of the
+  held-out set survives a similarity filter against train.*
+
+- **[2026-08-14] Short BGC classes are short BECAUSE they are conserved — length and diversity are
+  anti-correlated.** Measured near-dup loss vs median length across 10 classes: MELANIN (483 nt)
+  95%, ECTOINE (396 nt) 85%, CDPS (735 nt) 85%, BUTYROLACTONE (978 nt) 81%, HSERLACTONE (639 nt)
+  69%, TERPENE (960 nt) 46%. "Pick a small class to delete the long-context problem" is not free:
+  it trades a context problem for a novelty problem. TERPENE is the exception that is both short
+  and diverse, which is why it is the Phase-3 target.
+
+
 - **[2026-08-12] Running training arms concurrently on one GPU bought NOTHING — without MPS, CUDA
   contexts time-slice.** The 1B at `batch=1` reaches only ~75 TFLOPS of an H100's ~756 (**10% of
   peak**): a 1.1B model on 8 k tokens with no batch dimension is launch-latency and HBM-bandwidth

@@ -803,78 +803,89 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
    overlaps the finished arm's *generation* with the next arm's *training*) recovers the useful part
    at zero risk to anyone else. Revisit only on a machine we hold exclusively.
 
-## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME
+## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME — and the target is TERPENE, not ectoine
 
-**The reframe.** Phase 2 closed the objective and budget levers on the general problem. Two distinct
-problems had been tangled together throughout:
-  1. **long-context coherence** — 2% of real BGC genes exceed the 1B's ENTIRE context; Evo2 fits
-     **0%** of whole BGC *regions*
-  2. **BGC specificity** — the model writes real protein of the wrong kind (bio fraction 0.100 vs
-     0.836)
-Restricting to a small class does not work around (1), it **deletes** it. An ectoine core is
-**396 nt median** — 1/20th of the 1B's context. What is left is (2), alone, with thousands of
-examples.
+**The reframe.** Phase 2 closed the objective and budget levers. Two distinct problems had been
+tangled together throughout: **long-context coherence** (2% of real BGC genes exceed the 1B's ENTIRE
+context; Evo2 fits 0% of whole BGC *regions*) and **BGC specificity** (real protein of the wrong
+kind, bio fraction 0.100 vs 0.836). Restricting to a small class does not work around the first, it
+**deletes** it. What remains is specificity, alone, with thousands of examples.
 
 **AND IT RETIRES THE PHASE-1 CLOSURES RATHER THAN FIGHTING THEM.** One adapter per class means the
 model never READS a class label, and every Phase-1 negative (inert prefix, CFG, steering, soft
-prefixes, activation transplant) was about label-reading. Those closures stop applying because the
-question stops being asked. This is a cleaner design, not a workaround.
+prefixes, activation transplant) was about label-reading. The question stops being asked.
 
-### The datasets — built 2026-08-14, `scripts/build_single_class_splits.py`
+### ★★★ THE FINDING THAT CHOSE THE TARGET: short classes are short BECAUSE they are conserved
 
-`/data2/ds85/bgcmodel_data/splits_class/<CLASS>/{train,val,test,eval_prompts}.jsonl`
+Splitting each class FROM SCRATCH (`scripts/build_single_class_splits.py`) — genome-disjoint, then a
+fresh MMseqs2 cross-split pass at >=80% identity / >=50% coverage — exposed something that filtering
+the global split had hidden. **The near-duplicate filter removes most of val/test for the conserved
+classes:**
 
-| class | train | val | test | genomes | median nt | p90 | %<8kb | |
-|---|---|---|---|---|---|---|---|---|
-| **ECTOINE** | 2,215 | 86 | 191 | 2,208 | **396** | 423 | **95%** | BUILT — the primary target |
-| **HSERLACTONE** | 3,960 | 220 | 317 | 3,774 | 639 | 1,920 | 93% | BUILT |
-| **BUTYROLACTONE** | 3,703 | 40 | 86 | 3,196 | 978 | 11,514 | 87% | BUILT |
-| **TERPENE** | 3,567 | 2,991 | 7,564 | 3,411 | 1,053 | 6,608 | 93% | BUILT |
-| CDPS / ALKALOID | 1,395 / 1,202 | — | 20 / 12 | — | — | — | — | SKIP: test<60 |
-| PHENAZINE / FURAN / NUCLEOSIDE | <500 | — | <30 | — | — | — | — | SKIP: train and test thin |
+| class | pooled | train | val | test | genomes | median nt | **% of val+test lost to near-dups** |
+|---|---|---|---|---|---|---|---|
+| **TERPENE** | 14,122 | **11,297** | 793 | **732** | 8,936 | **960** | **46%** ← most diverse |
+| **HSERLACTONE** | 4,497 | 3,597 | 134 | 147 | 3,391 | 639 | 69% |
+| **BUTYROLACTONE** | 3,829 | 3,063 | 78 | 65 | 2,657 | 978 | 81% |
+| ~~ECTOINE~~ | 2,492 | 1,993 | 33 | **40** | 1,985 | 396 | **85%** — DISQUALIFIED |
+| ALKALOID | 1,223 | 977 | 39 | 34 | 807 | 1,342 | 70% |
+| CDPS | 1,430 | 1,144 | 24 | 18 | 1,061 | 735 | 85% |
+| MELANIN | 2,877 | 2,301 | 12 | 17 | 1,878 | 483 | **95%** |
+| PHENAZINE / FURAN / NUCLEOSIDE | <550 | <450 | — | <15 | — | — | 61–78% |
 
-**LEAKAGE IS INHERITED, NOT RE-DERIVED.** `splits_core` is genome-disjoint + exact-dedup + MMseqs2
-cross-split clean, and a subset of disjoint groups is still disjoint — so the builder only FILTERS,
-never re-splits. Re-splitting per class would throw that property away and have to re-earn it.
+**Zero exact duplicates in any class** — the global dedup held, as expected.
 
-⚠️ **MELANIN IS A TRAP, and the builder now refuses it: 2,877 train records and ZERO in val/test.**
-Genome-disjoint splitting placed every melanin-bearing genome in train. It is trainable and never
-measurable — the most expensive kind of dead end. Any class failing the viability gate
-(train>=500, test>=60, genomes>=100) is skipped rather than silently emitted.
+⇒ **ECTOINE IS DISQUALIFIED, and the reason matters more than the disqualification.** It was the
+obvious pick on length (396 nt) and count (2,492). But **85% of held-out ectoine clusters are >=80%
+identical to a training cluster.** Ectoine biosynthesis is a highly conserved 3-gene operon
+(*ectABC*), so there is barely any internal diversity to learn. Training on it would produce a model
+whose only route to a "novel" ectoine cluster is recitation — which the novelty guard would have
+failed AFTER a training run. Caught at the dataset stage instead.
+
+⇒ **THE STRUCTURAL TENSION, now measured:** the classes that are shortest — best for context — are
+short *because* they are simple conserved operons, and simple conserved operons have little
+diversity. **Length and diversity are anti-correlated across these classes.** "Pick a small class"
+is therefore not free; it trades the context problem for a novelty problem.
+
+⇒ **TERPENE IS THE TARGET.** It is the only class that is BOTH short (median 960 nt, 93% under
+8 kb — still 1/8th of the 1B's context) AND diverse (46% near-dup loss, the lowest; 732 held-out
+records; 8,936 distinct genomes). HSERLACTONE is the fallback at 639 nt / 147 test.
+
+### SUBSTRATE POLICY (decided 2026-08-14)
+
+| model | role |
+|---|---|
+| **Evo2 1B** | **ALL Phase-3 testing.** Every method comparison runs here first. |
+| **Evo2 7B** | confirmation only — anything that becomes a publishable claim gets re-run here |
+| **GenomeOcean-4B** | kept live as a third option, not the working substrate |
+
+A final paper likely reports **all three** as a cross-substrate comparison; until then, testing does
+not fan out. Rationale: the 1B is 3.34x the 7B's throughput and Phase 2 showed it is capacity-limited
+on the GENERAL problem — but Phase-3 targets are 1/8th of its context, which is a different regime
+and the capacity finding does not automatically carry over. **GenomeOcean's leakage gate PASSED**
+(below), so it is available rather than blocked; it is held back to keep the method comparison on
+one substrate rather than confounding method with model.
 
 ### GenomeOcean leakage gate — PASSED (2026-08-14)
 
-`genomeocean/scripts/quantify_smc_leakage.py`, greedy decoding, 48 held-out cores.
-
-| | vs TRUE continuation | vs MISMATCHED floor |
-|---|---|---|
-| bgcFM | 0.0000 | 0.0000 |
-| base GenomeOcean | 0.0000 | 0.0000 |
-
-**Positive control passed first**: identical 1.0000, 5%-mutated 0.3520 — the instrument has
-demonstrated dynamic range, so the zero is a real negative and would still have caught a 5%-diverged
-memorised copy. ⚠️ This BOUNDS the risk; it does not prove zero overlap — a model can be trained on
-a sequence without reconstructing it. The long-standing "leakage unquantified" blocker on
-GenomeOcean is now measured rather than assumed.
+`genomeocean/scripts/quantify_smc_leakage.py`, GREEDY decoding, 48 held-out cores. bgcFM and base
+both reconstruct our held-out cores at **0.0000** containment against a **0.0000** mismatched floor.
+**Positive control passed first**: identical 1.0000, 5%-mutated 0.3520 — demonstrated dynamic range,
+so the zero is a real negative and would still have caught a 5%-diverged memorised copy.
+⚠️ This BOUNDS the risk; it does not prove zero overlap. The blocker carried since 2026-07-27 is now
+measured rather than assumed.
 
 ### The Phase-3 plan
 
-1. **ECTOINE first** (396 nt, 2,215 train, 2,208 distinct genomes — near one cluster per genome, so
-   diversity is real not duplicated). Honest caveat to state up front: an ectoine core is a small
-   operon, so generating one is far easier than a megasynthase. That is the point for
-   method-validation, but a reviewer will notice it if we do not.
-2. **Substrate choice is now open** — the GenomeOcean blocker cleared. Evo2-1B has 20x the context
-   needed for a 400 nt target and a calibrated novelty guard; GenomeOcean is bacterial-trained,
-   12.8x faster per nucleotide, and takes a real class token. At 400 nt the context advantage is
-   moot, so decide on training speed and novelty-calibration cost, not context.
-3. **Class-CENTROID seeding, not exemplar seeding** (seed ladder rung 2). This is the experiment
-   that answers "your results are just the seed" — generate from a class centroid and show output
-   is on-class at LOW containment.
-4. **Per-class LoRA adapters** — no class token needed; see above.
-5. **Inference-time filtering is the most under-used asset we have.** Guided decoding already
-   PASSED Q1 (+5.71, 39/40) and `best_bio_bits` is validated at AUROC 0.950. At 13% detection,
-   1,000 generations yields ~130 hits. The deliverable is a FILTERED TOP-K, not a good mean — and
-   at 400 nt per sample, tens of thousands of generations are cheap.
+1. **TERPENE baseline fine-tune on the 1B** — per-class LoRA, no class token needed.
+2. **Class-CENTROID seeding** (seed ladder rung 2) — the experiment that answers "your results are
+   just the seed": generate from a class centroid and show output is on-class at LOW containment.
+3. **Inference-time filtering is the most under-used asset we have.** Guided decoding already
+   PASSED Q1 (+5.71, 39/40) and `best_bio_bits` is validated at AUROC 0.950. The deliverable is a
+   FILTERED TOP-K, not a good mean — and at ~1 kb per sample, tens of thousands of generations are
+   cheap.
+4. **Novelty is the binding constraint here more than anywhere else**, given what the near-dup
+   analysis just showed. Report containment on every result.
 
 ## ★★★★ THE CHECKPOINT CURVE (2026-08-14): the 1B is CAPACITY-limited, not budget-limited.
 ## The last objection to the Phase-2 negative is removed.
