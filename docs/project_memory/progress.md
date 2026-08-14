@@ -803,6 +803,19 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
    overlaps the finished arm's *generation* with the next arm's *training*) recovers the useful part
    at zero risk to anyone else. Revisit only on a machine we hold exclusively.
 
+## ⚙️ CARRIED TO EVERY FUTURE TRAINING RUN (2026-08-14)
+
+**LENGTH-BUCKET THE BATCHES.** All training to date has run `--batch-size 1`, which leaves the 1B at
+~10% of an H100's peak FLOPs. Raising the batch is the correct lever — it works *inside* one CUDA
+context, unlike adding processes, which merely time-slices. But naive batching pays a padding tax,
+because collate pads every example up to the longest in its batch. Measured on RIPP (7,250 records,
+median 1,828 tokens, max 8,111): **40% waste at batch 4, 52% at batch 8, 62% at batch 16** — the
+waste grows with batch size, exactly backwards. Sort by length, batch contiguous runs of
+similar-length records, shuffle batch ORDER (never contents) per epoch; padding collapses and the
+speedup approaches the batch factor itself. Confound to watch: bucketing makes each batch homogeneous
+in length, so a length-dependent result needs a matched non-bucketed control. Full table and
+rationale: `decisions.md` [2026-08-14].
+
 ## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME — and the target is TERPENE, not ectoine
 
 **The reframe.** Phase 2 closed the objective and budget levers. Two distinct problems had been

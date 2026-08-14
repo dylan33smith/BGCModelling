@@ -10,6 +10,45 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 
 
+
+## [2026-08-14] CARRIED FORWARD: length-bucket the batches before any multi-arm training round
+
+**Decision: every future training run batches records of SIMILAR LENGTH together. Do not simply
+raise `--batch-size` on a length-heterogeneous corpus.**
+
+All training so far has run at `--batch-size 1`, which wastes the GPU: a 1.1B model on one sequence
+reaches ~10% of an H100's peak FLOPs. Raising the batch is the right lever — the one that works
+*inside* one CUDA context, unlike adding processes, which merely time-slices (see `bugs.md`).
+
+**But naive batching pays a padding tax, because collate pads every example up to the longest in its
+batch.** Measured on the RIPP training set (7,250 records, median 1,828 tokens, max 8,111):
+
+| batch | padding waste | effective speedup |
+|---|---|---|
+| 1 | 0% | 1.0x |
+| 2 | 23% | 1.5x |
+| 4 | 40% | 2.4x |
+| 8 | **52%** | 3.8x |
+| 16 | **62%** | 6.0x |
+
+At batch 8 **more than half the compute is spent on padding**. The speedup is still real, but half of
+it is thrown away, and the waste grows with batch size — exactly backwards from what you want.
+
+**LENGTH BUCKETING FIXES THIS AT SOURCE.** Sort by length, form batches from contiguous runs of
+similar-length records, then **shuffle the ORDER of batches** (never their contents) each epoch. Every
+batch is then near-uniform in length, padding collapses toward zero, and the speedup approaches the
+batch factor itself — ~6x at batch 16 rather than 6x-minus-62%.
+
+⚠️ **The one real cost, stated so it is not discovered later:** bucketing makes each batch homogeneous
+in length, so batch composition correlates with sequence length instead of being random. Shuffling
+batch order each epoch keeps the *sequence* of updates varied, but a given step still sees only one
+length regime. If a future result looks length-dependent, this is a candidate confound and the
+control is a matched run without bucketing.
+
+**Not applied to the RIPP baseline run (2026-08-14)** because it was already 5% complete when
+measured, restarting risked an untested OOM, and the seed arms are generation variants of that same
+adapter rather than retraining. It applies from the next training round onward.
+
 ## [2026-08-14] Phase 3: TERPENE is the target, and the 1B is the testing substrate
 
 **Decision 1 — build per-class datasets FROM SCRATCH, not by filtering the global split.**

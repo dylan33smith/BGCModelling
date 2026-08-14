@@ -30,6 +30,15 @@
 #    was identical at 3x and 10x). This run uses plain causal LM. Adding a loss variant here would
 #    confound "does single-class work" with "does this objective work".
 #
+# 5. ⚠️ BATCH SIZE 1 IS NOT OPTIMAL AND IS KEPT ONLY FOR CONTINUITY WITH THIS RUN.
+#    Batch=1 leaves the GPU at ~10% of peak. Raising it is the correct lever (unlike adding
+#    processes, which time-slices). But naive batching pays a padding tax: collate pads to the
+#    longest example in each batch, and measured on this corpus that is 40% waste at batch 4 and
+#    **52% at batch 8**. FUTURE RUNS MUST LENGTH-BUCKET: sort by length, batch contiguous runs of
+#    similar-length records, shuffle batch ORDER (not contents) each epoch. Padding then collapses
+#    and the speedup approaches the batch factor (~6x at 16 instead of 6x-minus-62%).
+#    See decisions.md [2026-08-14] for the measured table and the one confound it introduces.
+#
 # The pre-registered evaluation is docs/phase3_preregistration.md. Do not score this model with
 # anything else and then report it as the primary result.
 set -euo pipefail
