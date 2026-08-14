@@ -25,15 +25,20 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
 
 ## Current status (snapshot, 2026-08-14)
 
-- **▶ PHASE 3 IS OPEN (2026-08-14) — one small class at a time, target TERPENE.** Phase 2 closed
+- **▶ PHASE 3 IS OPEN (2026-08-14) — one small class at a time, target RIPP.** Phase 2 closed
   the objective and training-budget levers on the general problem. A single small class **deletes**
-  the long-context problem (terpene median 960 nt vs the 1B's 8,192) and a per-class LoRA means the
+  the long-context problem (RIPP median 1,931 nt vs the 1B's 8,192) and a per-class LoRA means the
   model never reads a class label, retiring every Phase-1 closure. Per-class datasets are split
   **from scratch** at `/data2/ds85/bgcmodel_data/splits_class/`.
   ⚠️ **ECTOINE looked ideal (396 nt, 2,492 records) and is disqualified — 85% of its held-out
   clusters are near-duplicates of training ones.** Length and diversity are anti-correlated across
-  these classes; TERPENE is the only one that is both short and diverse (46% near-dup loss, 732
-  held-out records, 8,936 genomes).
+  these classes. **RIPP is the target**: 8,129 train / 579 held out, 1,931 nt median (89% under
+  8 kb), **43% near-dup loss — the most diverse** — and twice TERPENE's de novo detection.
+  **Pre-registered before any model is trained:**
+  [`docs/phase3_preregistration.md`](docs/phase3_preregistration.md).
+  Informed by [Hie et al., *Science* 2026](https://www.science.org/doi/10.1126/science.aec2657),
+  who ran the same single-family strategy for phages: consensus-sequence seeding, **4–8 nt seeds
+  because longer ones caused memorisation**, and ~1000:1 overgeneration-and-filtering.
   **Substrate policy:** the **1B is the testing substrate**, the 7B confirms publishable claims, and
   GenomeOcean is available (leakage gate passed) but held so method is not confounded with model.
 

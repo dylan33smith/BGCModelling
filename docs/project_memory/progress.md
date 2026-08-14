@@ -818,38 +818,53 @@ prefixes, activation transplant) was about label-reading. The question stops bei
 ### ★★★ THE FINDING THAT CHOSE THE TARGET: short classes are short BECAUSE they are conserved
 
 Splitting each class FROM SCRATCH (`scripts/build_single_class_splits.py`) — genome-disjoint, then a
-fresh MMseqs2 cross-split pass at >=80% identity / >=50% coverage — exposed something that filtering
-the global split had hidden. **The near-duplicate filter removes most of val/test for the conserved
-classes:**
+fresh MMseqs2 cross-split pass at >=80% id / >=50% cov — exposed what filtering the global split had
+hidden. **The near-duplicate filter removes most of val/test for the conserved classes:**
 
-| class | pooled | train | val | test | genomes | median nt | **% of val+test lost to near-dups** |
-|---|---|---|---|---|---|---|---|
-| **TERPENE** | 14,122 | **11,297** | 793 | **732** | 8,936 | **960** | **46%** ← most diverse |
-| **HSERLACTONE** | 4,497 | 3,597 | 134 | 147 | 3,391 | 639 | 69% |
-| **BUTYROLACTONE** | 3,829 | 3,063 | 78 | 65 | 2,657 | 978 | 81% |
-| ~~ECTOINE~~ | 2,492 | 1,993 | 33 | **40** | 1,985 | 396 | **85%** — DISQUALIFIED |
-| ALKALOID | 1,223 | 977 | 39 | 34 | 807 | 1,342 | 70% |
-| CDPS | 1,430 | 1,144 | 24 | 18 | 1,061 | 735 | 85% |
-| MELANIN | 2,877 | 2,301 | 12 | 17 | 1,878 | 483 | **95%** |
-| PHENAZINE / FURAN / NUCLEOSIDE | <550 | <450 | — | <15 | — | — | 61–78% |
+| class | train | test | genomes | median nt | **near-dup loss** | de novo detection |
+|---|---|---|---|---|---|---|
+| **RIPP** | **8,129** | **579** | 6,848 | 1,931 | **43%** (lowest) | **0.158** |
+| TERPENE | 11,297 | 732 | 8,936 | 960 | 46% | 0.079 |
+| PKS | 5,195 | 309 | 4,873 | 2,103 | 51% | 0.184 |
+| ~~ECTOINE~~ | 1,993 | 40 | 1,985 | 396 | **85%** | — |
+| MELANIN | 2,301 | 17 | 1,878 | 483 | **95%** | — |
 
-**Zero exact duplicates in any class** — the global dedup held, as expected.
+⇒ **ECTOINE IS DISQUALIFIED**, and the reason matters more than the disqualification: **85% of
+held-out ectoine clusters are >=80% identical to a training cluster** (*ectABC* is a conserved
+3-gene operon). Training on it could only produce recitation, which the novelty guard would have
+failed AFTER a full run. Caught at the dataset stage instead. MELANIN: 95%.
 
-⇒ **ECTOINE IS DISQUALIFIED, and the reason matters more than the disqualification.** It was the
-obvious pick on length (396 nt) and count (2,492). But **85% of held-out ectoine clusters are >=80%
-identical to a training cluster.** Ectoine biosynthesis is a highly conserved 3-gene operon
-(*ectABC*), so there is barely any internal diversity to learn. Training on it would produce a model
-whose only route to a "novel" ectoine cluster is recitation — which the novelty guard would have
-failed AFTER a training run. Caught at the dataset stage instead.
+⇒ **STRUCTURAL TENSION, measured:** the shortest classes are short *because* they are simple
+conserved operons, and those have little diversity. **Length and diversity are anti-correlated.**
+"Pick a small class" trades a context problem for a novelty problem.
 
-⇒ **THE STRUCTURAL TENSION, now measured:** the classes that are shortest — best for context — are
-short *because* they are simple conserved operons, and simple conserved operons have little
-diversity. **Length and diversity are anti-correlated across these classes.** "Pick a small class"
-is therefore not free; it trades the context problem for a novelty problem.
+⇒ **THE TARGET IS RIPP** (revised from TERPENE, 2026-08-14). Building PKS and RIPP showed diversity
+is comparable across all three viable classes (43 / 46 / 51%), so terpene's advantage was only
+length — and terpene has **half** RIPP's de novo detection (0.079 vs 0.158). RIPP is short enough
+(1,931 nt median, 89% under 8 kb, i.e. comfortably inside the 1B's context), the most diverse, and
+starts from twice the floor.
 
-⇒ **TERPENE IS THE TARGET.** It is the only class that is BOTH short (median 960 nt, 93% under
-8 kb — still 1/8th of the 1B's context) AND diverse (46% near-dup loss, the lowest; 732 held-out
-records; 8,936 distinct genomes). HSERLACTONE is the fallback at 639 nt / 147 test.
+### ★★★ WHAT THE PHAGE PAPER CHANGES (Hie et al., *Science* 2026; bioRxiv 2025.09.12.675911)
+
+**"Generative design of novel bacteriophages with genome language models"** — the first generative
+design of viable genomes, and it ran our strategy:
+
+- **Fine-tuned Evo 1 + Evo 2 on ~15,000 Microviridae genomes** — one narrow family. The
+  single-class bet, already validated by someone else.
+- **The seed was a CONSENSUS sequence** conserved across natural isolates — a centroid in
+  **SEQUENCE space**, not an exemplar and not an embedding. This settles our design question: a
+  consensus prefix needs no model surgery, and Evo2 cannot take continuous embeddings anyway
+  (`StripedHyena.forward(x, inference_params_dict, padding_mask)` takes token ids only; no
+  `inputs_embeds`).
+- ⚠️ **SEED LENGTH 4–8 nt WAS OPTIMAL. LONGER SEEDS CAUSED MEMORISATION.** Our historical seeds are
+  ~500 nt — roughly **100x their optimum**. This is a plausible reason our seeded results carry a
+  novelty risk theirs did not, and it makes seed length a first-class variable, not a detail.
+- **Hundreds of thousands generated -> 302 candidates -> 285 synthesised -> 16 viable.** ~1000:1
+  filtering, and ~5% viable even after it. Filters were blunt and biological: length 4–6 kb, encodes
+  all required genes, gene architecture, GC content.
+
+⇒ **Overgenerate far harder than planned, and filter hard.** At ~2 kb per RIPP sample this is cheap.
+⇒ **Expect a low post-filter yield** and design the pipeline for it rather than being surprised.
 
 ### SUBSTRATE POLICY (decided 2026-08-14)
 
@@ -875,17 +890,32 @@ so the zero is a real negative and would still have caught a 5%-diverged memoris
 ⚠️ This BOUNDS the risk; it does not prove zero overlap. The blocker carried since 2026-07-27 is now
 measured rather than assumed.
 
-### The Phase-3 plan
+### The Phase-3 plan — PRE-REGISTERED
 
-1. **TERPENE baseline fine-tune on the 1B** — per-class LoRA, no class token needed.
-2. **Class-CENTROID seeding** (seed ladder rung 2) — the experiment that answers "your results are
-   just the seed": generate from a class centroid and show output is on-class at LOW containment.
-3. **Inference-time filtering is the most under-used asset we have.** Guided decoding already
-   PASSED Q1 (+5.71, 39/40) and `best_bio_bits` is validated at AUROC 0.950. The deliverable is a
-   FILTERED TOP-K, not a good mean — and at ~1 kb per sample, tens of thousands of generations are
-   cheap.
-4. **Novelty is the binding constraint here more than anywhere else**, given what the near-dup
-   analysis just showed. Report containment on every result.
+**[`docs/phase3_preregistration.md`](../phase3_preregistration.md) is fixed before any Phase-3 model
+is trained.** Primary endpoint is a RATE (`on_class_rate`, not the mean of a zero-inflated metric);
+`n` is set by a pilot power analysis and not before; generation length is identical across arms with
+a **fixed 2,000-nt scoring window** so length cannot inflate detection; post-processing is applied to
+controls too; **novelty is an absolute gate**; a null is interpretable only if powered AND the
+intervention is verified to have landed. Every clause is annotated with the specific error in this
+project that it prevents.
+
+**Arms:** A0 no seed (run first — if a per-class adapter works de novo, seeding is unnecessary and
+the reviewer objection evaporates) / A1 real exemplar (ceiling, novelty floor) / A2 mosaic of k
+clusters / A3 consensus prefix with per-sample bootstrap. **Seed length swept at 4, 8, 20, 100 nt**
+per the phage paper. Centroid-plus-Gaussian-noise was considered and **dropped** — its noise scale
+has no principled value, whereas bootstrapping the exemplar subset gives per-sample variation for
+free and anchored in real data.
+
+**Build order:** (1) PILOT on control arms to establish the floor `p0`; (2) fix `n`; (3) train the
+RIPP adapter whole-record with `|END|` supervision; (4) arms.
+
+⚠️ **`|END|` DOES NOT CURRENTLY WORK — `hit_eos` is 0/204 across two runs.** Evo2 has no usable
+native EOS; the trainer appends `|END|` to the FINAL WINDOW only (`--eos-token`, default on), and
+with chunking that marker lands at an arbitrary stride boundary uncorrelated with content. On the
+general corpus only 68.5% of records fit whole; **on RIPP ~89% do**, so whole-record training gives
+the marker a clean signal for the first time. If it works, generation length becomes an OUTPUT and
+"does the model know when a cluster is complete" becomes measurable rather than imposed.
 
 ## ★★★★ THE CHECKPOINT CURVE (2026-08-14): the 1B is CAPACITY-limited, not budget-limited.
 ## The last objection to the Phase-2 negative is removed.

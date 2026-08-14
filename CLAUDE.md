@@ -90,7 +90,7 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   ⇒ **What works today:** exemplar conditioning (seed a real core -> correct_class 0.283 vs a
   0.067 floor, memorization ruled out) — and this is the mode Evo's own published work validates
   experimentally. The class comes from the seed, never the label.
-  ⇒ **PHASE 3 IS OPEN (2026-08-14) — ONE SMALL CLASS AT A TIME, target TERPENE.** Phase 2 closed
+  ⇒ **PHASE 3 IS OPEN (2026-08-14) — ONE SMALL CLASS AT A TIME, target RIPP.** Phase 2 closed
   the objective and budget levers (frame-aware loss verified to work 8x and change nothing
   downstream; domain weighting verified never to land; 5x training on a flat baseline curve).
   Restricting to a small class DELETES the long-context problem rather than working around it, and
@@ -101,7 +101,16 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   ⚠️ **ECTOINE was the obvious target and is DISQUALIFIED: 85% of its held-out clusters are
   near-duplicates of training clusters.** Length and diversity are ANTI-CORRELATED across these
   classes (MELANIN 95% near-dup loss, ECTOINE 85%, BUTYROLACTONE 81%, HSERLACTONE 69%, TERPENE
-  46%). TERPENE is the only class both short (960 nt median) and diverse.
+  46%). **TARGET = RIPP** (8,129 train / 579 test, 1,931 nt median, 43% loss — the most diverse, and
+  2x TERPENE's de novo detection at 0.158 vs 0.079).
+  ⇒ **PRE-REGISTERED: `docs/phase3_preregistration.md`, fixed before any Phase-3 model is trained.**
+  Primary endpoint is a RATE; n from a pilot power analysis; identical generation length with a
+  fixed 2,000-nt scoring window; novelty an absolute gate; a null is interpretable only if powered
+  AND the intervention verified to have landed. Do not change these mid-phase.
+  ⇒ **Hie et al. (Science 2026) did this strategy for phages**: Evo fine-tuned on ~15,000
+  Microviridae genomes, seeded with a **CONSENSUS sequence in SEQUENCE space** (Evo2 takes token ids
+  only — no `inputs_embeds`), **seed length 4-8 nt optimal because longer seeds caused
+  MEMORISATION** (ours have been ~500 nt), and ~1000:1 overgeneration-and-filtering.
   ⇒ **SUBSTRATE POLICY (2026-08-14): the 1B is the TESTING substrate for all of Phase 3**; the 7B
   is for confirming anything publishable; GenomeOcean is live-but-held (its leakage gate PASSED —
   0.0000 containment, greedy, positive control demonstrated first). A final paper may compare all
