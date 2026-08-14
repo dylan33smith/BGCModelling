@@ -816,6 +816,61 @@ speedup approaches the batch factor itself. Confound to watch: bucketing makes e
 in length, so a length-dependent result needs a matched non-bucketed control. Full table and
 rationale: `decisions.md` [2026-08-14].
 
+## ★★★ PHASE-3 A0 RESULT (2026-08-14) — and the metric defect that inverted it
+
+**RIPP-only adapter trained**: 7,250 whole records (89.2% of RIPP fits at L=8192; 879 dropped, not
+truncated, so `|END|` never lands on a cut sequence), 3 epochs / 1,350 steps, 113 min,
+`loss_ce` 0.790 → **0.410**. A0 = 150 de novo generations, no seed.
+
+### ⚠️ THE FIRST REPORT OF THIS ARM WAS WRONG
+
+`ladder_audit.one()` takes a `cls` argument but uses it ONLY for the NRPS/PKS architecture rung —
+`bio` is scored against a **fixed global ~91-model biosynthetic set**. Proof: rescoring one arm
+under RIPP / NRPS / PKS / TERPENE returns **4/50 every time**. So "on-class" meant *any*
+biosynthetic domain, not RIPP. See `bugs.md`.
+
+| | generic metric (WRONG) | **RIPP-specific (pre-registered)** |
+|---|---|---|
+| base 1B | 0.000 | **0.000** (0/50) |
+| general all-class adapter | 0.080 | **0.000** (0/50) |
+| **A0 — RIPP-only** | 0.040 | **0.027** (4/150) |
+| real RIPP cores (ceiling) | 0.580 | **0.440** (22/50) |
+
+⇒ **THE CONCLUSION INVERTS.** Generically the generalist beat the specialist and A0 looked like a
+failure. On the endpoint the pre-registration actually names, **the generalist scores exactly zero**
+— its 0.080 was other classes' domains, correct behaviour for an all-22-class model — and **A0 is
+the only non-real arm producing RIPP machinery at all.** Not yet significant (4/150 vs 0/100 pooled,
+**p = 0.152**); the direction changed, not the significance. A0 reaches ~6% of the 0.440 ceiling.
+
+### Novelty is clean, and that is not automatically good news
+
+DNA containment max **0.003**, protein AAI median 0.000 / max 0.470, **150/150 intra-set distinct**,
+joint pass = on-class count. No memorisation, no codon paraphrase, no mode collapse. But near-perfect
+novelty at a 2.7% hit rate is also what a model producing plausible non-RIPP DNA would show —
+novelty is cheap when you are not hitting the target.
+
+### Where the signal sits — generate SHORT, sample MANY
+
+Per-block detection (generic metric) falls with position: block 0 **0.040**, then 0.024 / 0.028 /
+0.022. 4x the tokens bought **2.2x** the hits (0.087 vs an independence prediction of 0.151).
+Per-sequence indices show the six block-0 hits appear in **no** later block — different sequences
+produce RIPP content at different positions, sparsely; it is not one long gene continuing.
+⇒ Tokens spent late are worth ~half those spent early. Generate short, sample many, filter hard.
+
+### `|END|` — stop trying to fix it, filter instead
+
+`hit_eos` 0/150, as it was 0/204 before; whole-record training did not change it. **The phage paper
+did not rely on a stop token either** — they kept "sequences between 4,000 and 6,000 bases long,
+those that encode all the necessary genes", a length FILTER that only exists because the model does
+not reliably stop. Their funnel: ~14,466 training genomes → thousands generated → **302** candidates
+→ 285 synthesised → **16 viable**. Adopt that shape.
+
+### NEXT: the comparison that matters is SEEDED vs SEEDED
+
+No seeding has been run at all. Seeding is the mode that works here (0.283 vs a 0.067 floor) and the
+mode the phage paper used, at **4–8 nt** seeds. The informative contrast is **seeded class-specific
+vs seeded generalist**, not the unseeded one already run.
+
 ## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME — and the target is TERPENE, not ectoine
 
 **The reframe.** Phase 2 closed the objective and budget levers. Two distinct problems had been

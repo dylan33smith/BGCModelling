@@ -8,6 +8,35 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 
 ## Analysis / tooling
 
+- **[2026-08-14] A PRE-REGISTERED endpoint was measured by code that computed a different quantity,
+  and it inverted the result.** `docs/phase3_preregistration.md` defines the primary endpoint as
+  "≥1 **RIPP-defining** biosynthetic Pfam domain … against the RIPP-specific accession set".
+  `ladder_audit.one()` accepts a `cls` argument but uses it ONLY for the NRPS/PKS architecture rung
+  — its `bio` score runs against a **fixed global ~91-model biosynthetic set**. **Proof:** rescoring
+  one arm's 50 sequences under RIPP / NRPS / PKS / TERPENE returns **4/50 every single time**. A
+  class-specific metric cannot be invariant to the class.
+  **What it cost:** the first Phase-3 arm was reported as a failure. Generic metric — general
+  adapter 0.080 vs RIPP-only 0.040, "the specialist loses to the generalist". RIPP-specific metric —
+  general adapter **0.000**, RIPP-only **0.027**: the general adapter produces NO RIPP machinery
+  (its 0.080 was other classes' domains, exactly what an all-22-class model should make), and the
+  fine-tune is the only non-real arm producing any. **The conclusion inverted.**
+  **Fix:** subset the HMM to `OBLIGATE_DOMAINS['RIPP']` (8 accessions) before scoring;
+  the accessions are now named literally in the pre-registration so the code has a spec to match.
+  *Rule: a pre-registered endpoint is only as fixed as the code computing it. Verify the
+  implementation measures the named quantity on a case where a WRONG implementation would give a
+  DIFFERENT answer — here, scoring the same sequences under another class label. An invariance that
+  should not hold is the cheapest possible test.*
+
+- **[2026-08-14] Per-block counts summing above the whole-sequence count is not double-counting.**
+  Scoring an 8,000-nt generation in four 2,000-nt blocks gave 6 + 3 + 3 + 2 = 14 against a
+  whole-sequence count of 13. These are counts of SEQUENCES-with-a-hit per block, not hits, so a
+  sequence hitting in two blocks is counted twice. Measured: the union is 13 and exactly one
+  sequence (#11) hits in two blocks. **The six block-0 hits appear in NO later block** — so the
+  signal is not one long gene continuing, it is DIFFERENT sequences producing RIPP content at
+  different positions, sparsely. *Rule: when two aggregations disagree, print the per-item indices
+  and take the union before theorising about the cause.*
+
+
 - **[2026-08-14] A dataset that looks ideal on length and count can have almost no DIVERSITY, and
   filtering an existing split hides it.** ECTOINE was selected as the Phase-3 target on the two
   visible numbers: 396 nt median (1/20th of the 1B's context) and 2,492 records. Re-splitting it
@@ -26,9 +55,11 @@ whenever a non-obvious bug is solved. See [decisions.md](decisions.md) for ratio
 - **[2026-08-14] Short BGC classes are short BECAUSE they are conserved — length and diversity are
   anti-correlated.** Measured near-dup loss vs median length across 10 classes: MELANIN (483 nt)
   95%, ECTOINE (396 nt) 85%, CDPS (735 nt) 85%, BUTYROLACTONE (978 nt) 81%, HSERLACTONE (639 nt)
-  69%, TERPENE (960 nt) 46%. "Pick a small class to delete the long-context problem" is not free:
-  it trades a context problem for a novelty problem. TERPENE is the exception that is both short
-  and diverse, which is why it is the Phase-3 target.
+  69%, TERPENE (960 nt) 46%, RIPP (1,931 nt) 43%. "Pick a small class to delete the long-context
+  problem" is not free: it trades a context problem for a novelty problem. **RIPP is the Phase-3
+  target** — best diversity of the viable classes and still comfortably inside the 1B's context.
+  (TERPENE was the target briefly on length alone; RIPP replaced it once PKS/RIPP diversity was
+  measured and found comparable.)
 
 
 - **[2026-08-12] Running training arms concurrently on one GPU bought NOTHING — without MPS, CUDA

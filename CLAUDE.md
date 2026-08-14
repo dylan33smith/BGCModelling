@@ -103,6 +103,16 @@ repo root at `Path(__file__).resolve().parents[2]`; shared ones under `scripts/`
   classes (MELANIN 95% near-dup loss, ECTOINE 85%, BUTYROLACTONE 81%, HSERLACTONE 69%, TERPENE
   46%). **TARGET = RIPP** (8,129 train / 579 test, 1,931 nt median, 43% loss — the most diverse, and
   2x TERPENE's de novo detection at 0.158 vs 0.079).
+  ⇒ **A0 RESULT (2026-08-14):** RIPP-only adapter, 150 de novo, RIPP-SPECIFIC scoring —
+  base 1B **0/50**, general all-class adapter **0/50**, **A0 4/150 = 0.027**, real cores 22/50 =
+  0.440. The class-specific fine-tune is the ONLY non-real arm producing RIPP machinery; p=0.152 so
+  not yet significant. ⚠️ The first report said the opposite because `ladder_audit.one()` scores
+  `bio` against a GLOBAL biosynthetic Pfam set and ignores `cls` (same 4/50 under RIPP/NRPS/PKS/
+  TERPENE) — always subset the HMM to `OBLIGATE_DOMAINS[<CLASS>]`. See `bugs.md`.
+  ⇒ **`|END|` does not work (0/150, was 0/204) and is NOT worth fixing** — the phage paper used a
+  LENGTH FILTER (4-6 kb), not a stop token. Generate short, sample many, filter hard: their funnel
+  was thousands generated -> 302 candidates -> 285 synthesised -> 16 viable.
+  ⇒ **NEXT: seeded class-specific vs seeded generalist.** No seeding has been run yet.
   ⇒ **PRE-REGISTERED: `docs/phase3_preregistration.md`, fixed before any Phase-3 model is trained.**
   Primary endpoint is a RATE; n from a pilot power analysis; identical generation length with a
   fixed 2,000-nt scoring window; novelty an absolute gate; a null is interpretable only if powered

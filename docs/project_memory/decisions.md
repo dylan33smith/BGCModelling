@@ -11,6 +11,44 @@ each topic. See also [progress.md](progress.md) (current state) and [bugs.md](bu
 
 
 
+
+## [2026-08-14] Phase 3 A0 result — corrected, and the comparison that actually matters
+
+**The first RIPP arm was reported as a failure and that report was wrong.** See `bugs.md`: the
+primary endpoint was computed against a global biosynthetic Pfam set rather than the RIPP-specific
+accessions the pre-registration names. Corrected numbers, 2,000-nt window:
+
+| arm | RIPP-specific | rate |
+|---|---|---|
+| base 1B | 0/50 | 0.000 |
+| general all-class adapter | **0/50** | **0.000** |
+| **A0 — RIPP-only, no seed** | **4/150** | **0.027** |
+| real RIPP cores (ceiling) | 22/50 | 0.440 |
+
+**Decision 1 — the generalist is NOT a meaningful positive control for a class-specific endpoint.**
+It scores exactly zero on RIPP domains, which is the correct behaviour for a model trained on 22
+classes where RIPP is a small slice. Its apparent 0.080 advantage was generic BGC-ness. The
+class-specific fine-tune is the only non-real arm producing RIPP machinery. Not yet significant
+(4/150 vs 0/100 pooled, p = 0.152) — the direction inverted, not the significance.
+
+**Decision 2 — the comparison to run next is SEEDED class-specific vs SEEDED generalist.** No
+seeding has been run at all, and seeding is the mode that works here (0.283 vs a 0.067 floor
+historically) and the mode the phage paper used. An unseeded comparison was never the informative
+one.
+
+**Decision 3 — termination is handled by FILTERING, not by a learned stop token.** `hit_eos` is
+0/150 for the RIPP model as it was 0/204 before, and whole-record training did not change it. The
+phage paper did not rely on a stop token either: they kept "sequences between 4,000 and 6,000 bases
+long, those that encode all the necessary genes" — a length FILTER, which only exists because the
+model does not reliably stop. Their funnel was ~14,466 training genomes → thousands generated → 302
+candidates → 285 synthesised → **16 viable**. Adopt the same shape: generate long, filter hard, and
+stop treating EOS as a blocker.
+
+**Decision 4 — generate SHORT and sample MANY, not long.** Per-block detection falls off with
+position (block 0 = 0.040, blocks 1–3 = 0.024 / 0.028 / 0.022 on the generic metric), and the
+block-0 hits share no sequences with the later hits. Four times the tokens bought 2.2x the hits,
+so tokens spent on late sequence are worth roughly half those spent on early sequence.
+
 ## [2026-08-14] CARRIED FORWARD: length-bucket the batches before any multi-arm training round
 
 **Decision: every future training run batches records of SIMILAR LENGTH together. Do not simply

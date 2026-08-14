@@ -39,6 +39,13 @@ working memory lives in [`docs/project_memory/`](docs/project_memory/).
   Informed by [Hie et al., *Science* 2026](https://www.science.org/doi/10.1126/science.aec2657),
   who ran the same single-family strategy for phages: consensus-sequence seeding, **4–8 nt seeds
   because longer ones caused memorisation**, and ~1000:1 overgeneration-and-filtering.
+  **A0 result (2026-08-14):** RIPP-only adapter vs controls, scored RIPP-specifically — base 1B
+  **0/50**, general all-class adapter **0/50**, **A0 4/150 = 0.027**, real cores 0.440. The
+  class-specific model is the only non-real arm producing RIPP machinery (p=0.152, not yet
+  significant). ⚠️ First reported as a failure because the scorer used a *global* biosynthetic Pfam
+  set and ignored the class argument — see `bugs.md`. Novelty is clean throughout (max containment
+  0.003, 150/150 intra-set distinct). **Next: seeded class-specific vs seeded generalist**, which is
+  the comparison the phage paper's method implies and which has not been run.
   **Substrate policy:** the **1B is the testing substrate**, the 7B confirms publishable claims, and
   GenomeOcean is available (leakage gate passed) but held so method is not confounded with model.
 

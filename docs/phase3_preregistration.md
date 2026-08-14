@@ -37,8 +37,21 @@ clause cannot be quietly dropped later.
 ## 2. Primary endpoint — ONE number, fixed now
 
 > **`on_class_rate` = the fraction of generated sequences containing at least one RIPP-defining
-> biosynthetic Pfam domain** (i.e. `best_bio_bits > 0` against the RIPP-specific accession set),
-> measured on a fixed 2,000-nt scoring window (§5).
+> biosynthetic Pfam domain**, measured on a fixed 2,000-nt scoring window (§5).
+>
+> **THE ACCESSION SET IS `OBLIGATE_DOMAINS['RIPP']` — 8 Pfams: PF00881, PF02624, PF03070,
+> PF04055, PF05114, PF05402, PF13353, PF14028.** Named explicitly because the first
+> implementation did not use them.
+
+⚠️ **IMPLEMENTATION DEFECT, FOUND 2026-08-14 AFTER THE FIRST ARM AND CORRECTED.**
+`ladder_audit.one()` accepts a `cls` argument but uses it ONLY for the NRPS/PKS architecture rung;
+its `bio` score is computed against a **fixed global ~91-model biosynthetic set**. Proof: rescoring
+one arm under RIPP / NRPS / PKS / TERPENE returns **4/50 every time**. So every number first
+reported as "RIPP on-class" actually meant *"contains ANY biosynthetic domain"*.
+⇒ The endpoint text above was correct; the code was not. Scoring MUST subset the HMM to the RIPP
+accessions (`_subset_hmm(pfam, out, set(OBLIGATE_DOMAINS['RIPP']))`). *Rule: a pre-registered
+endpoint is only as fixed as the code that computes it — verify the implementation measures the
+quantity the document names, on a case where a wrong implementation would give a different answer.*
 
 **Why a rate and not `best_bio_bits` itself:** `best_bio_bits` is zero-inflated (median 0.00 in
 every arm ever measured) and heavy-tailed, so its mean is an outlier detector. A rate has an exact
@@ -140,6 +153,34 @@ read against **0.58**, not against 1.0. The threshold is NOT being moved to acco
 
 **Instrument FPR is 0.000** — the negative control is clean, so a non-zero generated rate cannot be
 explained by the scorer.
+
+### 8.2 ⚠️ THE PILOT NUMBERS ABOVE ARE THE *GENERIC* METRIC — SUPERSEDED BY §8.3
+
+Every rate in the 8.1 table was computed with the defective scorer, so it means "contains any
+biosynthetic domain". They are kept as the record of what was run, not as the endpoint.
+
+### 8.3 THE ENDPOINT, SCORED CORRECTLY (RIPP-specific, 2026-08-14)
+
+| arm | RIPP-specific | rate | 95% CI |
+|---|---|---|---|
+| base 1B (floor) | 0/50 | **0.000** | [0.000, 0.071] |
+| **general all-class adapter** | **0/50** | **0.000** | [0.000, 0.071] |
+| **A0 — RIPP-only, no seed** | **4/150** | **0.027** | [0.010, 0.067] |
+| real RIPP cores (CEILING) | 22/50 | **0.440** | [0.312, 0.577] |
+
+**THE CONCLUSION INVERTS.** Under the generic metric the general adapter scored 0.080 against A0's
+0.040 and the fine-tune looked like a failure. Under the pre-registered RIPP-specific metric the
+general adapter scores **exactly zero** — its 0.080 was other classes' biosynthetic content, which
+is what an all-22-class model should produce — and **A0 is the only non-real arm producing RIPP
+machinery at all.**
+
+Not yet significant: 4/150 vs the two controls pooled (0/100) gives **Fisher p = 0.152**. The
+direction is what changed, not the significance. The ceiling is **0.440**, so A0 reaches ~6% of what
+real RIPP clusters score.
+
+⇒ **The `n=150` in §8.1 was sized against a floor measured with the wrong scorer.** The correct
+floor is 0/50 for BOTH controls, which is the same zero, so n=150 still applies — but the effect
+size to detect is now against a true zero rather than against 0.080.
 
 ## 9. Decision rules — fixed in advance
 
