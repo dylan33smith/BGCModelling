@@ -803,6 +803,79 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
    overlaps the finished arm's *generation* with the next arm's *training*) recovers the useful part
    at zero risk to anyone else. Revisit only on a machine we hold exclusively.
 
+## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME
+
+**The reframe.** Phase 2 closed the objective and budget levers on the general problem. Two distinct
+problems had been tangled together throughout:
+  1. **long-context coherence** — 2% of real BGC genes exceed the 1B's ENTIRE context; Evo2 fits
+     **0%** of whole BGC *regions*
+  2. **BGC specificity** — the model writes real protein of the wrong kind (bio fraction 0.100 vs
+     0.836)
+Restricting to a small class does not work around (1), it **deletes** it. An ectoine core is
+**396 nt median** — 1/20th of the 1B's context. What is left is (2), alone, with thousands of
+examples.
+
+**AND IT RETIRES THE PHASE-1 CLOSURES RATHER THAN FIGHTING THEM.** One adapter per class means the
+model never READS a class label, and every Phase-1 negative (inert prefix, CFG, steering, soft
+prefixes, activation transplant) was about label-reading. Those closures stop applying because the
+question stops being asked. This is a cleaner design, not a workaround.
+
+### The datasets — built 2026-08-14, `scripts/build_single_class_splits.py`
+
+`/data2/ds85/bgcmodel_data/splits_class/<CLASS>/{train,val,test,eval_prompts}.jsonl`
+
+| class | train | val | test | genomes | median nt | p90 | %<8kb | |
+|---|---|---|---|---|---|---|---|---|
+| **ECTOINE** | 2,215 | 86 | 191 | 2,208 | **396** | 423 | **95%** | BUILT — the primary target |
+| **HSERLACTONE** | 3,960 | 220 | 317 | 3,774 | 639 | 1,920 | 93% | BUILT |
+| **BUTYROLACTONE** | 3,703 | 40 | 86 | 3,196 | 978 | 11,514 | 87% | BUILT |
+| **TERPENE** | 3,567 | 2,991 | 7,564 | 3,411 | 1,053 | 6,608 | 93% | BUILT |
+| CDPS / ALKALOID | 1,395 / 1,202 | — | 20 / 12 | — | — | — | — | SKIP: test<60 |
+| PHENAZINE / FURAN / NUCLEOSIDE | <500 | — | <30 | — | — | — | — | SKIP: train and test thin |
+
+**LEAKAGE IS INHERITED, NOT RE-DERIVED.** `splits_core` is genome-disjoint + exact-dedup + MMseqs2
+cross-split clean, and a subset of disjoint groups is still disjoint — so the builder only FILTERS,
+never re-splits. Re-splitting per class would throw that property away and have to re-earn it.
+
+⚠️ **MELANIN IS A TRAP, and the builder now refuses it: 2,877 train records and ZERO in val/test.**
+Genome-disjoint splitting placed every melanin-bearing genome in train. It is trainable and never
+measurable — the most expensive kind of dead end. Any class failing the viability gate
+(train>=500, test>=60, genomes>=100) is skipped rather than silently emitted.
+
+### GenomeOcean leakage gate — PASSED (2026-08-14)
+
+`genomeocean/scripts/quantify_smc_leakage.py`, greedy decoding, 48 held-out cores.
+
+| | vs TRUE continuation | vs MISMATCHED floor |
+|---|---|---|
+| bgcFM | 0.0000 | 0.0000 |
+| base GenomeOcean | 0.0000 | 0.0000 |
+
+**Positive control passed first**: identical 1.0000, 5%-mutated 0.3520 — the instrument has
+demonstrated dynamic range, so the zero is a real negative and would still have caught a 5%-diverged
+memorised copy. ⚠️ This BOUNDS the risk; it does not prove zero overlap — a model can be trained on
+a sequence without reconstructing it. The long-standing "leakage unquantified" blocker on
+GenomeOcean is now measured rather than assumed.
+
+### The Phase-3 plan
+
+1. **ECTOINE first** (396 nt, 2,215 train, 2,208 distinct genomes — near one cluster per genome, so
+   diversity is real not duplicated). Honest caveat to state up front: an ectoine core is a small
+   operon, so generating one is far easier than a megasynthase. That is the point for
+   method-validation, but a reviewer will notice it if we do not.
+2. **Substrate choice is now open** — the GenomeOcean blocker cleared. Evo2-1B has 20x the context
+   needed for a 400 nt target and a calibrated novelty guard; GenomeOcean is bacterial-trained,
+   12.8x faster per nucleotide, and takes a real class token. At 400 nt the context advantage is
+   moot, so decide on training speed and novelty-calibration cost, not context.
+3. **Class-CENTROID seeding, not exemplar seeding** (seed ladder rung 2). This is the experiment
+   that answers "your results are just the seed" — generate from a class centroid and show output
+   is on-class at LOW containment.
+4. **Per-class LoRA adapters** — no class token needed; see above.
+5. **Inference-time filtering is the most under-used asset we have.** Guided decoding already
+   PASSED Q1 (+5.71, 39/40) and `best_bio_bits` is validated at AUROC 0.950. At 13% detection,
+   1,000 generations yields ~130 hits. The deliverable is a FILTERED TOP-K, not a good mean — and
+   at 400 nt per sample, tens of thousands of generations are cheap.
+
 ## ★★★★ THE CHECKPOINT CURVE (2026-08-14): the 1B is CAPACITY-limited, not budget-limited.
 ## The last objection to the Phase-2 negative is removed.
 
