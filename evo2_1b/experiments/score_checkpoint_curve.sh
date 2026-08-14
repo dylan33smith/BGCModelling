@@ -13,10 +13,14 @@
 #       This is why both arms were trained. Baseline alone cannot answer it, and the treatment
 #       alone is unattributable without a matched-step comparator.
 #
-# n = 50 PER CHECKPOINT, NOT 152. 152 was sized for ONE powered comparison (detection 0.112,
-# 80% power for a doubling). A trend across four checkpoints is read from monotone movement, not
-# from a single contrast, and 50 x 4 x 2 = 400 generations is ~50 min batched. The FINAL step gets
-# 152 so the endpoint stays comparable to the existing n=152 results.
+# n = 52 AT EVERY CHECKPOINT, INCLUDING THE LAST. 152 was sized for ONE powered comparison
+# (detection 0.112, 80% power for a doubling). This run's deliverable is a TREND, read from monotone
+# movement across four points, and a uniform n keeps the confidence intervals the same width at
+# every point — a curve whose last point is 3x more precise than the others is harder to read, not
+# easier. 52 x 4 x 2 = 416 generations, ~50 min batched.
+# CONSEQUENCE, STATED UP FRONT: the endpoint contrast is UNDERPOWERED alone (n=52 gives ~40% power
+# for a doubling). If the curve shows something worth a single powered test, regenerate the
+# 2000-step points at 152 THEN — do not read a lone n=52 contrast as a powered result.
 #
 # ⚠️ BATCHED, SO NOT POOLABLE WITH SEQUENTIAL OUTPUT — left-padding makes a padded prompt a
 # different prompt. Every point on this curve is batched, so the curve is internally consistent.
@@ -28,7 +32,7 @@ ROOT=${ROOT:-/data2/ds85/bgcmodel_runs/phase2_long}
 DATA=/data2/ds85/bgcmodel_data/splits_core
 STEPS_LIST=${STEPS_LIST:-"500 1000 1500 2000"}
 N_PER_CLASS=${N_PER_CLASS:-13}     # x4 classes = 52 per checkpoint
-FINAL_PER_CLASS=${FINAL_PER_CLASS:-38}
+FINAL_PER_CLASS=${FINAL_PER_CLASS:-13}   # uniform with the rest; see header
 MAX_NEW=${MAX_NEW:-8000}
 BATCH=${BATCH:-32}
 PY() { micromamba run -n bgcmodel python "$@"; }
@@ -48,8 +52,10 @@ for arm in baseline_long weighted_long; do
          --batch-size "$BATCH" --out-jsonl "$GEN" \
          > "$ROOT/$arm.gen_step${st}.log" 2>&1 || { echo "[curve] FAILED $arm@$st"; continue; }
     fi
+    LAD="$ROOT/$arm/ladder_step${st}.json"
+    [[ -s "$LAD" ]] && { echo "[curve] $arm@$st ladder already scored — skipping"; continue; }
     PY evo2/scripts/score_ladder.py --gen "$GEN" \
-       --out-json "$ROOT/$arm/ladder_step${st}.json" \
+       --out-json "$LAD" \
        > "$ROOT/$arm.ladder_step${st}.log" 2>&1 || echo "[curve] ladder FAILED $arm@$st"
   done
 done

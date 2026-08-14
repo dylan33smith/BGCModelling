@@ -803,6 +803,56 @@ objective*, and a change made to arms 2 and 3 but not to arm 1 is a second diffe
    overlaps the finished arm's *generation* with the next arm's *training*) recovers the useful part
    at zero risk to anyone else. Revisit only on a machine we hold exclusively.
 
+## ★★★★ THE CHECKPOINT CURVE (2026-08-14): the 1B is CAPACITY-limited, not budget-limited.
+## The last objection to the Phase-2 negative is removed.
+
+`run_long_2arm.sh` -> `score_checkpoint_curve.sh`. Both arms trained to 2,000 steps (5x the original
+400), checkpointed every 500, 52 de novo generations scored at each of 8 points, batched throughout.
+
+| arm | step | % of epoch | detection | 95% CI | orf med | novelty |
+|---|---|---|---|---|---|---|
+| baseline | 500 | 8.4% | 11/52 = 0.212 | [0.122, 0.340] | 473 | 0.018 |
+| baseline | 1000 | 16.7% | 6/52 = 0.115 | [0.054, 0.230] | 570 | 0.004 |
+| baseline | 1500 | 25.1% | 8/52 = 0.154 | [0.080, 0.275] | 599 | 0.002 |
+| baseline | 2000 | 33.4% | 7/52 = 0.135 | [0.067, 0.253] | 585 | 0.003 |
+| weighted | 500 | 8.4% | **1/52 = 0.019** | [0.003, 0.101] | 398 | 0.038 |
+| weighted | 1000 | 16.7% | 6/52 = 0.115 | [0.054, 0.230] | 577 | 0.019 |
+| weighted | 1500 | 25.1% | 9/52 = 0.173 | [0.094, 0.297] | 641 | 0.004 |
+| weighted | 2000 | 33.4% | 9/52 = 0.173 | [0.094, 0.297] | 637 | 0.003 |
+
+**Q1 — SUBSTRATE: the baseline curve is FLAT.** Cochran-Armitage trend across all four points
+**z = −0.86, p = 0.390**; every CI overlaps every other. **5x the training (8.4% -> 33.4% of an
+epoch) did not raise detection.** The 1B is capacity-limited in this range, not budget-limited.
+⇒ **This removes the 6.7%-of-an-epoch asterisk from ALL FOUR Phase-2 arms.** Their nulls were not
+artifacts of a short run.
+
+**Q2 — INTERVENTION: the gap never opens.** Matched-step Fisher: step 1000 p=1.000, 1500 p=1.000,
+2000 p=0.787. Pooled excluding step 500: baseline 21/156 = 0.135 vs weighted 24/156 = 0.154,
+**p = 0.748**.
+
+**⚠️ THE TRAP IN THIS TABLE, recorded because it would be read as a positive.** The weighted arm has
+a **significant RISING trend: z = +2.57, p = 0.010**, where baseline has none. Read alone that looks
+like "the intervention starts working with more training" — the exact hypothesis this run tested.
+**It is not.** The trend is driven entirely by an anomalously LOW start (1/52 at step 500, with that
+checkpoint also showing the lowest ORF median, 398, and the highest novelty, 0.038 — an unstable
+early checkpoint). The arm rises from that deficit to **parity** with baseline and never exceeds it
+at any point. A trend test is a test of monotone change, not of superiority; here it is measuring
+RECOVERY. *Rule: a significant trend in the treatment arm means nothing unless the treatment
+actually passes the control.*
+
+**Power, stated honestly.** n=52/point gives ~0.40 power for a doubling at a single contrast. The
+trend test pools all four points and is more sensitive, and it finds nothing for baseline. The
+claim supported is *"5x more training in the 8.4-33.4% range does not move detection"* — NOT "the 1B
+could never do this at any budget."
+
+⇒ **THE PHASE-2 PROGRAMME IS CLOSED, on evidence rather than exhaustion.** Objective changes do not
+move de novo biosynthetic content on this substrate, and more training does not either.
+⇒ **NEXT: change what the model IS, not how it is scored or how long it runs.** In order —
+(1) the GenomeOcean leakage gate (CPU/GPU-cheap, and its case reopened once the target became
+capability); (2) the seed ladder rung 2 (class-centroid seeding) which is cheap and directly
+answers the "exemplar conditioning is unimpressive" objection; (3) 7B confirmation of the
+length dissociation, the one solid positive Phase 2 produced.
+
 ## ★★★ OPTIONS AFTER PHASE 2 (2026-08-13) — what is left to try, and what each would settle
 
 **State going in.** Class conditioning closed (Phase 1). Reading-frame length closed causally.
