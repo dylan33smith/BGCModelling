@@ -871,7 +871,11 @@ No seeding has been run at all. Seeding is the mode that works here (0.283 vs a 
 mode the phage paper used, at **4–8 nt** seeds. The informative contrast is **seeded class-specific
 vs seeded generalist**, not the unseeded one already run.
 
-## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME — and the target is TERPENE, not ectoine
+[INCORRECT] - ## ▶▶▶ PHASE 3 (opened 2026-08-14): ONE SMALL CLASS AT A TIME — and the target is TERPENE, not ectoine
+[CORRECTION - 2026-08-14]: The Phase-3 target is **RIPP**, not TERPENE. TERPENE was the target
+briefly on 2026-08-14 before the diversity audit finished; RIPP won on diversity (43% vs 46%
+near-dup loss) and 2x the de novo detection (0.158 vs 0.079). A0 trained on RIPP, splits_class
+holds RIPP, and the user reconfirmed RIPP on 2026-08-14. See docs/plan.md.
 
 **The reframe.** Phase 2 closed the objective and budget levers. Two distinct problems had been
 tangled together throughout: **long-context coherence** (2% of real BGC genes exceed the 1B's ENTIRE

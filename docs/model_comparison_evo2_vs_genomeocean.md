@@ -21,7 +21,7 @@ a bespoke `vortex` runtime, and a training step so expensive that we are pinned 
 with a real 4,096-entry BPE vocabulary, 5 special tokens, and a proper EOS. That means a
 compound-class token can be a **genuine token with its own trainable embedding row**, which
 is precisely the thing Evo2 structurally cannot offer and precisely where our conditioning
-died (see `project_memory/decisions.md`, 2026-07-21). It is also ~5× cheaper per nucleotide
+died (see `docs/archive/pre-framework/decisions.md`, 2026-07-21). It is also ~5× cheaper per nucleotide
 and ~3–8× cheaper per training step, which converts our n=15 evaluations into n=100+.
 
 **It does not, however, solve class conditioning for free.** GenomeOcean's own BGC model
@@ -214,7 +214,7 @@ that 32 kb does not — so some of this is corpus and context, not model quality
 
 ## 5. What this means for this project
 
-The project's live blocker (`project_memory/progress.md`) is that class conditioning fails on
+The project's live blocker (`docs/plan.md`) is that class conditioning fails on
 Evo2 and the open question is whether the model *represents* compound class at all. Against
 that, GenomeOcean changes the following:
 
@@ -306,7 +306,7 @@ their own.
 > the trainable class token above all: it is precisely the handle Evo2's byte-level tokenizer
 > cannot provide, and "install a class handle from scratch through a low-rank bottleneck" is
 > exactly what failed. Ranked against the Evo2 alternatives (per-class soft prefixes, per-class
-> adapters) in `docs/project_memory/progress.md` → NEXT ACTIONS (2026-08-10).
+> adapters) in `docs/archive/pre-framework/progress.md` → NEXT ACTIONS (2026-08-10).
 
 ### Recommendation (superseded in part by §5.1 — read that first)
 Do **not** discard the Evo2 track — it is the incumbent with a full negative result and the

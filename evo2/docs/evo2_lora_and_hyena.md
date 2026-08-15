@@ -1,7 +1,7 @@
 # Evo2 + LoRA + the Hyena block — how conditioning is (and isn't) trained
 
 Reference explainer written 2026-07-06 to accompany the 2026-07-03 conditioning-failure
-diagnosis (see [project_memory/decisions.md](project_memory/decisions.md)). It explains
+diagnosis (see [docs/archive/pre-framework/decisions.md](../../docs/archive/pre-framework/decisions.md)). It explains
 **how LoRA attaches to Evo2, where our adapters actually sit across the 32 blocks, and why
 the long-range mixing pathway is currently un-trained** — which is the leading structural
 hypothesis for why the model generates simple clusters (ectoine/terpene) but never the

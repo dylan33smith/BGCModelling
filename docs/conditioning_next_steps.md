@@ -34,7 +34,7 @@
 > precedent applies directly. The citation notes and caveats throughout remain accurate and were
 > verified; it is the *ranking* that is superseded, not the content.
 >
-> **The current plan is in `docs/project_memory/progress.md` → NEXT ACTIONS.** In brief:
+> **The current plan is in `docs/plan.md`.** In brief:
 > **(A)** write up exemplar conditioning — it works, 0.283 vs 0.067, and it is the mode Evo's own
 > published work validates; **(B)** attack de novo capability via a domain-weighted / frame-aware
 > objective, tracked on the AUROC-validated ladder `best_bio_bits` (0.950) → `n_bio_domains` (0.919)

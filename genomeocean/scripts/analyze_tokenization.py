@@ -15,7 +15,7 @@ Outputs a JSON report + a human-readable table:
   - fraction of cores that fit whole at each candidate context length
   - the same fractions for Evo2 at L=32,768, for a like-for-like comparison
   - megasynthase (NRPS/PKS/HYBRID) breakout, since those are the long cores that
-    Evo2 could never fit whole (see docs/project_memory/progress.md)
+    Evo2 could never fit whole (see docs/archive/pre-framework/progress.md)
 
 Usage:
   python genomeocean/scripts/analyze_tokenization.py \

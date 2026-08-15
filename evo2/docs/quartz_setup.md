@@ -4,13 +4,13 @@
 megasynthase clusters** at long context (L up to 262,144) using **multi-GPU** on IU's
 Quartz `hopper` partition (4× H100 SXM/NVLink per node). This tests whether whole-*cluster*
 context converts the domain-level gains into `correct_class` — see
-`docs/project_memory/decisions.md` (2026-07-10 → 07-13) for why every single-GPU-cheap lever
+`docs/archive/pre-framework/decisions.md` (2026-07-10 → 07-13) for why every single-GPU-cheap lever
 (coverage, imbalance, chunk-labeling, gene-aware chunking, whole-core-at-L=32k, LoRA rank)
 came back **negative**. This is a real research-engineering bet with an uncertain prior; the
 **2-GPU prototype (Phase 4) is the go/no-go** before committing serious compute.
 
 > Read this top-to-bottom in a fresh Claude Code session started **on Quartz** (which has
-> Bash access to the cluster). Also read `docs/project_memory/progress.md` +
+> Bash access to the cluster). Also read `docs/archive/pre-framework/progress.md` +
 > `decisions.md` for full context.
 
 ---

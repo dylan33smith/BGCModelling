@@ -69,9 +69,15 @@ prefix — only the sequence half contributes (see `memory.md`, prefix-masked lo
   cross-split MMseqs2 pass.
 - **MiBIG excluded** (56K → 47.5K), reserved for a later compound-conditioned FT.
 - **22 classes.**
-- ⚠️ The four `derived` files were undocumented before this file existed. `valtest_fit` /
-  `valtest_eval` are the **fit/eval halves for steering directions and probes** — there is an open
-  debt that early steering directions were fit on val+test together (see `memory.md` 2026-07-30).
+- ⚠️ **`valtest_fit.jsonl` IS A LEAKAGE TRAP, not merely a derived file.** Until 2026-08-10 the
+  class probe was fit on `acts_valtest_fit.npz` — activations of **val+test** cores — and then used
+  to score generations **seeded from those very cores**. The probe had seen the seeds; every number
+  it produced was contaminated. The fit set MUST be train-only
+  (`class_probe_sweep/acts_v2_train500.npz`); `probe_score_generations.py` now checks a
+  `.provenance.json` on each activation cache and **refuses** a non-train set, with
+  `--allow-leaky-probe` reserved for reproducing a historical number. Steering directions carry the
+  same open debt (`memory.md` 2026-07-30).
+- The other three derived files were simply undocumented before this file existed.
 
 ### `splits_class/<CLASS>/` — per-class, the Phase-3 substrate
 `/data2/ds85/bgcmodel_data/splits_class/`
@@ -85,23 +91,22 @@ fresh MMseqs2 cross-split pass — **not filtered out of `splits_core`**. Manife
 | **RIPP** | 10,163 | **8,129** | 576 | 579 | **1,931** | 43% | ✅ | ✅ **PHASE-3 TARGET** |
 | TERPENE | 14,122 | 11,297 | 793 | 732 | 960 | 46% | ✅ | available |
 | PKS | 6,495 | 5,195 | 323 | 309 | 2,103 | — | ✅ | available |
-| HSERLACTONE | — | 3,597 | 134 | 147 | — | 69% | ❌ | ⚠️ orphaned, low diversity |
-| BUTYROLACTONE | — | 3,063 | 78 | 65 | — | 81% | ❌ | ⚠️ orphaned, low diversity |
 
 `splits_class/RIPP/eval_prompts.jsonl` — 200 fixed generation prompts.
 
-⚠️ **ORPHANED SPLITS — no provenance record.** `HSERLACTONE/` and `BUTYROLACTONE/` were built
-2026-08-14 11:51–11:52, but `manifest.json` was **rewritten at 12:34 covering only RIPP / PKS /
-TERPENE**, dropping them. Their leakage controls, near-dup criterion, and split fractions are
-therefore *unverified from the record*. Either regenerate the manifest to include them or delete
-the directories. **Do not train on them until this is resolved** — both are also low-diversity.
+✅ **Manifest matches disk** (verified 2026-08-14 after cleanup). HSERLACTONE and BUTYROLACTONE
+were built 11:51–11:52 on 2026-08-14 and orphaned when `build_single_class_splits.py` **rewrote the
+whole manifest** at 12:34 covering only RIPP/PKS/TERPENE. Their leakage controls were therefore
+unverifiable from the record, and both classes were already disqualified on diversity (69% / 81%
+near-dup loss), so **they were deleted 2026-08-14** rather than given a fabricated provenance entry.
+⚠️ The builder overwrites `manifest.json` wholesale — rebuilding one class drops every other entry.
 
 ⚠️ **ECTOINE and MELANIN are DISQUALIFIED, not merely unbuilt.** 85% and 95% of their held-out
 clusters are near-duplicates of training clusters. Length and diversity are anti-correlated across
 these classes — the short classes are short *because* they are conserved.
 
-⚠️ **Stale claim to fix at cutover:** `progress.md:874` still reads "the target is TERPENE, not
-ectoine". The target is **RIPP** — it is what A0 trained on and the only class with a built adapter.
+✅ **Target confirmed RIPP** (user, 2026-08-14). The archived `progress.md` header reading "the
+target is TERPENE" is corrected in place at `docs/archive/pre-framework/progress.md`.
 
 ---
 
@@ -130,12 +135,12 @@ ectoine". The target is **RIPP** — it is what A0 trained on and the only class
 
 | Run dir | Date | Size | Contents | Status |
 |---|---|---|---|---|
-| `phase3_RIPP/` | 08-14 | 698M | **A0.** `adapter_run/` (RIPP LoRA, 7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410); `A0_8k.jsonl`, `A0_noseed.jsonl` (150 de novo); `A0_8k_w2000.json` / `_w8000.json` (windowed scores); `A0_battery.json`; `train.whole.jsonl`, `val.whole.jsonl` | ✅ |
-| `phase3_ripp/` | 08-14 | 440K | **Pilot baselines** — `pilot_base.jsonl`, `pilot_general.jsonl`, `pilot_rates.json` | ✅ |
+| `phase3_RIPP/` | 08-14 | 698M | **A0 + pilots** (merged 2026-08-14). `adapter_run/` (RIPP LoRA, 7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410); `A0_8k.jsonl`, `A0_noseed.jsonl` (150 de novo); `A0_8k_w2000.json` / `A0_8k_w8000.json`; `A0_battery.json`; `train.whole.jsonl`, `val.whole.jsonl`; `pilot_base.jsonl`, `pilot_general.jsonl`, `pilot_rates.json` | ✅ |
 
-⚠️ **CASE COLLISION.** `phase3_RIPP` and `phase3_ripp` differ only in case and hold different
-things. On a case-insensitive filesystem or a careless `tar`/`rsync` these merge and destroy each
-other. **Rename before Phase 3 continues** — suggested `phase3_RIPP_A0/` and `phase3_RIPP_pilot/`.
+✅ **Case collision resolved 2026-08-14.** `phase3_ripp/` (pilot baselines) was `rsync`-merged
+into `phase3_RIPP/` — no filename collisions, verified a strict subset before removal — and the
+lowercase directory deleted. `evo2_1b/experiments/phase3_pilot.py` updated to the merged path.
+See the naming convention in `CLAUDE.md`.
 
 ### Phase 2 — objective change (CLOSED)
 
@@ -180,11 +185,24 @@ applies to the **frame arm only**. Do not quote the weighted arm as a negative r
 | `mega_whole_32k_run/` | 07-12 | 3.2G | ☠️ whole-core-only FAILED; starves the data |
 | `phase1_lora_prod_20260617_095202_L32768/` | 07-06 | 11G | ✅ the Phase-1 production adapter |
 | `phase1_lora_prod_20260604_151651_L32768/` | 06-16 | 3.6G | 📦 |
-| `phase1_lora_prod_20260604_151300_L32768/`, `phase1_lora_prod_20260604_151541_L32768/` | 06-04 | 4.0K | ☠️ empty — failed launches, delete |
+| `phase1_lora_prod_20260604_151300_L32768/`, `phase1_lora_prod_20260604_151541_L32768/` | 06-04 | — | ☠️ **DELETED 2026-08-14** — empty failed launches |
 | `v2_smoke/` | 06-17 | 1.4G | 📦 |
 | `quick_eval_step_250/` | 06-16 | 181M | 📦 |
 | `conditioning_diag_step250/`, `conditioning_diag_stoch_step250/` | 06-16 | ~1.4M | 📦 |
-| `_scripts/` | 07-29 | 0 | ☠️ empty, delete |
+| `_scripts/` | 07-29 | — | ☠️ **DELETED 2026-08-14** — empty |
+
+### ⚠️ Loose files at the runs root — 69 files, unattributed
+
+`/data2/ds85/bgcmodel_runs/` holds **21 result artifacts (4.0 MB)**, **47 logs (0.6 MB)** and one
+shell script sitting *outside any run directory*. The results are not junk — several are
+load-bearing and referenced by code: `ladder_audit.json` (the ladder validation itself),
+`direction_audit.json`, `activation_patching_ksweep.json`, `context_ablation.json`,
+`length_ceiling.json`, `class_probe_calibration_trainonly.json`, `denovo_decomposition.tsv`.
+
+**They have no owning experiment**, which is the same disease as everything else here: a number
+with nowhere to attach its provenance. **Not moved** — four are referenced by path in code, so
+filing them is a change with blast radius, not a tidy-up. Queued as `plan.md` [P3-B5].
+Going forward the naming convention in `CLAUDE.md` forbids creating more.
 
 **Disk:** ~75 GB total, dominated by `probes_20260706` (28G) and `class_probe_sweep` (23G).
 

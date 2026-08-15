@@ -37,7 +37,7 @@ sign-inversion table, the estimator comparison, and the scatter scale all reprod
 entire between-sample scatter, and it was scored with a binary gate sitting on a 3.3% floor.
 Three independent, each-sufficient defects.
 
-**Read `docs/project_memory/progress.md` → "THE ACTUAL BLOCKER" for the verified geometry table.**
+**Read `docs/archive/pre-framework/progress.md` → "THE ACTUAL BLOCKER" for the verified geometry table.**
 
 ---
 

@@ -97,7 +97,7 @@ def main() -> int:
     ap.add_argument("--general-adapter",
                     default="/data2/ds85/bgcmodel_runs/phase2_long/baseline_long/final_adapter")
     ap.add_argument("--out", type=Path,
-                    default=Path("/data2/ds85/bgcmodel_runs/phase3_ripp"))
+                    default=Path("/data2/ds85/bgcmodel_runs/phase3_RIPP"))
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(0)

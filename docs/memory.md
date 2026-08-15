@@ -4,10 +4,10 @@
 `grep` it when you need historical context.
 
 ```bash
-grep -n "2026-08" docs/project_memory/memory.md      # by date
-grep -n "^## \[" docs/project_memory/memory.md       # list all entries
-grep -ni "best_bio_bits" docs/project_memory/memory.md
-grep -n "INCORRECT\|CORRECTION" docs/project_memory/memory.md   # what we got wrong
+grep -n "2026-08" docs/memory.md      # by date
+grep -n "^## \[" docs/memory.md       # list all entries
+grep -ni "best_bio_bits" docs/memory.md
+grep -n "INCORRECT\|CORRECTION" docs/memory.md   # what we got wrong
 ```
 
 ## Rules

@@ -133,8 +133,9 @@ def check_history_preserved(F):
 def check_bugs_content_carried(F):
     """bugs.md is carried forward verbatim, so its subject sections must all survive."""
     cat = "migration"
-    old = REPO / "docs/project_memory/bugs.md"
-    if "bugs.md" not in F or not old.exists():
+    old = next((p for p in (REPO / "docs/archive/pre-framework/bugs.md",
+                            REPO / "docs/project_memory/bugs.md") if p.exists()), None)
+    if "bugs.md" not in F or old is None:
         skip(cat, "bugs.md sections carried forward", "legacy bugs.md not present")
         return
     new_txt, old_txt = read(F["bugs.md"]), read(old)

@@ -24,7 +24,7 @@ A hypothesis test you can only run once is not a hypothesis test.
 
 This track therefore keeps everything Phase 1 established and re-derives only what is
 **model-specific**. Nothing here re-litigates the conditioning programme; that is closed and lives
-in `docs/project_memory/`.
+in `docs/plan.md` / `docs/memory.md`.
 
 ## What is REUSED from Phase 1, unchanged
 
@@ -38,7 +38,7 @@ wrote it — so they are called directly rather than copied:
 | **novelty guard** | `scripts/memorization_check.py` | containment vs the training corpus |
 | per-domain nucleotide spans | `splits_core/train.domain_spans.jsonl` | a property of the DATA, not the model |
 | positive / negative controls | `scripts/make_*_control.py` | real cores and real non-BGC windows |
-| length ceilings, class map | `docs/project_memory/`, `config/` | measured on real DNA |
+| length ceilings, class map | `docs/data.md`, `config/` | measured on real DNA |
 
 ## What MUST be re-derived (model-specific)
 

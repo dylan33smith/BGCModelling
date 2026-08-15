@@ -102,11 +102,31 @@ Ordered. Top item is next.
 - 4/150 vs 0/100 pooled is p=0.152. Decide from a power analysis what n closes it, then run that n
   once. Do not creep the sample.
 
-### [P3-B4] Housekeeping (cheap, do alongside)
-- Rename `phase3_RIPP/` vs `phase3_ripp/` — they differ only in case (see `data.md`).
-- Resolve the orphaned `HSERLACTONE/` + `BUTYROLACTONE/` splits: regenerate manifest or delete.
-- Fix `progress.md:874` "the target is TERPENE" → RIPP (at cutover).
-- Delete the empty run dirs: `_scripts/`, `phase1_lora_prod_20260604_151300_L32768/`, `phase1_lora_prod_20260604_151541_L32768/`.
+### [P3-B4] Housekeeping — ✅ DONE 2026-08-14
+- ✅ `phase3_ripp/` rsync-merged into `phase3_RIPP/` (lossless, verified a strict subset before
+  removal); `phase3_pilot.py` repointed. No case collisions remain.
+- ✅ Orphaned `HSERLACTONE/` + `BUTYROLACTONE/` splits **deleted** — both already disqualified on
+  diversity, and the manifest cannot be honestly regenerated post-hoc.
+- ✅ Empty run dirs removed: `_scripts/`, `phase1_lora_prod_20260604_151300_L32768/`,
+  `phase1_lora_prod_20260604_151541_L32768/`.
+- ✅ Archived `progress.md` TERPENE claim corrected in place; target reconfirmed **RIPP**.
+- ✅ Filesystem naming convention added to `CLAUDE.md`.
+
+### [P3-B5] File the 69 loose artifacts at the runs root
+- `/data2/ds85/bgcmodel_runs/` holds 21 result files (4.0 MB), 47 logs, and 1 shell script outside
+  any run directory. **The results are load-bearing** — `ladder_audit.json` is the ladder validation
+  itself; `direction_audit.json`, `activation_patching_ksweep.json`, `context_ablation.json`,
+  `length_ceiling.json` are all cited measurements.
+- Four are referenced by path in code, so this is a change with blast radius, not a tidy-up. Do it
+  deliberately: create owning run dirs, `git grep` each filename, move and repoint together.
+- The `CLAUDE.md` naming convention now forbids creating more.
+
+### [P3-B6] Decide on ~90 GB of superseded data — needs your call
+Disk is at 84% (1.2 TB free), so this is not urgent, but nothing here is documented as keep-forever:
+- **37 GB** — 7 deprecated split dirs, all marked DO-NOT-USE in `data.md`
+- **46 GB** — `asdb5_*.jsonl` pipeline intermediates at the data root. ⚠️ Deleting these means
+  `splits_core` cannot be rebuilt without re-running antiSMASH extraction from `asdb5_gbks/`.
+- **7.6 GB** — `probe_subsets/` + `probe_subsets_8k/`
 
 ---
 

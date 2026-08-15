@@ -9,7 +9,7 @@
      (resize embed_tokens + lm_head) and train them? This is the thing Evo2's
      byte-level CharLevelTokenizer structurally cannot do -- there, a class tag is
      just more nucleotide-ish bytes with no pretrained prior, which is where our
-     conditioning died (docs/project_memory/decisions.md, 2026-07-21).
+     conditioning died (docs/archive/pre-framework/decisions.md, 2026-07-21).
   3. MEMORY. What does a training step actually cost at L=10,240 tokens (~52 kb)?
 
 Nothing here is a training run -- it is a feasibility gate. It reports facts and
@@ -30,7 +30,7 @@ MODEL = "pGenomeOcean/GenomeOcean-4B-bgcFM"
 # Measured on splits_core by genomeocean/scripts/analyze_tokenization.py.
 BP_PER_TOKEN = 5.15
 
-# The 22 compound classes in splits_core (docs/project_memory/progress.md).
+# The 22 compound classes in splits_core (docs/archive/pre-framework/progress.md).
 CLASS_TOKENS = [
     "[CLS_NRPS]", "[CLS_PKS]", "[CLS_PKS_NRPS_HYBRID]", "[CLS_TERPENE]",
     "[CLS_RIPP]", "[CLS_SACCHARIDE]", "[CLS_ARYLPOLYENE]", "[CLS_BETALACTONE]",

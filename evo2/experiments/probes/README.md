@@ -3,7 +3,7 @@
 These are the exact scripts used for the 2026-07 probe program on the lab H100
 (`gputee`). Paths are hardcoded to the lab box (`/data2/ds85/...`); they are kept
 as **reference** for what was run, not for re-execution on Quartz. See
-`docs/project_memory/{progress,decisions}.md` for results and
+`docs/plan.md` (current) and `docs/archive/pre-framework/progress.md` for results and
 `docs/quartz_setup.md` for the Quartz long-context plan.
 
 | script | what it ran | result |

@@ -12,7 +12,7 @@
 Everything specific to **GenomeOcean** (Zhou et al., bioRxiv 2025.01.30.635558) lives
 here. The Evo2 track lives in [`../evo2/`](../evo2/). Both tracks share the repo-root
 dataset pipeline (`../scripts/`), eval suite (`../src/bgc_pipeline/evaluation.py`),
-class map (`../config/`) and project memory (`../docs/project_memory/`) — that shared
+class map (`../config/`) and project memory (`../docs/plan.md`, `../docs/memory.md`, `../docs/terms.md`, `../docs/data.md`) — that shared
 instrument is what makes the two models comparable.
 
 Read [`../docs/model_comparison_evo2_vs_genomeocean.md`](../docs/model_comparison_evo2_vs_genomeocean.md)

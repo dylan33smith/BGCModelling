@@ -9,7 +9,7 @@ Shared across both tracks and therefore **still at the repo root**: the dataset
 pipeline (`../scripts/`), the eval suite (`../src/bgc_pipeline/evaluation.py` and its
 drivers `../scripts/eval_suite_driver.py`, `../scripts/evaluate_bgc.py`,
 `../scripts/memorization_check.py`), the class map (`../config/`), the tests
-(`../tests/`) and project memory (`../docs/project_memory/`).
+(`../tests/`) and project memory (`../docs/plan.md`, `../docs/memory.md`, `../docs/terms.md`, `../docs/data.md`).
 
 > **Paths changed 2026-07-27.** Scripts that used to be `scripts/finetune_evo2_lora.py`
 > are now `evo2/scripts/finetune_evo2_lora.py`. Shell wrappers still expect to be
@@ -33,7 +33,7 @@ drivers `../scripts/eval_suite_driver.py`, `../scripts/evaluate_bgc.py`,
 
 `steer_generate.py` / `seed_generate.py` add a class direction to the residual stream. Class
 direction norms span **17×** at layer 16, so there is no single strength knob; pick the one
-matching the question (see `../docs/project_memory/decisions.md`):
+matching the question (see `../docs/memory.md`):
 
 | flag | holds constant | use for |
 |---|---|---|
