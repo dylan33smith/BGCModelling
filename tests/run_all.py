@@ -33,6 +33,9 @@ TESTS = [
     "test_domain_spans.py",             # aa -> nt domain mapping, incl. the reverse strand
     "test_objective.py",                # frame-aware + domain-weighted loss; baseline must not drift
     "test_novelty_battery.py",          # T3.2/T3.3/T6.1: protein novelty, mode collapse, joint pass
+    # The docs are load-bearing here -- a metric whose scoring SET changed under a stable NAME
+    # inverted the Phase-3 A0 result -- so they get a guard like anything else.
+    "test_docs_contract.py",            # terms.md/data.md vs the code + disk; migration safety
 ]
 
 
