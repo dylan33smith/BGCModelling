@@ -220,4 +220,37 @@ Applies to all arms in any multi-arm comparison so throughput differences cannot
 
 ---
 
+## 2026-08-10 — Decision: the probe/steering leakage debt is CLEARED
+
+Recorded here because it was nearly re-opened by mistake on 2026-08-14: the standing debt from
+2026-07-30 ("steering directions are fit on val+test") **was cleared on 2026-08-10** and the older
+entry is the one that surfaces first on a grep.
+
+- Probe and directions **both refit train-only**: `class_probe_sweep/acts_v2_train500.npz`
+  (provenance-verified, `.provenance.json` on disk), `trainonly.steerdirs.npz` at 9 layers, probe
+  cached at `acts_v2_train500.probe_L16_s0.joblib`.
+- `probe_score_generations.py:_fit_probe` now **REFUSES** a non-train fit set;
+  `--allow-leaky-probe` exists only to reproduce a historical number.
+- ⚠️ `splits_core/valtest_fit.jsonl` still exists and its name still reads innocent. It is the
+  **old leaky fit set**. See `data.md`.
+
+**Standing methodological bar** that three weakened-or-retracted findings paid for: a paired design
+with the control built in, a continuous readout alongside the binary gates, and an instrument whose
+sensitivity *and* false-positive rate are measured BEFORE a result is read off it.
+
+---
+
+## 2026-08-14 — Intervention: documentation framework cutover
+
+Six-file framework live; `CLAUDE.md` 362 → 130 lines. Filesystem fixes: `phase3_ripp/` merged into
+`phase3_RIPP/`; orphaned HSERLACTONE + BUTYROLACTONE splits deleted (~6,600 records, disqualified on
+diversity and un-reconstructable provenance); three empty run dirs removed; archived TERPENE claim
+corrected in place. `tests/test_docs_contract.py` (26 checks) now gates the docs against code+disk.
+
+**[Symptom] → [Fix] recorded in `bugs.md`:** `build_single_class_splits.py` initialises
+`manifest = {}` and writes the whole file, so rebuilding one class silently drops every other
+entry. Rebuild all classes or hand-merge the manifest.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

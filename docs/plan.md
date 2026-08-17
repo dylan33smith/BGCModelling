@@ -72,6 +72,14 @@ Novelty guard:       containment reported alongside, always.
 
 ## Backlog — Phase 3
 
+**The phase has three legs.** Leg 1 is done and negative-but-directional; legs 2 and 3 are untried.
+
+| leg | status |
+|---|---|
+| 1. class-specific LoRA fine-tuning | ✅ A0 run — 0.027 vs 0.000 floor, p=0.152 n.s. |
+| 2. class-specific seeding | ⬜ **not started** — and it is the regime that works |
+| 3. inference pruning | ⬜ **not started as such** — see [P3-B2a] vs [P3-B2b] below |
+
 Ordered. Top item is next.
 
 ### [P3-B1] Seeded class-specific vs seeded generalist ◀ NEXT
@@ -89,7 +97,24 @@ Ordered. Top item is next.
   span** (`tests/test_scored_span.py` pins this — 0/1512 records contained seed).
 - **Novelty guard:** containment vs training; short seeds specifically to keep it clean.
 
-### [P3-B2] Overgenerate-and-filter funnel
+### [P3-B2a] Inference-time pruning — revive guided decoding ◀ the underrated one
+- **Why this is leg 3, and why it is not the same as filtering below.** Guided decoding prunes
+  candidates *during* generation using the class probe as a fast scorer (one matmul). Filtering
+  throws away finished sequences. Different mechanisms, different costs, different ceilings.
+- **It is the project's only positive conditioning result** and it was left underpowered, not
+  closed: Q1 **+5.71 (39/40)**; Q2 **5–0, p=0.0625 at effective n=5**. A p-value that cannot go
+  below 0.0625 is a design problem, not a null — n was the binding constraint.
+- **It was closed when conditioning looked like the wrong target.** That reasoning does not
+  transfer: the probe is a *class* scorer, and in a per-class regime the question changes from
+  "can we steer class?" to "can we prune toward RIPP machinery?"
+- **Prerequisite — check before spending anything:** the probe must be the train-only one
+  (`acts_v2_train500.probe_L16_s0.joblib`, provenance-verified). Not the pre-2026-08-10 fit.
+- **MANIPULATION CHECK:** confirm the scorer changes which candidate is kept — log kept-vs-best
+  rank per step. `tests/test_guided_decoding.py` already pins which candidate is kept and how Q1
+  is read.
+- **Composes with [P3-B1]** — seeded generation with pruning is the strongest single arm available.
+
+### [P3-B2b] Overgenerate-and-filter funnel
 - Adopt the phage-paper shape: generate **short**, sample **many**, filter **hard**. Measured
   support: block-0 detection 0.040 vs 0.024/0.028/0.022 later; 4× the tokens bought only 2.2× the
   hits (vs 0.151 predicted under independence). Tokens spent late are worth ~half those spent early.
@@ -136,7 +161,6 @@ Disk is at 84% (1.2 TB free), so this is not urgent, but nothing here is documen
 |---|---|
 | 7B confirmation of any Phase-3 result | Nothing publishable yet — A0 is n.s. Do not spend 7B time until a 1B result is significant. |
 | Quartz multi-GPU long-context | PI allocation pending |
-| Steering directions fit on val+test | Open debt from 2026-07-30 — must be refit on `valtest_fit` alone before any of that work is published |
 
 ---
 

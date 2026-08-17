@@ -75,8 +75,8 @@ prefix — only the sequence half contributes (see `memory.md`, prefix-masked lo
   it produced was contaminated. The fit set MUST be train-only
   (`class_probe_sweep/acts_v2_train500.npz`); `probe_score_generations.py` now checks a
   `.provenance.json` on each activation cache and **refuses** a non-train set, with
-  `--allow-leaky-probe` reserved for reproducing a historical number. Steering directions carry the
-  same open debt (`memory.md` 2026-07-30).
+  `--allow-leaky-probe` reserved for reproducing a historical number. Steering directions carried the same debt and were **refit train-only on 2026-08-10**
+  (`trainonly.steerdirs.npz`, 9 layers). The debt is CLEARED — see `memory.md` 2026-08-10.
 - The other three derived files were simply undocumented before this file existed.
 
 ### `splits_class/<CLASS>/` — per-class, the Phase-3 substrate
