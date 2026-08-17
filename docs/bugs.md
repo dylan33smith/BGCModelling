@@ -501,6 +501,24 @@ that 3 kb captures most of a typical one.
 
 ## Agent / shell self-traps (when operating the repo)
 
+- **[2026-08-17] `pkill -f <pattern>` KILLS THE SHELL THAT ISSUES IT** when the pattern appears in
+  its own command line.
+  **[Symptom]** A compound command exited 144 having done only its first step; the rest (an `rm`,
+  three `tmux new-session` launches) never ran, silently. The process being targeted survived and
+  kept writing.
+  **[Cause]** `pkill -f seed_generate.py` matches **any** process whose full command line contains
+  that string — including the `bash -c '... pkill -f seed_generate.py ...'` doing the killing.
+  **[Proven fix]** Resolve PIDs first (`ps -eo pid,etime,cmd | grep -v grep`), kill by PID, and
+  verify with `nvidia-smi --query-compute-apps=pid,used_memory` before relaunching GPU work.
+  **[Cost]** One partially-generated cell (22/50) discarded and regenerated.
+
+- **[2026-08-17] A generation driver that also scores will not score if you replace only the
+  generation half.** Splitting the sequential sweep into parallel workers dropped the scoring stage
+  that had lived at the bottom of the original script. *Fix:* a separate watcher session that polls
+  every worker's `.status` sentinel and then scores. Check what else the script you are replacing
+  did before you replace it.
+
+
 - **`pkill -f` / `pgrep -f` / process scans self-match the agent's own command string** →
   false "STILL RUNNING" positives and one accidental self-kill. *Fix:* match by PID, or
   exclude the current shell's own command.

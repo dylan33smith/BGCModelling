@@ -104,6 +104,17 @@ training records to a manifest overwrite.
   Poll `logs/<name>.status` (`0` = success). Never report a run as finished without reading it.
 * **Read synchronous results.** After a fast command, automatically read and summarize the output.
   Do not wait to be asked.
+* **Fan out when the batched path is gated.** Generation is one-sequence-at-a-time (vortex batching
+  is gated, `bugs.md`), which leaves the H100 at ~41% util / 4 GB of 80 GB. Run N *sequential*
+  processes on disjoint units instead: semantics are unchanged (each still generates serially, so
+  outputs are identical), and measured gain is **~3.5x** at N=3 (100% util, 22 GB).
+  `scripts/fanout.sh <N> <claim_dir> <unit_file> '<cmd with {}>'` — claims units atomically with
+  `mkdir`, one tmux session + status sentinel per worker. Write to `<out>.partial` and `mv` on
+  success so an interrupted unit never looks complete. **Not for throughput/memory benchmarks** —
+  contention is exactly what invalidates those.
+* ⚠️ **Never `pkill -f <pattern>` where the pattern can match your own command line.** `pkill -f
+  seed_generate.py` issued from a shell whose command string contains that text kills the issuing
+  shell. Kill by PID from `ps -eo pid,cmd`.
 
 ## IMPORTANT: The In-Place Memory Correction Rule
 

@@ -475,4 +475,40 @@ or lost.
 
 ---
 
+## 2026-08-17 — Method: fan out sequential processes when the batched path is gated
+
+**Problem.** vortex batching is gated (left-pad perturbs StripedHyena, failed an on-GPU equivalence
+gate), so generation is one sequence at a time. Measured cost: the H100 sat at **41% utilisation
+and 4 GB of 80 GB** — the Phase-3 seed sweep was projecting **~4.9 h** for 10 cells of n=50.
+
+**Method.** Run N independent *sequential* processes on disjoint work units. Generation semantics
+are untouched — each process still emits one sequence at a time, so every output is identical to
+the serial run. Only the idle GPU capacity is recovered.
+
+| | sequential | 3 workers |
+|---|---|---|
+| GPU utilisation | 41% | **100%** |
+| GPU memory | 4 GB | 22 GB (of 80) |
+| per-sequence | 29 s | 25 s |
+| **aggregate** | 1× | **~3.5×** |
+| 10 cells, n=50 | ~4.9 h | **~1.1 h** |
+
+**Mechanics that made it safe:**
+- **Atomic claim** — `mkdir "$CLAIMS/$unit"` succeeds for exactly one worker. No shared-state race.
+- **Publish on success only** — write `<out>.partial`, `mv` to `<out>` when complete, so an
+  interrupted unit never looks finished to a later run's `[ -s "$out" ]` skip check.
+- **One tmux session + status sentinel per worker**, per the standing execution rule.
+
+Generalised as `scripts/fanout.sh`; rule added to `CLAUDE.md`.
+
+⚠️ **Not valid for throughput or memory benchmarks** — contention is precisely what invalidates
+those, which is why the standing rule sends training through the queue wrapper. This applies to
+*generation and scoring*, where the unit outputs are deterministic given (seed, prompt, model).
+
+Two traps hit while implementing it, both in `bugs.md`: `pkill -f` matching its own command line
+and killing the issuing shell; and losing the scoring stage that had lived at the bottom of the
+script being parallelised.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
