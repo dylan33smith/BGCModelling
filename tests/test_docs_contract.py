@@ -517,6 +517,72 @@ def check_scored_outputs_stamp_their_config(F):
         skip(cat, "scored outputs stamp their scoring config", "no scored outputs yet")
 
 
+def check_phase3_arms_report_the_full_set(F):
+    """Every Phase-3 scored arm must carry the full reporting set, or arms are not comparable.
+
+    A0 was scored before the cluster-structure block existed, so four arms briefly carried a bare
+    hit rate. A hit rate alone cannot distinguish "made a cluster" from "made one enzyme" -- which
+    is exactly what A0's 0/150-with-two-markers turned out to be.
+    """
+    cat = "data"
+    if not RUNS_ROOT.exists():
+        skip(cat, "Phase-3 arms report the full metric set", f"{RUNS_ROOT} not mounted")
+        return
+    REQUIRED_LADDER = {"n_class_domains", "n_bio_domains", "n_bio_orfs", "bio_span_frac",
+                       "frac", "co_orient", "n_orfs", "max_orf_aa"}
+    REQUIRED_TOP = {"scoring", "ladder", "joint", "nt_containment", "aai", "distinct"}
+    incomplete = []
+    checked = 0
+    for p in sorted(RUNS_ROOT.glob("phase3*/*_w[0-9]*_*.json")):
+        try:
+            d = json.loads(p.read_text())
+        except Exception:
+            continue
+        if not isinstance(d, dict) or "on_class" not in d:
+            continue
+        checked += 1
+        missing = REQUIRED_TOP - set(d)
+        if not missing:
+            missing |= (REQUIRED_LADDER - set(d.get("ladder") or {}))
+        if missing:
+            incomplete.append(f"{p.name} (missing {sorted(missing)[:3]})")
+    if incomplete:
+        fail(cat, "Phase-3 arms report the full metric set",
+             f"{len(incomplete)}/{checked} incomplete: {incomplete[:3]} "
+             f"— rescore with novelty_battery.py; see terms.md THE PHASE-3 REPORTING SET")
+    elif checked:
+        ok(cat, "Phase-3 arms report the full metric set", f"{checked} arms complete")
+    else:
+        skip(cat, "Phase-3 arms report the full metric set", "no Phase-3 scored arms yet")
+
+
+def check_arms_are_mutually_comparable(F):
+    """Arms are comparable only if their scoring stamps agree on class and window."""
+    cat = "data"
+    if not RUNS_ROOT.exists():
+        skip(cat, "Phase-3 arms share one scoring config", f"{RUNS_ROOT} not mounted")
+        return
+    seen = {}
+    for p in sorted(RUNS_ROOT.glob("phase3*/*_w[0-9]*_*.json")):
+        try:
+            s = (json.loads(p.read_text()) or {}).get("scoring")
+        except Exception:
+            continue
+        if isinstance(s, dict) and "cls" in s:
+            seen.setdefault((s.get("cls"), s.get("window_nt"),
+                             s.get("n_marker_accessions")), []).append(p.name)
+    if len(seen) > 1:
+        warn(cat, "Phase-3 arms share one scoring config",
+             f"{len(seen)} distinct configs — comparable only WITHIN each: "
+             + "; ".join(f"{k}: {len(v)} arm(s)" for k, v in seen.items()))
+    elif seen:
+        k = next(iter(seen))
+        ok(cat, "Phase-3 arms share one scoring config",
+           f"cls={k[0]} window={k[1]}nt markers={k[2]} across {len(next(iter(seen.values())))} arms")
+    else:
+        skip(cat, "Phase-3 arms share one scoring config", "no stamped arms yet")
+
+
 def check_scorer_is_class_gated(F):
     """The scorer must intersect with OBLIGATE_DOMAINS[cls], not just read `bio > 0`."""
     cat = "code"
@@ -742,6 +808,7 @@ CHECKS = [
     check_dataset_paths, check_record_counts, check_manifest_coverage, check_run_registry,
     check_case_collisions, check_deprecated_not_referenced,
     check_scored_outputs_stamp_their_config, check_scorer_is_class_gated,
+    check_phase3_arms_report_the_full_set, check_arms_are_mutually_comparable,
     check_plan_has_current_state, check_ledger_rows_have_provenance,
     check_manipulation_check_required, check_novelty_guard_present,
     check_correction_format, check_memory_append_marker,

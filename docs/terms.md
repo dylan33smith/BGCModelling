@@ -249,6 +249,59 @@ Aliases:              names seen in old docs. Do not use them.
 
 ## T
 
+### THE PHASE-3 REPORTING SET  [evaluation] [method]
+- **Is:** The fixed block of numbers that **every** Phase-3 intervention MUST report, so that any
+  two interventions are directly comparable. Emitted automatically by
+  `scripts/novelty_battery.py`; do not hand-assemble it.
+- **Computed by:** `scripts/novelty_battery.py --cls <CLASS> --window <nt>` → the `scoring`,
+  `ladder`, `joint` and novelty blocks of `<arm>_w<window>_<CLASS>.json`.
+
+  **PRIMARY (the endpoint — fixed by pre-registration §2, does not change mid-phase)**
+
+  | metric | what it answers |
+  |---|---|
+  | `best_bio_bits` > 0 @ `OBLIGATE_DOMAINS[cls]` | did it make machinery of THIS class |
+
+  **NOVELTY GATES (hard; a rate without these is uninterpretable)**
+
+  | metric | what it answers |
+  |---|---|
+  | `containment` | did it copy training DNA (FAIL ≥0.95, WARN ≥0.80) |
+  | protein AAI | did it copy the protein via synonymous codons |
+  | intra-set distinctness | did it collapse to one output repeated |
+  | `JOINT_PASS` | how many records pass **all of the above at once** |
+
+  **CLUSTER STRUCTURE (secondary — reported always, decisive never)**
+
+  | metric | what it answers |
+  |---|---|
+  | `n_class_domains` | **distinct markers of the class — >1 means a cluster, not one enzyme** |
+  | `n_bio_domains` | total biosynthetic domain hits (AUROC 0.919) |
+  | `n_bio_orfs` | how many distinct genes carry one |
+  | `bio_span_frac` | how far apart they sit = is it a CLUSTER (AUROC 0.896) |
+
+  **CONTEXT (secondary)**
+
+  | metric | what it answers |
+  |---|---|
+  | `biosynthetic_fraction` | of the protein written, how much is biosynthetic |
+  | `co_orient` | share on the majority strand (real cores median 1.000) |
+  | `n_orfs` | did it write genes at all |
+  | `max_orf_aa` | ⚠️ DEMOTED — structural only, never quoted as capability |
+
+- **CHANGES MEANING WITH:** ⚠️ **the config, not just the metric list.** Two arms are comparable
+  only if ALL of these match, and every one of them has already caused a real error in this project:
+  1. **Pfam subset** — `OBLIGATE_DOMAINS[cls]` vs global. Inverted A0 (2026-08-14).
+  2. **scoring window** — fixed 2,000 nt. `_w2000` vs `_w8000` gave 0.027 vs 0.087 on one arm.
+  3. **substrate** — `evo2_1b_base`. An unset `EVO2_BASE_MODEL` silently uses the 7B (2026-08-17).
+  4. **generation path** — batched vs sequential; all Phase-3 arms are batched. See [P3-B8].
+  5. **regime** — de novo vs seeded are never pooled.
+  Generation *length* may differ safely (A0 8,000 vs controls 4,000) **because the scored span is
+  a fixed 2,000-nt prefix** and an autoregressive model writes the same first 2,000 tokens whatever
+  total it is asked for. That is what the fixed window is for.
+- **Valid vs:** any other arm whose `scoring` stamp matches on all five axes above.
+- **Status:** **MANDATORY for every Phase-3 arm.** Enforced by `tests/test_docs_contract.py`.
+
 ### THE LADDER  [evaluation] [method]
 - **Is:** The validated ordering of capability metrics, replacing the single binary gate. Each rung
   is maximised by copying training data, so **novelty guards all of them**.

@@ -62,6 +62,10 @@ Every table reporting results MUST:
    A number without provenance is not a result. Example:
    `provenance: phase3_RIPP/adapter_run @ step1350 | A0_8k.jsonl | n=150 | scoring=OBLIGATE_DOMAINS[RIPP] | window=2000nt`
 3. State the ceiling (real cores) and floor (base model / non-BGC) alongside any rate.
+4. **Every Phase-3 arm reports THE PHASE-3 REPORTING SET in full** (`terms.md`) — primary endpoint,
+   all novelty gates, the cluster-structure block, and context. Emit it with
+   `scripts/novelty_battery.py`; never hand-assemble a subset. Two arms are comparable only if
+   their `scoring` stamps match on Pfam subset, window, substrate, generation path and regime.
 
 ## IMPORTANT: Filesystem Naming Convention
 

@@ -23,6 +23,30 @@ discarded generations. **Legs 2 and 3 are untouched, and leg 2 is the regime tha
 
 ---
 
+## Reporting contract — every Phase-3 arm
+
+**All Phase-3 interventions report THE PHASE-3 REPORTING SET in full** (`terms.md`), emitted by
+`scripts/novelty_battery.py`. Never hand-assemble a subset — that is how A0 came to be quoted as a
+bare hit rate for three days while `n_class_domains` sat at exactly 1.000.
+
+Two arms are comparable **only** if their `scoring` stamps agree on all five axes. Each has already
+caused a real error here:
+
+| axis | required | what went wrong |
+|---|---|---|
+| Pfam subset | `OBLIGATE_DOMAINS[RIPP]`, 8 accessions | global set inverted A0 (08-14) |
+| scoring window | **2,000 nt** | `_w8000` read 0.087 vs `_w2000` 0.027 on one arm |
+| substrate | `evo2_1b_base` | unset env silently used the 7B (08-17), 150 gens discarded |
+| generation path | batched (all current arms) | left-pad failed an equivalence gate — [P3-B8] |
+| regime | de novo **or** seeded, never pooled | 0.012 vs 0.367 detection |
+
+Generation *length* may differ safely — A0 generated 8,000 nt and the controls 4,000 — **because
+the scored span is a fixed 2,000-nt prefix** and an autoregressive model writes the same first
+2,000 tokens regardless of the total requested. That is what the fixed window is for.
+
+Enforced by `tests/test_docs_contract.py`: arms missing the set FAIL; arms with divergent scoring
+configs WARN.
+
 ## Phase Ledger — Phase 3
 
 Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to grep.
