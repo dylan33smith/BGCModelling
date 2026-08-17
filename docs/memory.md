@@ -331,4 +331,41 @@ seeding is unnecessary and the reviewer objection evaporates." A0 came back **si
 
 ---
 
+## 2026-08-17 — Finding: RIPP marker domains sit at the START of the core, not the middle
+
+Measured to test a design objection to domain-anchored seeding: *if domains sit mid-sequence, then
+seeding with a domain span means generating everything before it, which is not seeding.* The
+objection is sound in general. **For RIPP it does not apply.**
+
+**Method.** First RIPP marker domain position in 400 training cores, via ORF calling + the
+8-accession `OBLIGATE_DOMAINS[RIPP]` subset.
+
+| statistic | value |
+|---|---|
+| first domain starts at **nt 0** | **86.3%** of cores |
+| p50 / p75 offset | **0 nt** / **0 nt** |
+| p90 offset | 433 nt |
+| within 500 / 1,000 / 2,000 nt | 91.1% / 93.7% / 96.7% |
+
+**Cause.** antiSMASH **strict-core trimming already begins the region at the biosynthetic gene** —
+`strict_core_genes` is a field on every record. The core does not contain a long non-biosynthetic
+runway.
+
+**Consequence.** Domain-anchored seeding **collapses into exemplar seeding** for RIPP: the
+exemplar prefix already *is* the domain start. The idea was proposed the same day and is largely
+withdrawn for this class. It retains force for **NRPS/PKS**, whose cores are long multi-modular
+assembly lines. What survives the intent is **A2 mosaic** — spans from k *different* clusters,
+a combination present nowhere in training.
+
+**Consistent with the entropy finding above:** 86% of cores start at a marker gene, yet
+position-wise entropy from nt 4 is ~1.95–2.00. Different RIPP subtypes use different marker
+domains (PF05114 / PF04055 / PF13353 / PF05402), and DNA is degenerate even where protein is
+conserved. Both results point the same way: **there is no meaningful consensus prefix for RIPP.**
+
+**Also confirmed while designing this:** `eval_prompts.jsonl` is 100% TEST (199/199 accessions,
+0% genome overlap with train), so tuning seed length on it would be selecting on the test set.
+Stage 1 of the sweep therefore uses a **val**-derived prompt file.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

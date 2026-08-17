@@ -138,31 +138,81 @@ Two consequences:
    cluster it memorised"; it carries ~16 bits. The exemplar-vs-consensus debate only bites at long
    seeds.
 
-#### ⭐ [P3-B1d] DOMAIN-ANCHORED SEEDING — the arm that actually addresses the objection
-The entropy result says class information is **not at the 5′ end of a core**, so seeding from the
-start is the wrong place to look for it. Seed instead with the nucleotide span of a **RIPP marker
-domain** — the class-defining machinery rather than an arbitrary boundary.
+#### ❌ [P3-B1d] DOMAIN-ANCHORED SEEDING — MEASURED AND LARGELY DROPPED for RIPP
+Proposed 2026-08-17 on the reasoning that class information is not at the 5′ end. **Measured the
+same day: for RIPP that premise is false.** Position of the first RIPP marker domain, 400 cores:
 
-- **Why it answers the objection:** the seed is a *functional element of the class*, and within a
-  Pfam domain sequences genuinely ARE alignable — so a representative/consensus seed is
-  well-defined here even though it is not at the 5′ end.
-- **Variants, cheap to stack:** one real domain span (exemplar) · a consensus over aligned
-  instances of one marker domain (now meaningful) · **domain mosaic** — spans of *different*
-  marker domains drawn from *different* clusters, which is real parts in a combination that exists
-  nowhere in training.
-- **Tooling already exists.** `scripts/build_domain_spans.py --data-dir <splits_class/RIPP>
-  --hmm-subset <ripp_only.hmm>` emits per-record `spans`, `genes`, `class_domain_nt`. It has only
-  ever been run on `splits_core`; run it on the RIPP split first.
-- **Novelty guard is the crux:** a domain-anchored seed is *more* informative than a random start,
-  so containment must be watched hard. Report containment computed **excluding the seed span**.
+| | first-domain offset |
+|---|---|
+| p50 | **0 nt** |
+| p75 | **0 nt** |
+| p90 | 433 nt |
+| within 500 nt | 91.1% |
+| **starting at nt 0** | **86.3%** |
 
-**Common to every arm:** endpoint `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`, 2,000 nt window;
-n≈200/arm (powered for +10 pt at the 0.367 seeded base rate); **MANIPULATION CHECK** = seed present
-in prompt and absent from the scored span (`tests/test_scored_span.py`); novelty reported per arm.
+antiSMASH **strict-core trimming already begins the region at the biosynthetic gene**. So for 86%
+of RIPP cores the exemplar prefix *is* the domain start, and domain-anchored seeding collapses into
+A1. There is no "everything before the domain" to generate — the concern is real in general and
+does not apply here.
 
-⚠️ **Do not fan out.** Run the length sweep on A1 first at low n to find where memorisation starts,
-then pick ONE length and compare arms at that length. A full arms × lengths matrix run cold
-confounds the two variables.
+**What survives:**
+- *Subsequent* domains are distributed (relative position p75 0.48, p90 0.73, ~1.5 domains/core),
+  so a "seed from a non-first domain" variant exists — but it is a small subpopulation, not an arm.
+- The idea keeps its force for **NRPS/PKS**, where cores are long multi-modular assembly lines.
+  Revisit it there, not here.
+- **A2 mosaic is the arm that actually carries the intent** — spans from k *different* clusters is
+  a combination present nowhere in training, and it needs no new machinery.
+
+### [P3-B1-EXP] The seeding experiment, fully specified
+
+**Two facts that shape the whole design:**
+1. **The seed never enters the scored span.** Both generators store the continuation only; 0 of
+   1,512 seeded records on disk begin with their seed (`tests/test_scored_span.py`). The 2,000-nt
+   window is 2,000 nt of *generated* sequence. There is no seed-recognition confound.
+2. **`eval_prompts.jsonl` is 100% TEST** (199/199 accessions, 0% genome overlap with train).
+   Clean — but it means tuning the seed length on it would be selecting on the test set.
+
+#### Stage 1 — LENGTH SWEEP (tuning; **VAL** seeds; not confirmatory)
+Hold seed *content* fixed at exemplar so length is the only variable.
+
+| factor | levels |
+|---|---|
+| seed length | 0 (=A0, have) · 4 · 8 · 20 · 100 · 500 nt |
+| model | RIPP LoRA · base 1B |
+| seed source | **`splits_class/RIPP/val.jsonl`** (558 records) — build `val_prompts.jsonl` first |
+| n | 50 per cell |
+
+10 new cells × 50 ≈ **500 generations, ~1 h GPU.**
+- **Primary readout for this stage is `containment`, not hit rate** — the question is *where does
+  memorisation start*. The phage paper's whole point is that long seeds memorise.
+- **Secondary:** `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`.
+- **Why base 1B is in the sweep:** it separates "the seed did it" from "the adapter did it". If
+  base+500 nt matches LoRA+500 nt, the seed is carrying the result and the adapter is decorative.
+- **Output: pick ONE L\*** — the longest length whose max containment stays under the 0.80 WARN
+  threshold, and among those the best on-class rate. Record L\* before Stage 2.
+
+#### Stage 2 — CONFIRMATORY ARMS at L\* (**TEST** seeds; pre-register n first)
+
+| arm | seed | purpose |
+|---|---|---|
+| A0 | none | ✅ already significant, p=0.0054 |
+| A1 | real exemplar @ L\* | ceiling + novelty floor |
+| A2 | **mosaic** — fragments from k clusters, new k-subset per sample | the arm that answers "it is just completing a real cluster" |
+| A3 | consensus, bootstrapped | ⚠️ expected to fail (entropy ≈ 2.0); cheap negative control |
+
+× **two models: RIPP LoRA vs general all-class adapter** (the pre-registered comparison).
+6 cells × n≈200 ≈ **1,200 generations, ~2.5 h GPU.** n=200 is powered for +10 pt at the 0.367
+seeded base rate.
+
+#### Gates that apply to every cell
+- **MANIPULATION CHECK** (§9): seeded output must *differ from A0 on some measured axis*. A 4-nt
+  seed that changes nothing is not a treatment, and its null is uninformative rather than negative.
+- **Novelty:** `containment` reported per cell; computed on the continuation, which is already all
+  that is stored.
+- **Provenance:** every cell writes `<arm>_L<len>_w2000_RIPP.json` with the scoring stamp.
+- **Substrate:** `export EVO2_BASE_MODEL=evo2_1b_base` — see `bugs.md`, this silently defaults to
+  the 7B.
+- ⚠️ **Do not run arms × lengths as a matrix.** Stage 1 fixes L\*, then Stage 2 varies arm only.
 
 ### [P3-B2a] Pruning DURING generation (guided decoding) ◀ the underrated one
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation* and keeps the
