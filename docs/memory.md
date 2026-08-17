@@ -368,4 +368,61 @@ Stage 1 of the sweep therefore uses a **val**-derived prompt file.
 
 ---
 
+## 2026-08-17 — Audit: strict-core trimming, and what the RIPP marker set actually measures
+
+**Q: does strict-core trimming cut off start codons?** **No.**
+`build_core_records.py:_core_span` takes min-start/max-end over CDS with `gene_kind ==
+"biosynthetic"` (`STRICT_KINDS = {"biosynthetic"}`), and `_materialize` applies `--flank`, whose
+**default is 0**. So the core begins exactly at the first biosynthetic CDS boundary — which
+*includes* the start codon.
+
+This explains the position-1–3 entropy directly: forward-strand genes start `ATG` (`ATGA` 21.0%,
+`ATGG` 8.2%); reverse-strand genes present the **reverse-complement of their STOP codon** at the
+left edge (`TCAG` 8.5% = revcomp TGA, `TTAT` 7.3% = revcomp TAA). Nothing is truncated.
+⚠️ **One exception:** cores longer than `--max-len` (262,144) are **center-truncated**, so those do
+have arbitrary ends. Rare — but RIPP's max core length is exactly 262,144, so it does occur.
+
+**Q: could a non-coding regulatory element define the boundary?** **No.** Only `f.type == "CDS"`
+features are read, so promoters, RBS, terminators and riboswitches can never set the span.
+Regulatory *proteins* are CDS with `gene_kind == "regulatory"`, which is not in `STRICT_KINDS`
+either. Every boundary-defining gene is protein-coding with a real start and stop.
+
+**What the RIPP marker set is.** `OBLIGATE_DOMAINS` is **data-driven, not textbook**: Pfams kept at
+`freq>=0.3 & enr>=4`, OR `freq>=0.08 & enr>=8` to retain rare-but-specific subtype markers.
+Semantics are **ANY-of**, not all-of.
+
+Frequency across 50 real RIPP cores (31/50 carry any; mean **1.45** distinct markers per hit):
+
+| accession | cores | what it is |
+|---|---|---|
+| PF05114 | 12 | DUF692 maturase |
+| PF04055 | 11 | Radical SAM — very broad family |
+| PF13353 | 9 | Fer4_12 (4Fe-4S) — very broad |
+| PF05402 | 8 | PqqD, precursor-peptide *binding* |
+| PF02624 | 2 | YcaO cyclodehydratase — the most RiPP-specific |
+| PF03070 | 2 | TENA_THI-4 |
+| PF14028 | 1 | SkfB-like radical SAM |
+
+⇒ **No marker is ubiquitous.** Any given RiPP carries *some subset*, usually exactly one. The set
+detects the **modifying machinery**, and **none of the eight is a precursor peptide** — so the
+metric never tests whether the model produced the actual RiPP product.
+Related: Prodigal called **0 ORFs under 30 aa** even at `min_aa=10` (its own floor), so typical
+short RiPP precursors are uncallable regardless of our setting. The `min_aa=50` default costs only
+3.9% of ORFs and no core loses its last ORF, so the cutoff itself is not the problem — the caller's
+floor and the marker set's composition are.
+
+**Q: does domain ORDER matter for RIPP?** **No, and it should not become a metric here.**
+`MODULE_PATTERNS` covers only NRPS (`C-A-T`) and PKS (`KS-AT-ACP`), and `ladder_audit.one()`
+computes `modules`/`in_order` only for `NRPS/PKS/PKS_NRPS_HYBRID`. That is correct biology: those
+are **collinear assembly lines** where domain order determines the product. RiPP gene order is not
+collinear — the precursor is a separate gene from its modifying enzymes and order varies across
+families. Empirically it is also undefined: at **1.45 markers per core**, most cores have one
+domain and one element has no order.
+
+⇒ **The right additional metrics are the CLUSTERING rungs, not an ordering rung** — `n_bio_domains`
+(AUROC 0.919) and `bio_span_frac` (0.896), both already validated in `terms.md` and both currently
+absent from the Phase-3 endpoint. "One domain is not a cluster" is exactly what they measure.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

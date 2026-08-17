@@ -214,6 +214,25 @@ seeded base rate.
   the 7B.
 - ⚠️ **Do not run arms × lengths as a matrix.** Stage 1 fixes L\*, then Stage 2 varies arm only.
 
+### [P3-B1c] Report the CLUSTERING rungs alongside the endpoint — cheap, do it in B1
+The primary endpoint stays `best_bio_bits > 0` (Standing Constraint 4 — it does not change
+mid-phase). But A0's breakdown showed all four hits carry **one** domain where real cores average
+1.45, and a single domain is not a cluster. Two already-validated rungs measure exactly that and
+are currently unreported:
+
+- **`n_bio_domains`** (AUROC 0.919) — how many biosynthetic domains at all
+- **`bio_span_frac`** (AUROC 0.896) — how far apart they sit, i.e. is it a *cluster*
+  (real cores 0.876 vs de novo 0.051)
+
+Both come free from `ladder_audit.one()`; the scorer already computes them. Add them as
+**secondary outcomes** (§3, "reported always, decisive never") to every seeding cell. Expected
+payoff: if seeding lifts `n_bio_domains` above 1 it is doing something qualitatively different
+from A0, and that is a stronger claim than a hit-rate delta.
+
+⚠️ **Do NOT add an ordering metric for RIPP.** `MODULE_PATTERNS` covers NRPS/PKS only, correctly —
+those are collinear assembly lines. RiPP gene order is not collinear, and at 1.45 markers per core
+order is undefined for most records. See `memory.md` 2026-08-17.
+
 ### [P3-B2a] Pruning DURING generation (guided decoding) ◀ the underrated one
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation* and keeps the
 > best, so a sequence is steered as it is written. [P3-B2b] below is the phage-paper approach —
