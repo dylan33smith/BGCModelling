@@ -228,6 +228,28 @@ def main() -> int:
 
     jp = joint_pass(on_class, nt_cont, aai, distinct)
 
+    # LADDER SECONDARY OUTCOMES (terms.md; preregistration 3 -- reported always, decisive never).
+    # A0 showed all four hits carrying ONE domain where real cores average 1.45, so a hit rate
+    # alone cannot distinguish "made a cluster" from "made one enzyme". These measure that.
+    import statistics as _st
+    def _agg(key):
+        v = [s[key] for s in scored]
+        hv = [s[key] for s, oc in zip(scored, on_class) if oc]      # among ON-CLASS records only
+        return {"mean": round(_st.mean(v), 4) if v else 0.0,
+                "median": round(_st.median(v), 4) if v else 0.0,
+                "mean_among_on_class": round(_st.mean(hv), 4) if hv else None,
+                "n_on_class": len(hv)}
+    ladder = {k: _agg(k) for k in
+              ("n_orfs", "max_orf_aa", "any", "bio", "frac",
+               "n_bio_orfs", "n_bio_domains", "bio_span_frac", "co_orient")}
+    # class-specific domain COUNT (n_bio_domains is global); the cluster question, on-class
+    n_class_domains = [len(set(s["bio_accs"]) & marker_accs) for s in scored]
+    ladder["n_class_domains"] = {
+        "mean_among_on_class": round(_st.mean([n for n, oc in zip(n_class_domains, on_class) if oc]), 4)
+        if any(on_class) else None,
+        "distribution": {str(k): n_class_domains.count(k) for k in sorted(set(n_class_domains))},
+        "n_with_ge2": sum(1 for n in n_class_domains if n >= 2)}
+
     print("=" * 74)
     print(f"NOVELTY BATTERY — {args.gen.name}")
     print("=" * 74)
@@ -246,6 +268,29 @@ def main() -> int:
           f"protein-novel {jp['protein_novel']}  distinct {jp['distinct']}")
     print(f"     -> ALL FOUR AT ONCE:  {jp['JOINT_PASS']}/{jp['n']} = {jp['joint_rate']:.3f}")
     print()
+    print("LADDER SECONDARY OUTCOMES  (reported always, decisive never)")
+    print(f"  {'metric':<16}{'all records':>16}{'among on-class':>18}   what it measures")
+    _what = {
+        "n_class_domains": "DISTINCT RIPP markers -- >1 = a cluster, not one enzyme",
+        "n_bio_domains":   "total biosynthetic domain hits (AUROC 0.919)",
+        "n_bio_orfs":      "distinct ORFs carrying a biosynthetic domain",
+        "bio_span_frac":   "how far apart they sit = IS IT A CLUSTER (AUROC 0.896)",
+        "frac":            "biosynthetic_fraction -- specificity of the protein written",
+        "co_orient":       "share on the majority strand (real cores median 1.000)",
+        "n_orfs":          "genes called at all",
+        "max_orf_aa":      "longest ORF (DEMOTED -- structural only, not capability)",
+    }
+    for k in ("n_class_domains", "n_bio_domains", "n_bio_orfs", "bio_span_frac",
+              "frac", "co_orient", "n_orfs", "max_orf_aa"):
+        d = ladder[k]
+        allv = f"{d['mean']:.3f}" if "mean" in d else "--"
+        onc = d.get("mean_among_on_class")
+        onc = f"{onc:.3f}" if onc is not None else "n/a"
+        print(f"  {k:<16}{allv:>16}{onc:>18}   {_what[k]}")
+    d2 = ladder["n_class_domains"]
+    print(f"  -> records with >=2 distinct {args.cls} markers: {d2['n_with_ge2']}/{jp['n']}"
+          f"   (real cores: 9/31 = 29%)")
+    print()
     if jp["on_class"] and jp["JOINT_PASS"] < jp["on_class"]:
         print(f"  ⚠️ {jp['on_class'] - jp['JOINT_PASS']} on-class record(s) fail a novelty or")
         print("     diversity gate. Marginal rates would have hidden this.")
@@ -262,6 +307,7 @@ def main() -> int:
                        "gen_set": args.gen.name,
                        "train_set": str(args.train),
                        "n": len(gens)},
+           "ladder": ladder,
            "on_class": on_class, "on_class_generic": on_class_generic,
            "nt_containment": nt_cont, "aai": aai,
            "distinct": distinct, "diversity": div, "joint": jp}

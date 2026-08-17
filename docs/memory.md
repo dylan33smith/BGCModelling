@@ -425,4 +425,54 @@ absent from the Phase-3 endpoint. "One domain is not a cluster" is exactly what 
 
 ---
 
+## 2026-08-17 — ⚠️ Finding: the "cores" we train on are mostly ONE OR TWO GENES
+
+Measured while auditing strict-core trimming. This reframes what the whole project is modelling.
+
+| | RIPP train, n=8,129 |
+|---|---|
+| `strict_core_genes` = **1** | **48.8%** |
+| = 2 | 29.4% |
+| = 3 | 15.7% |
+| median / mean | **2 / 1.86** |
+| median `region_len` (full antiSMASH region) | **21,279 nt** |
+| median core length (what we train on) | **1,931 nt** |
+| **core as a share of the region** | **median 9.1%** |
+| records hitting the 262,144 center-truncation cap | 17 |
+
+**`STRICT_KINDS = {"biosynthetic"}` only.** Excluded from the core: `biosynthetic-additional`,
+`transport`, `regulatory`, `other`. For RiPPs that means the **exporter/protease** (usually a
+bifunctional ABC transporter, annotated `transport`) is outside the core, and so is any
+immunity/regulatory gene.
+
+**Why this matters for interpretation.** We describe the mission as generating *biosynthetic gene
+clusters*. What the model is actually trained on is **one or two biosynthetic enzyme genes in
+genomic context** — a median 1.9 kb slice of a 21 kb cluster. Three downstream facts follow
+directly and stop being puzzling:
+
+- A0's hits carry exactly **one** domain — the training data is mostly one gene.
+- **0/150 A0 records carry ≥2 distinct RIPP markers**, vs 9/31 = 29% of real cores.
+- Real cores average only **1.45** markers — because the "real cores" are the same trimmed slices.
+
+⇒ **The 0.440 ceiling is not "a real BGC", it is "a real trimmed core".** The comparison is
+internally consistent and remains valid; the *claim* it supports is narrower than "generates BGCs".
+
+**The original rationale was deliberate and still partly holds** (`decisions.md`): focus the model
+on the biosynthetic machinery, make ~88% of clusters single-window, avoid diluting class signal
+with flanking DNA. And whole-core-only training was tried — `mega_whole_32k` — and **failed**,
+"starves the data". So this is a known trade, not an oversight. What was not stated is how much a
+"core" actually is: **9% of the cluster, half the time a single gene.**
+
+**Recommended, not yet actioned:** state this explicitly wherever a rate is quoted, and consider a
+`WIDE_KINDS` arm (adds `biosynthetic-additional`) as a cheap test of whether the model can hold a
+2-3 gene neighbourhood. Do NOT quietly redefine the endpoint mid-phase (Standing Constraint 4).
+
+**Strand.** 88.7% of real RIPP cores are **fully single-strand** (`co_orient` median 1.000). Which
+strand is arbitrary — it is whichever the assembly stored. A core whose genes sit on the minus
+strand shows the reverse-complement of its STOP codon at nt 0, which is the `TCAG`/`TTAT` signal in
+the entropy profile. The stored sequence is the real genomic locus either way; nothing is inverted
+or lost.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
