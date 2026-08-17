@@ -291,4 +291,44 @@ generates RiPP clusters".
 
 ---
 
+## 2026-08-17 — Finding: RIPP core starts carry no class information past the start codon
+
+Measured while designing leg 2, because the seed-content question (exemplar vs consensus vs mosaic)
+only has an answer if the seed region is conserved.
+
+**Method.** Position-wise base entropy over the first 20 nt of all 8,129 RIPP training cores.
+2.00 bits = uniform = no conservation.
+
+```
+pos  1    2    3    4    5    6    7    8   ...  20
+    1.61 0.81 1.05 1.94 1.99 1.97 1.97 1.95 ... 1.97      mean 1.85
+```
+
+Distinct prefixes among 8,129 records: **75 at 4 nt, 2,651 at 8 nt, 6,920 at 20 nt.** Top 4-mer
+`ATGA` = 21.0% of cores; top 8-mer = 0.9%.
+
+**Result.** Only positions 1–3 are informative, and they are the **start codon** (or a
+reverse-strand stop — `TCAG`/`TTAT` appear at 8.5%/7.3%). **From position 4 the 5′ end of a RIPP
+core is indistinguishable from random sequence.**
+
+**Consequences for the seed ladder.**
+1. **A3 (consensus/centroid prefix) is near-vacuous for RIPP.** Hie et al.'s consensus worked
+   because ~15,000 Microviridae genomes are homologous and alignable. **RIPP was selected FOR
+   diversity** (43% held-out near-dup loss — it beat TERPENE on exactly this axis). A consensus
+   over non-alignable sequence is noise. Keep A3 as a cheap negative control only.
+2. **At 4–8 nt the "it is just completing a memorised cluster" objection largely evaporates** —
+   and so does the distinction between arms. 8 nt is ~16 bits and `ATGA` is a start codon, not
+   RIPP information. Seed *content* only matters at long seeds.
+3. **Class information must live later in the sequence**, which motivates **domain-anchored
+   seeding** (plan.md [P3-B1d]): seed with the nt span of a RIPP marker domain instead of the
+   arbitrary 5′ boundary. Within a Pfam domain sequences ARE alignable, so a representative seed is
+   well-defined *there* even though it is not at the start. `scripts/build_domain_spans.py` already
+   emits the spans; it has only ever been run on `splits_core`.
+
+**Note on A0.** A0 was deliberately run first because "if a per-class adapter works de novo,
+seeding is unnecessary and the reviewer objection evaporates." A0 came back **significant**
+(p=0.0054), so the objection is already partly answered without any seed at all.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

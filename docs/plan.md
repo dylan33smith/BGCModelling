@@ -98,20 +98,71 @@ Ordered. Top item is next.
 - Then re-derive and **persist** the real-core ceiling — the recorded 0.440 is not reproducible
   from disk and an independent 50-record draw gave 0.62, so the sample used was never saved.
 
-### [P3-B1] Seeded class-specific vs seeded generalist ◀ NEXT AFTER B0
-- **Hypothesis:** With a real RIPP core as seed, the RIPP-only adapter beats the all-class adapter
-  on RIPP-specific `best_bio_bits`. Seeding is the only regime with real variance in detection
-  (0.367 vs 0.012 de novo) and the mode Evo's own published work validates.
-- **Reasoning:** The informative contrast has never been run — A0 compared *unseeded* arms, where
-  the floor is ~0 for everything. Seeded-vs-seeded is where a class-specific fine-tune can show up.
-- **Technical:** `splits_class/RIPP/eval_prompts.jsonl`; both adapters; identical seed set.
-- **Seed length:** ⚠️ **4–8 nt**, per Hie et al. Ours have historically been ~500 nt, and long
-  seeds caused **memorisation** in that work. Sweep short; novelty-gate hard.
-- **Primary endpoint:** `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`, 2,000 nt window.
-- **n and power:** from the A0 pilot rates; pre-register before generating.
-- **MANIPULATION CHECK:** confirm the seed is present in the prompt and **absent from the scored
-  span** (`tests/test_scored_span.py` pins this — 0/1512 records contained seed).
-- **Novelty guard:** containment vs training; short seeds specifically to keep it clean.
+### [P3-B1] The SEED LADDER — leg 2 ◀ NEXT
+**The objection this exists to answer:** *seed a real BGC → get a BGC* is unimpressive; the model
+could be finishing a cluster that already exists. The pre-registered arms (§7) are a ladder from
+instance-copying toward generation from a class representation.
+
+| rung | arm | seed | status |
+|---|---|---|---|
+| 0 | **A0** | none | ✅ **DONE, SIGNIFICANT** — p=0.0054. Partly defuses the objection already |
+| 1 | **A1** | one real exemplar prefix | ceiling + novelty floor; the historical 0.283 mode |
+| 2 | **A3** | consensus/centroid, per-sample bootstrap over exemplar subsets | ⚠️ see below |
+| 3 | **A2** | **mosaic** — fragments from k different clusters, new k-subset per sample | real parts, novel combination; no new machinery |
+| 4 | — | sample from a learned latent prior | build required, deferred |
+| 5 | — | label only | CLOSED in Phase 1 |
+
+**Seed length is a first-class variable, swept at 4 / 8 / 20 / 100 nt** — the phage paper found
+4–8 nt optimal and longer seeds caused memorisation. Our historical seeds were ~500 nt, ~100×
+their optimum.
+
+#### ⚠️ MEASURED 2026-08-17: a consensus seed is not meaningful for RIPP
+Position-wise base entropy over the first 20 nt of 8,129 RIPP training cores (2.00 bits = no
+conservation whatsoever):
+
+```
+1.61 0.81 1.05 1.94 1.99 1.97 1.97 1.95 1.98 1.99 1.96 1.98 2.00 1.96 1.98 1.99 1.99 1.98 2.00 1.97
+```
+
+Only the first **three** positions carry information — that is the start codon (`ATGA` = 21% of all
+cores) or a reverse-strand stop. **From position 4 onward RIPP core starts are indistinguishable
+from random.** At 8 nt there are 2,651 distinct prefixes among 8,129 records; at 20 nt, 6,920.
+
+Two consequences:
+1. **A3 (consensus) is near-vacuous here.** The phage paper's consensus worked because ~15,000
+   Microviridae genomes are *homologous and alignable*. RIPP was selected **for diversity** (43%
+   near-dup loss); a consensus over non-alignable starts is noise, not a biological sequence.
+   Run A3 only as a cheap negative control, and do not expect it to work.
+2. **At 4–8 nt the objection largely evaporates anyway** — and so does the difference between the
+   arms. `ATGA` is a start codon, not RIPP information. A 8-nt seed cannot be "filling in a
+   cluster it memorised"; it carries ~16 bits. The exemplar-vs-consensus debate only bites at long
+   seeds.
+
+#### ⭐ [P3-B1d] DOMAIN-ANCHORED SEEDING — the arm that actually addresses the objection
+The entropy result says class information is **not at the 5′ end of a core**, so seeding from the
+start is the wrong place to look for it. Seed instead with the nucleotide span of a **RIPP marker
+domain** — the class-defining machinery rather than an arbitrary boundary.
+
+- **Why it answers the objection:** the seed is a *functional element of the class*, and within a
+  Pfam domain sequences genuinely ARE alignable — so a representative/consensus seed is
+  well-defined here even though it is not at the 5′ end.
+- **Variants, cheap to stack:** one real domain span (exemplar) · a consensus over aligned
+  instances of one marker domain (now meaningful) · **domain mosaic** — spans of *different*
+  marker domains drawn from *different* clusters, which is real parts in a combination that exists
+  nowhere in training.
+- **Tooling already exists.** `scripts/build_domain_spans.py --data-dir <splits_class/RIPP>
+  --hmm-subset <ripp_only.hmm>` emits per-record `spans`, `genes`, `class_domain_nt`. It has only
+  ever been run on `splits_core`; run it on the RIPP split first.
+- **Novelty guard is the crux:** a domain-anchored seed is *more* informative than a random start,
+  so containment must be watched hard. Report containment computed **excluding the seed span**.
+
+**Common to every arm:** endpoint `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`, 2,000 nt window;
+n≈200/arm (powered for +10 pt at the 0.367 seeded base rate); **MANIPULATION CHECK** = seed present
+in prompt and absent from the scored span (`tests/test_scored_span.py`); novelty reported per arm.
+
+⚠️ **Do not fan out.** Run the length sweep on A1 first at low n to find where memorisation starts,
+then pick ONE length and compare arms at that length. A full arms × lengths matrix run cold
+confounds the two variables.
 
 ### [P3-B2a] Pruning DURING generation (guided decoding) ◀ the underrated one
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation* and keeps the
