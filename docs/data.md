@@ -92,7 +92,10 @@ fresh MMseqs2 cross-split pass — **not filtered out of `splits_core`**. Manife
 | TERPENE | 14,122 | 11,297 | 793 | 732 | 960 | 46% | ✅ | available |
 | PKS | 6,495 | 5,195 | 323 | 309 | 2,103 | — | ✅ | available |
 
-`splits_class/RIPP/eval_prompts.jsonl` — 200 fixed generation prompts.
+`splits_class/RIPP/eval_prompts.jsonl` — 200 fixed generation prompts. ⚠️ **100% drawn from
+TEST** (199/199 accessions, 0% genome overlap with train), so tuning anything on it selects on the
+test set. `splits_class/RIPP/val_prompts.jsonl` — 60 records from **val** (len ≥ 1000 so a 500-nt
+seed leaves ≥ 500 nt of target), built 2026-08-17 for the Stage-1 seed-length sweep.
 
 ✅ **Manifest matches disk** (verified 2026-08-14 after cleanup). HSERLACTONE and BUTYROLACTONE
 were built 11:51–11:52 on 2026-08-14 and orphaned when `build_single_class_splits.py` **rewrote the
@@ -151,6 +154,12 @@ provenance is not.
 into `phase3_RIPP/` — no filename collisions, verified a strict subset before removal — and the
 lowercase directory deleted. `evo2_1b/experiments/phase3_pilot.py` updated to the merged path.
 See the naming convention in `CLAUDE.md`.
+
+### Phase 3 — seed sweep
+
+| Run dir | Date | Contents | Status |
+|---|---|---|---|
+| `phase3_RIPP_seedsweep/` | 08-17 | **Stage 1 of [P3-B1-EXP].** Exemplar-seeded generations, seed length ∈ {4, 8, 20, 100, 500} nt × {RIPP LoRA, base 1B}, n=50/cell, seeds drawn from `splits_class/RIPP/val_prompts.jsonl` (60 val records, len ≥ 1000, 0 genome overlap with train). Files `s1_<model>_L<len>.jsonl` + `_w2000.json` scored outputs. **Tuning run — picks L\*; not confirmatory.** | 🔄 running |
 
 ### Phase 2 — objective change (CLOSED)
 
