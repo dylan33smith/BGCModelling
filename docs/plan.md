@@ -82,7 +82,20 @@ Novelty guard:       containment reported alongside, always.
 
 Ordered. Top item is next.
 
-### [P3-B1] Seeded class-specific vs seeded generalist ◀ NEXT
+### [P3-B0] ⛔ BLOCKER — make the scorer actually class-specific ◀ DO THIS FIRST
+- `scripts/novelty_battery.py` takes `--cls` and **ignores it** for `on_class`; it scores against
+  the global 91-model biosynthetic set. Every saved score file holds the generic number under the
+  same key. See `bugs.md` 2026-08-17.
+- **Nothing else in Phase 3 can run until this is fixed** — leg 2 would be scored the same way.
+- Fix: subset the HMM to `OBLIGATE_DOMAINS[cls]` inside the scorer; emit the scoring set into the
+  output filename (`_w2000_RIPP.json`), not just the window.
+- **Acceptance test:** re-scoring A0 must return **4/150**, base 1B **0/50**, general adapter
+  **0/50**. Reference implementation and expected output:
+  `phase3_RIPP/A0_8k_w2000_RIPPSPECIFIC.json` (re-derived 2026-08-17).
+- Then re-derive and **persist** the real-core ceiling — the recorded 0.440 is not reproducible
+  from disk and an independent 50-record draw gave 0.62, so the sample used was never saved.
+
+### [P3-B1] Seeded class-specific vs seeded generalist ◀ NEXT AFTER B0
 - **Hypothesis:** With a real RIPP core as seed, the RIPP-only adapter beats the all-class adapter
   on RIPP-specific `best_bio_bits`. Seeding is the only regime with real variance in detection
   (0.367 vs 0.012 de novo) and the mode Evo's own published work validates.

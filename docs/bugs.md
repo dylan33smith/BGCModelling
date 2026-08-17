@@ -30,6 +30,25 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Analysis / tooling
 
+- **[2026-08-17] ⚠️ STILL LIVE: the production scorer accepts `--cls` and ignores it.**
+  **[Symptom]** `scripts/novelty_battery.py --cls RIPP` reports `on_class` = 0.040 for A0, but the
+  pre-registered RIPP-specific rate is 0.027. Every score file on disk holds the generic number.
+  **[Cause]** `novelty_battery.py:192-195` does `scored = ex.map(one, [("b", g, args.cls, i) ...])`
+  then `on_class = [s["bio"] > 0 ...]`. `ladder_audit.one()` uses `cls` **only** for the NRPS/PKS
+  module rung — `bio` is always scored against the global 91-model `biosynthetic_subset.hmm`.
+  The `--cls` flag silently does nothing for this metric.
+  **[Proven fix]** NOT YET APPLIED. Subset the HMM to `OBLIGATE_DOMAINS[cls]` inside the scorer.
+  A working reference implementation is
+  `/data2/ds85/bgcmodel_runs/phase3_RIPP/A0_8k_w2000_RIPPSPECIFIC.json` (re-derived 2026-08-17,
+  reproduces 4/150, 0/50, 0/50 exactly). `/data2/ds85/bgcmodel_data/ripp_only.hmm` already holds
+  the 8-accession subset but nothing in the repo references it.
+  **[Severity]** ⚠️ **BLOCKS PHASE 3.** This is the bug that inverted A0. It was diagnosed on
+  2026-08-14 and documented, but the code was never changed — so leg 2 (seeding) would be scored
+  by the same broken path and produce generic numbers again.
+  **[Also]** the headline 0.027 and the 0.440 ceiling were computed ad hoc and **never persisted**.
+  Only the generic 0.040 / 0.580 exist in the saved artifacts, under the same key name `on_class`.
+
+
 - **[2026-08-14] A PRE-REGISTERED endpoint was measured by code that computed a different quantity,
   and it inverted the result.** `docs/phase3_preregistration.md` defines the primary endpoint as
   "≥1 **RIPP-defining** biosynthetic Pfam domain … against the RIPP-specific accession set".
