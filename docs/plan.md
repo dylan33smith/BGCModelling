@@ -123,9 +123,28 @@ Ordered. Top item is next.
 - ⚠️ **`|END|` does not work and is not worth fixing** (0/150, previously 0/204; whole-record
   training did not change it). The phage paper used a **length filter (4–6 kb)**, not a stop token.
 
-### [P3-B3] Power A0 to significance, or kill it
-- 4/150 vs 0/100 pooled is p=0.152. Decide from a power analysis what n closes it, then run that n
-  once. Do not creep the sample.
+### [P3-B3] Power A0 to significance — by generating CONTROLS, not more treatment
+**The obvious plan is wrong.** Generating more A0 sequences does **not** close this. Fisher's exact
+against a fixed 0/100 control plateaus at p≈0.09 and never crosses 0.05:
+
+| treat n | ctrl n | expected hits | p |
+|---|---|---|---|
+| 150 | 100 | 4 | 0.128 (current) |
+| 300 | 100 | 8 | 0.098 |
+| 500 | 100 | 13 | 0.091 |
+| **150** | **300** | **4** | **0.012** ✅ |
+| 200 | 400 | 5 | 0.004 ✅ |
+
+**The control arm is the binding constraint.** ~200 more *control* generations converts the
+existing A0 data — unchanged, already on disk — into a significant result. Controls are also the
+cheap arm: base 1B and the general adapter, no training, generation only.
+
+- **Conditional, and state it as such:** this holds only while the control rate stays at exactly 0.
+  Both controls currently read 0.000 (0/50 each). A single control hit moves the p-value materially.
+- **Pre-register n BEFORE generating** (Standing Constraint 4). Pick the n, run it once, read it
+  once. Do not creep the sample — that is what makes this a test rather than a search.
+- **Endpoint:** `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`, 2,000 nt, identical generation
+  config to A0.
 
 ### [P3-B4] Housekeeping — ✅ DONE 2026-08-14
 - ✅ `phase3_ripp/` rsync-merged into `phase3_RIPP/` (lossless, verified a strict subset before
