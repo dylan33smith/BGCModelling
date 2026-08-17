@@ -30,6 +30,30 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Analysis / tooling
 
+- **[2026-08-17] Every Phase-3 generation used the BATCHED path, which applies a workaround that
+  once failed an on-GPU equivalence gate.**
+  **[Symptom]** Not an error — a provenance gap. `A0_8k_gen.log`, `A0_gen.log`, `pilot_base.log`,
+  `pilot_general.log` and the B3 controls all log `Batched generation: batch_size=32`.
+  **[Cause]** `generate_bgc.py:generate_batch` calls `left_pad_to_uniform()` so vortex will batch
+  ragged prompts. Left-padding is exactly the workaround recorded above as having **failed an
+  on-GPU equivalence gate** (left-pad perturbs StripedHyena: head-token LCP ~0.004, byte
+  divergence). Prompts are ragged in practice because `taxonomic_tag` length varies per record.
+  **[Why the A0 result still stands]** **All arms used the identical path** — A0, base 1B, general
+  adapter, and both B3 control arms. The p=0.0054 comparison is internally consistent; the
+  instrument was the same on both sides. What is *not* established is that the **absolute** rates
+  match what sequential generation would produce.
+  **[Proven fix]** NOT APPLIED. Re-run `evo2/scripts/validate_batched_generation.py` to see
+  whether left-pad still fails the gate on the 1B; if it does, quote Phase-3 rates as
+  batched-path rates. Queued as [P3-B8].
+  **[Note]** vortex itself checks `uniform_lengths` and **falls back to per-sequence generation**
+  for ragged batches, so without the left-pad it degrades to sequential — slower, not wrong.
+
+- **[2026-08-17] Generating 2× the scored window wastes half the GPU time.** Phase-3 generation
+  ran `--max-new-tokens 4000` while the scoring window is **2,000 nt**. For any run whose readout
+  is the fixed window, generate ~2,200 and stop. (A0 deliberately generated 8,000 to measure
+  per-block detection decay — that is a different question and the long generation was the point.)
+
+
 - **[2026-08-17] ⚠️ SILENT SUBSTRATE SWAP: `EVO2_BASE_MODEL` unset → generation runs on the 7B.**
   **[Symptom]** A Phase-3 control run "succeeded" and wrote 150 sequences, but the log says
   `Found complete file in repo: evo2_7b_262k.pt`. The adapter arm then died with

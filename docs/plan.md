@@ -297,6 +297,15 @@ cheap arm: base 1B and the general adapter, no training, generation only.
 - ✅ Archived `progress.md` TERPENE claim corrected in place; target reconfirmed **RIPP**.
 - ✅ Filesystem naming convention added to `CLAUDE.md`.
 
+### [P3-B8] Re-run the batched-generation equivalence gate
+- Every Phase-3 number was generated through `generate_batch()`, which left-pads ragged prompts so
+  vortex will batch them. That workaround **failed an on-GPU equivalence gate** historically
+  (head-token LCP ~0.004, byte divergence) and the gate has not been re-run on the 1B.
+- **The A0 result is unaffected as a comparison** — every arm used the same path. The open question
+  is whether the absolute rates match sequential generation.
+- Run `evo2/scripts/validate_batched_generation.py` on the 1B. If it fails, label Phase-3 rates as
+  batched-path rates in `terms.md` and quote them only against other batched-path numbers.
+
 ### [P3-B7] Make the substrate explicit in code, not the shell
 - `generate_bgc.py` has no `EVO2_BASE_MODEL` guard and **defaults to the 7B**. Every 1B script
   exports it at the top, so the substrate rides on the caller's shell. A bare invocation silently
