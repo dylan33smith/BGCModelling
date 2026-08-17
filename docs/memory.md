@@ -253,4 +253,42 @@ entry. Rebuild all classes or hand-merge the manifest.
 
 ---
 
+## 2026-08-17 — Intervention: P3-B3, control expansion. **A0 IS SIGNIFICANT.**
+
+- **Hypothesis:** A0's p=0.128 was limited by the *control* arm, not the treatment arm. Adding
+  controls — not more A0 — closes it.
+- **Method:** pre-registered in `phase3_preregistration.md` §8.4 **before generating**: n=150 per
+  control arm, seed 1 (pilot used seed 0), new files so the pilot's 50 pool rather than being
+  replaced. A0 not regenerated. Decision rule fixed in advance for 0/1/2/≥3 control hits.
+- **Provenance:** `phase3_RIPP/ctrl_base_n150_s1.jsonl`, `ctrl_general_n150_s1.jsonl` ·
+  substrate `evo2_1b_base.pt` (guard-verified) · scoring `OBLIGATE_DOMAINS[RIPP]`, 8 accessions ·
+  window 2,000 nt · `novelty_battery.py` post-B0 fix.
+
+| arm | n | RIPP-specific | generic |
+|---|---|---|---|
+| **A0 — RIPP-only LoRA** | 150 | **4/150 = 0.0267** | 6/150 = 0.040 |
+| base 1B | 200 | 0/200 = 0.000 | 1/150 = 0.007 |
+| general all-class adapter | 200 | 0/200 = 0.000 | 10/150 = 0.067 |
+| pooled controls | **400** | **0/400 = 0.000** | — |
+
+**Fisher exact, one-sided: p = 0.0054.** Exactly the pre-registered value for 0 control hits.
+95% CI on A0 [0.0073, 0.0669]. **A class-specific LoRA produces RIPP machinery de novo where
+neither the base model nor an all-class adapter does at all.**
+
+**The inversion, reproduced at n=150/arm.** On the generic metric the *generalist* wins
+(0.067 vs 0.040). On the pre-registered endpoint it scores **exactly zero**. Same sequences, same
+window — only the Pfam subset differs. This is why `best_bio_bits` carries a `CHANGES MEANING
+WITH` field in `terms.md`.
+
+**What this does NOT show.** A0 reaches ~6% of the 0.440 ceiling. All four hits carry exactly
+**one** RIPP domain (PF05114 ×2, PF04055, PF05402); real cores carry 1.45 on average with 9/31
+carrying ≥2. One of the four is PF04055 (radical SAM), a near-universal family. None hit PF02624
+(YcaO), the most RiPP-specific marker. **One domain is not a cluster.** The right claim is "the
+adapter puts RIPP-associated machinery into de novo output at a low but real rate", not "it
+generates RiPP clusters".
+
+**Novelty guard: PASS.** Controls max containment 0.003 / 0.025, median 0.000.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

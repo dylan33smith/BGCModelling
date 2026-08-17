@@ -10,16 +10,16 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
-Phase 3 is open: **one small class at a time, target RIPP**, on the **Evo2 1B** testing substrate.
-Restricting to a single class *deletes* the long-context problem rather than working around it, and
-a per-class LoRA means the model never reads a class label — so every Phase-1 conditioning closure
-stops applying. The binding constraint is **capability, not conditioning**: de novo output is real
-protein of the wrong kind (`biosynthetic_fraction` 0.100 vs 0.836 on real cores). **A0 has run** —
-a RIPP-only adapter is the only non-real arm producing RIPP machinery at all (4/150 = 0.027 vs
-0/50 for both the base 1B and the general adapter, against a 0.440 real-core ceiling), but at
-p=0.152 it is **not yet significant**, and its first report was inverted by a scoring bug. Novelty
-is clean throughout. **Nothing seeded has been run yet, and seeding is the mode that works** — so
-the next intervention is seeded class-specific vs seeded generalist.
+Phase 3, target **RIPP**, substrate **Evo2 1B**. **Leg 1 is closed positive:** a RIPP-only LoRA
+produces RIPP-specific biosynthetic machinery de novo at **4/150 = 0.027 against 0/400 pooled
+controls, Fisher p = 0.0054** — pre-registered, and the base model and all-class adapter both read
+exactly zero. That is the first de novo positive in this project. It is also **small and thin**:
+~6% of the 0.440 ceiling, and every hit carries a *single* RIPP domain where real cores average
+1.45. A cluster it is not. Two blockers found and fixed on 2026-08-17 — the production scorer
+accepted `--cls` and ignored it (the bug that inverted A0, diagnosed in August and never fixed),
+and `generate_bgc.py` silently defaults to the 7B when `EVO2_BASE_MODEL` is unset, which cost 150
+discarded generations. **Legs 2 and 3 are untouched, and leg 2 is the regime that actually works**
+(seeded detection 0.367 vs 0.012 de novo). Next is the seed-length pilot, then seeded-vs-seeded.
 
 ---
 
@@ -29,9 +29,9 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 
 | ID | Intervention | Endpoint | n | Result | Verdict | memory |
 |---|---|---|---|---|---|---|
-| P3-A0 | RIPP-only LoRA, **de novo** | `best_bio_bits` > 0 @ `OBLIGATE_DOMAINS[RIPP]`, 2000 nt | 150 | **4/150 = 0.027** | ✅ positive direction, **p=0.152 n.s.** | 2026-08-14 |
-| P3-C1 | base 1B control, de novo | ″ | 50 | 0/50 = 0.000 | floor | 2026-08-14 |
-| P3-C2 | general all-class adapter, de novo | ″ | 50 | 0/50 = 0.000 | floor (0.080 under the *generic* set — other classes' domains) | 2026-08-14 |
+| P3-A0 | RIPP-only LoRA, **de novo** | `best_bio_bits` > 0 @ `OBLIGATE_DOMAINS[RIPP]`, 2000 nt | 150 | **4/150 = 0.027** | ✅ **SIGNIFICANT, p=0.0054** vs 0/400 | 2026-08-17 |
+| P3-C1 | base 1B control, de novo | ″ | **200** | 0/200 = 0.000 | floor | 2026-08-17 |
+| P3-C2 | general all-class adapter, de novo | ″ | **200** | 0/200 = 0.000 | floor (0.067 generic — other classes' domains) | 2026-08-17 |
 | P3-CEIL | real RIPP cores | ″ | 50 | 22/50 = 0.440 | ceiling | 2026-08-14 |
 | P3-NOV | novelty guard on A0 | `containment` | 150 | max 0.003; AAI med 0.000 / max 0.470; 150/150 distinct | ✅ pass | 2026-08-14 |
 
@@ -40,8 +40,11 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 `A0_8k.jsonl` + `phase3_ripp/pilot_*.jsonl` · scoring `OBLIGATE_DOMAINS[RIPP]` · window 2,000 nt ·
 substrate Evo2 1B (TE 1.13.0 verified).
 
-**Standing reading of the ledger:** A0 reaches ~6% of ceiling. The direction changed on the
-corrected metric; the significance did not. Do not report A0 as a win.
+**Standing reading of the ledger:** A0 is **significant** (p=0.0054 vs 0/400 pooled controls,
+pre-registered §8.4). But it reaches only ~6% of the 0.440 ceiling, and all four hits carry a
+**single** RIPP domain where real cores carry 1.45 on average. The defensible claim is "a
+class-specific LoRA puts RIPP-associated machinery into de novo output at a low but real rate" —
+**not** "it generates RiPP clusters". One domain is not a cluster.
 
 ---
 
@@ -76,7 +79,7 @@ Novelty guard:       containment reported alongside, always.
 
 | leg | status |
 |---|---|
-| 1. class-specific LoRA fine-tuning | ✅ A0 run — 0.027 vs 0.000 floor, p=0.152 n.s. |
+| 1. class-specific LoRA fine-tuning | ✅ **DONE — 0.027 vs 0/400, p=0.0054 significant** |
 | 2. class-specific seeding | ⬜ **not started** — and it is the regime that works |
 | 3. inference pruning | ⬜ not started — two distinct mechanisms: [P3-B2a] prunes *during* generation, [P3-B2b] filters *after* |
 
