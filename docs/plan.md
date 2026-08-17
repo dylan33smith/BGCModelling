@@ -78,7 +78,7 @@ Novelty guard:       containment reported alongside, always.
 |---|---|
 | 1. class-specific LoRA fine-tuning | ✅ A0 run — 0.027 vs 0.000 floor, p=0.152 n.s. |
 | 2. class-specific seeding | ⬜ **not started** — and it is the regime that works |
-| 3. inference pruning | ⬜ **not started as such** — see [P3-B2a] vs [P3-B2b] below |
+| 3. inference pruning | ⬜ not started — two distinct mechanisms: [P3-B2a] prunes *during* generation, [P3-B2b] filters *after* |
 
 Ordered. Top item is next.
 
@@ -110,7 +110,10 @@ Ordered. Top item is next.
   span** (`tests/test_scored_span.py` pins this — 0/1512 records contained seed).
 - **Novelty guard:** containment vs training; short seeds specifically to keep it clean.
 
-### [P3-B2a] Inference-time pruning — revive guided decoding ◀ the underrated one
+### [P3-B2a] Pruning DURING generation (guided decoding) ◀ the underrated one
+> **Not the phage-paper approach.** This scores partial candidates *mid-generation* and keeps the
+> best, so a sequence is steered as it is written. [P3-B2b] below is the phage-paper approach —
+> generate complete sequences, then throw most away. Different mechanisms; they compose.
 - **Why this is leg 3, and why it is not the same as filtering below.** Guided decoding prunes
   candidates *during* generation using the class probe as a fast scorer (one matmul). Filtering
   throws away finished sequences. Different mechanisms, different costs, different ceilings.
@@ -127,7 +130,9 @@ Ordered. Top item is next.
   is read.
 - **Composes with [P3-B1]** — seeded generation with pruning is the strongest single arm available.
 
-### [P3-B2b] Overgenerate-and-filter funnel
+### [P3-B2b] Filtering AFTER generation (the phage-paper funnel)
+> Generate complete sequences, score them, keep the survivors. No change to how any single
+> sequence is written — purely a selection step over finished output.
 - Adopt the phage-paper shape: generate **short**, sample **many**, filter **hard**. Measured
   support: block-0 detection 0.040 vs 0.024/0.028/0.022 later; 4× the tokens bought only 2.2× the
   hits (vs 0.151 predicted under independence). Tokens spent late are worth ~half those spent early.

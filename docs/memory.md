@@ -38,8 +38,8 @@ for anything older:
 | `docs/archive/gputee/`, `docs/archive/trojai/` | ~5,000 | deep runbooks, superseded |
 | `docs/archive/AUDIT_FINDINGS.md` | 465 | the 2026-06-02 leakage audit |
 | `docs/archive/REDESIGN_PLAN.md`, `EVAL_RUNBOOK.md` | 620 | the 2026-06-17 eval rewrite |
-| `docs/steering_program.md`, `_technical.md` | 738 | the closed steering programme, in full |
-| `docs/conditioning_next_steps.md` | 398 | ranked conditioning list — **ranking SUPERSEDED**, citations accurate |
+| `docs/archive/steering_program.md`, `_technical.md` | 738 | the closed steering programme, in full |
+| `docs/archive/conditioning_next_steps.md` | 398 | ranked conditioning list — **ranking SUPERSEDED**, citations accurate |
 | `docs/phase3_preregistration.md` | 203 | **LIVE** — the Phase-3 pre-registration, do not edit mid-phase |
 | `docs/model_comparison_evo2_vs_genomeocean.md` | 325 | measured head-to-head |
 

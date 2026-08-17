@@ -81,7 +81,12 @@ def one(job):
     base = {"tag": tag, "cls": cls, "key": key, "n_orfs": len(orfs),
             "max_orf_aa": 0, "any": 0.0, "bio": 0.0, "frac": 0.0,
             "n_bio_orfs": 0, "n_bio_domains": 0, "bio_span_frac": 0.0,
-            "co_orient": 0.0, "modules": 0, "in_order": 0}
+            "co_orient": 0.0, "modules": 0, "in_order": 0,
+            # WHICH biosynthetic accessions were hit. `bio` is a bitscore against the GLOBAL
+            # ~91-model set and is deliberately class-agnostic; callers that need a CLASS-SPECIFIC
+            # rate must intersect this with OBLIGATE_DOMAINS[cls]. Reading `bio > 0` as "on-class"
+            # is what inverted the Phase-3 A0 result on 2026-08-14 -- see bugs.md.
+            "bio_accs": []}
     if not orfs:
         return base
     alpha = Alphabet.amino()
@@ -96,6 +101,7 @@ def one(job):
     bio_orfs = sorted({i for _, i, _ in biohits})
     base["n_bio_orfs"] = len(bio_orfs)
     base["n_bio_domains"] = len(biohits)
+    base["bio_accs"] = sorted({a for a, _, _ in biohits})
     if bio_orfs:
         lo = min(orfs[i].start for i in bio_orfs)
         hi = max(orfs[i].end for i in bio_orfs)

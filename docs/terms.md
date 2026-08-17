@@ -75,6 +75,16 @@ Aliases:              names seen in old docs. Do not use them.
   a **rate with an exact binomial CI**, never as an arm mean.
 - **Aliases:** `bio`, "bio bits", "biosynthetic bits", "best_bio".
 
+### `bio_accs`  [evaluation]
+- **Is:** The sorted set of **biosynthetic Pfam accessions actually hit** in a record.
+- **Computed by:** `evo2/scripts/ladder_audit.py:one` → `sorted({acc for acc,_,_ in biohits})`.
+- **CHANGES MEANING WITH:** the E-value cutoff and the gene caller — but **not** the class: it is
+  always the full global set that was hit, deliberately.
+- **Valid vs:** anything, since it is a set of identifiers rather than a score. **This is the field
+  that makes a class-specific rate possible**: intersect it with `OBLIGATE_DOMAINS[cls]`. Added
+  2026-08-17 to fix the scorer that read the class-agnostic `best_bio_bits` as an on-class rate.
+- **Status:** SECONDARY — the substrate for `on_class`, not a rate itself.
+
 ### `bio_span_frac`  [evaluation]
 - **Is:** Distance from the first to the last biosynthetic-domain-carrying ORF, as a fraction of
   sequence length. Asks "are the domains *clustered*?" — one domain is not a cluster.

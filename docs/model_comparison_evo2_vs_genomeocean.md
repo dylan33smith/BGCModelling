@@ -293,7 +293,7 @@ their own.
 
 > ### ⛔ UPDATE 2026-08-10 — the steering experiment above was run, and it FAILED
 >
-> Phases 0–6 of `docs/steering_program.md`: corrected length-stripped directions, dose in
+> Phases 0–6 of `docs/archive/steering_program.md`: corrected length-stripped directions, dose in
 > class-units, layer treated as a variable (16/20/24/27), multi-layer stacking, all with
 > shuffled-label controls and a continuous readout 10x more sensitive than any binary gate.
 > **Null throughout** — ΔP(target) is null in every arm on every instrument; steering installs

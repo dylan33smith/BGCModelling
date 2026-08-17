@@ -482,6 +482,63 @@ def check_run_registry(F):
         ok(cat, "run directories are registered", f"{len(on_disk)} runs")
 
 
+def check_scored_outputs_stamp_their_config(F):
+    """A rate whose scoring config is unstated is not a result.
+
+    This is the check that would have caught the A0 inversion. The SAME key `on_class` held both
+    the global-biosynthetic and the class-specific number, in files whose names differed only by
+    window, so nothing on disk said which you were reading. Every scored output must now carry a
+    `scoring` block naming the metric, the class, the marker set and the window.
+    """
+    cat = "data"
+    if not RUNS_ROOT.exists():
+        skip(cat, "scored outputs stamp their scoring config", f"{RUNS_ROOT} not mounted")
+        return
+    stamped, unstamped = [], []
+    for p in RUNS_ROOT.glob("*/*_w[0-9]*.json"):
+        try:
+            d = json.loads(p.read_text())
+        except Exception:
+            continue
+        if not isinstance(d, dict) or "on_class" not in d:
+            continue
+        s = d.get("scoring")
+        if isinstance(s, dict) and {"cls", "window_nt", "marker_accessions"} <= set(s):
+            stamped.append(p.name)
+        else:
+            unstamped.append(p.name)
+    if unstamped:
+        warn(cat, "scored outputs stamp their scoring config",
+             f"{len(unstamped)} pre-fix file(s) carry a bare on_class: {sorted(unstamped)[:4]} "
+             f"— rescore with novelty_battery.py to stamp them")
+    elif stamped:
+        ok(cat, "scored outputs stamp their scoring config", f"{len(stamped)} stamped")
+    else:
+        skip(cat, "scored outputs stamp their scoring config", "no scored outputs yet")
+
+
+def check_scorer_is_class_gated(F):
+    """The scorer must intersect with OBLIGATE_DOMAINS[cls], not just read `bio > 0`."""
+    cat = "code"
+    nb = REPO / "scripts/novelty_battery.py"
+    if not nb.exists():
+        skip(cat, "on_class is class-gated in the scorer", "novelty_battery.py missing")
+        return
+    src = read(nb)
+    m = re.search(r"^\s*on_class\s*=\s*(.+)$", src, re.M)
+    if not m:
+        fail(cat, "on_class is class-gated in the scorer", "could not find the assignment")
+        return
+    expr = m.group(1)
+    if "bio_accs" in expr and "marker_accs" in expr:
+        ok(cat, "on_class is class-gated in the scorer", "intersects OBLIGATE_DOMAINS[cls]")
+    elif '"bio"' in expr or "'bio'" in expr:
+        fail(cat, "on_class is class-gated in the scorer",
+             f"reads the GLOBAL bio score: {expr.strip()} — this is the A0 inversion bug (bugs.md)")
+    else:
+        warn(cat, "on_class is class-gated in the scorer", f"unrecognised form: {expr.strip()[:60]}")
+
+
 def check_case_collisions(F):
     """Two run dirs differing only in case destroy each other on a careless copy."""
     cat = "data"
@@ -684,6 +741,7 @@ CHECKS = [
     check_retired_metrics_not_live, check_aliases_flagged,
     check_dataset_paths, check_record_counts, check_manifest_coverage, check_run_registry,
     check_case_collisions, check_deprecated_not_referenced,
+    check_scored_outputs_stamp_their_config, check_scorer_is_class_gated,
     check_plan_has_current_state, check_ledger_rows_have_provenance,
     check_manipulation_check_required, check_novelty_guard_present,
     check_correction_format, check_memory_append_marker,

@@ -190,9 +190,24 @@ def main() -> int:
     from concurrent.futures import ProcessPoolExecutor
 
     from ladder_audit import one
+    from bgc_pipeline.evaluation import OBLIGATE_DOMAINS
     with ProcessPoolExecutor(max_workers=24) as ex:
         scored = list(ex.map(one, [("b", g, args.cls, i) for i, g in enumerate(gens)]))
-    on_class = [s["bio"] > 0 for s in scored]
+
+    # ON-CLASS IS CLASS-SPECIFIC. `one()["bio"]` is a bitscore against the GLOBAL ~91-model
+    # biosynthetic set and ignores `cls` entirely, so `bio > 0` means "any biosynthetic domain",
+    # NOT "a domain of this class". Reading it as on-class inverted the Phase-3 A0 result on
+    # 2026-08-14 (the all-class adapter scored 0.080 generic but 0.000 RIPP-specific) -- the
+    # conclusion flipped from "the specialist lost" to "the specialist is the only arm on target".
+    # See bugs.md. --cls now actually gates the metric.
+    marker_accs = set(OBLIGATE_DOMAINS.get(args.cls) or [])
+    if not marker_accs:
+        raise SystemExit(
+            f"[battery] FATAL: OBLIGATE_DOMAINS has no markers for cls={args.cls!r}. "
+            f"A class with no marker set cannot produce an on-class rate -- it would silently "
+            f"read 0.000 for every arm. Known classes: {sorted(OBLIGATE_DOMAINS)}")
+    on_class = [bool(set(s["bio_accs"]) & marker_accs) for s in scored]
+    on_class_generic = [s["bio"] > 0 for s in scored]
     tk = [kmers(t) for t in train]
     nt_cont = []
     for g in gens:
@@ -216,7 +231,10 @@ def main() -> int:
     print("=" * 74)
     print(f"NOVELTY BATTERY — {args.gen.name}")
     print("=" * 74)
-    print(f"T1.1 on_class_rate         {jp['on_class']}/{jp['n']} = {jp['on_class']/jp['n']:.3f}")
+    _gen_k = sum(on_class_generic)
+    print(f"T1.1 on_class_rate         {jp['on_class']}/{jp['n']} = {jp['on_class']/jp['n']:.3f}   "
+          f"[{args.cls}-specific, {len(marker_accs)} accessions]")
+    print(f"     (generic, ANY biosynthetic domain: {_gen_k}/{jp['n']} = {_gen_k/jp['n']:.3f} — NOT the endpoint)")
     print(f"T3.1 nucleotide novelty    max containment {max(nt_cont):.3f}  "
           f"median {st.median(nt_cont):.3f}   (FAIL >=0.95, WARN >=0.80)")
     print(f"T3.2 protein novelty       median best AAI {st.median(aai):.3f}  "
@@ -231,11 +249,29 @@ def main() -> int:
     if jp["on_class"] and jp["JOINT_PASS"] < jp["on_class"]:
         print(f"  ⚠️ {jp['on_class'] - jp['JOINT_PASS']} on-class record(s) fail a novelty or")
         print("     diversity gate. Marginal rates would have hidden this.")
-    res = {"on_class": on_class, "nt_containment": nt_cont, "aai": aai,
+    # SCORING STAMP. A rate whose scoring config is unstated is not a result: the SAME key
+    # `on_class` previously held both the global and the class-specific number, in files whose
+    # names differed only by window. Every output now carries the config that produced it, and
+    # the class goes in the FILENAME as well as the payload.
+    res = {"scoring": {"metric": "best_bio_bits",
+                       "endpoint": f"best_bio_bits > 0 @ OBLIGATE_DOMAINS[{args.cls}]",
+                       "cls": args.cls,
+                       "marker_accessions": sorted(marker_accs),
+                       "n_marker_accessions": len(marker_accs),
+                       "window_nt": args.window,
+                       "gen_set": args.gen.name,
+                       "train_set": str(args.train),
+                       "n": len(gens)},
+           "on_class": on_class, "on_class_generic": on_class_generic,
+           "nt_containment": nt_cont, "aai": aai,
            "distinct": distinct, "diversity": div, "joint": jp}
     if args.out:
-        args.out.write_text(json.dumps(res, indent=1))
-        print(f"[battery] wrote {args.out}")
+        out = args.out
+        if args.cls.lower() not in out.stem.lower():
+            out = out.with_name(f"{out.stem}_{args.cls}{out.suffix}")
+            print(f"[battery] scoring set not in the filename — writing {out.name} instead")
+        out.write_text(json.dumps(res, indent=1))
+        print(f"[battery] wrote {out}")
     return 0
 
 

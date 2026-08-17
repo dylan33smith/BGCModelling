@@ -110,21 +110,31 @@ target is TERPENE" is corrected in place at `docs/archive/pre-framework/progress
 
 ---
 
-## 4. Datasets — DEPRECATED (DO NOT USE)
+## 4. Datasets — DEPRECATED
 
-| Path | Why |
-|---|---|
-| `data/processed/splits_combined/` | ☠️ **LEAKY** — 94.6% genome overlap, 453 byte-identical seqs across splits |
-| `splits_combined_grouped/` | superseded by the strict-core rebuild |
-| `splits_curated/` | the ~18K curation; superseded |
-| `splits_core_curated/` | superseded |
-| `splits_core_grouped/` | superseded |
-| `splits_core_premibig/` | pre-MiBIG-exclusion snapshot |
-| `splits_dedup/` | superseded |
-| `mega_whole_32k/` | whole-core-only run; starved the data (see `memory.md` 2026-07-12) |
-| `probe_subsets/`, `probe_subsets_8k/` | probe-specific; not training data |
+**All deprecated split directories were DELETED 2026-08-17** (~41 GB reclaimed). They are recorded
+here so an old number can still be traced to the dataset that produced it — the data is gone, the
+provenance is not.
 
----
+| Path | Why | Status |
+|---|---|---|
+| `data/processed/splits_combined/` | ☠️ **LEAKY** — 94.6% genome overlap, 453 byte-identical seqs across splits | deleted |
+| `splits_combined_grouped/` | superseded by the strict-core rebuild (22 GB) | deleted 2026-08-17 |
+| `splits_curated/` | the ~18K curation; superseded (4.1 GB) | deleted 2026-08-17 |
+| `splits_core_curated/` | superseded (1.1 GB) | deleted 2026-08-17 |
+| `splits_core_grouped/` | superseded (4.6 GB) | deleted 2026-08-17 |
+| `splits_core_premibig/` | pre-MiBIG-exclusion snapshot (1.5 GB) | deleted 2026-08-17 |
+| `splits_dedup/` | superseded (2.5 GB) | deleted 2026-08-17 |
+| `probe_subsets/`, `probe_subsets_8k/` | probe-specific, not training data (7.6 GB) | deleted 2026-08-17 |
+| `mega_whole_32k/` | whole-core-only run; starved the data | retained |
+
+### ⚠️ KEEP — the pipeline intermediates
+
+| File | Size | Why it must stay |
+|---|---|---|
+| `asdb5_train_records.jsonl` | 22 GB | **`splits_core` is built from these.** Deleting them means re-running antiSMASH extraction from `asdb5_gbks/` — days of compute — to rebuild any split. |
+| `asdb5_core_records.jsonl` | 17 GB | ″ |
+| `asdb5_core_strict.jsonl` | 4.7 GB | ″ |
 
 ## 5. Run registry
 
@@ -191,18 +201,20 @@ applies to the **frame arm only**. Do not quote the weighted arm as a negative r
 | `conditioning_diag_step250/`, `conditioning_diag_stoch_step250/` | 06-16 | ~1.4M | 📦 |
 | `_scripts/` | 07-29 | — | ☠️ **DELETED 2026-08-14** — empty |
 
-### ⚠️ Loose files at the runs root — 69 files, unattributed
+### `_unfiled/` — the holding pen for unattributed artifacts
 
-`/data2/ds85/bgcmodel_runs/` holds **21 result artifacts (4.0 MB)**, **47 logs (0.6 MB)** and one
-shell script sitting *outside any run directory*. The results are not junk — several are
-load-bearing and referenced by code: `ladder_audit.json` (the ladder validation itself),
-`direction_audit.json`, `activation_patching_ksweep.json`, `context_ablation.json`,
-`length_ceiling.json`, `class_probe_calibration_trainonly.json`, `denovo_decomposition.tsv`.
+**59 orphaned files moved here 2026-08-17** (4.3 MB): logs, one-off JSONs and a shell script that
+were written directly to the runs root and have no owning experiment. Kept, not deleted — several
+are real measurements whose provenance is merely unknown, and deleting a measurement is worse than
+failing to file it.
 
-**They have no owning experiment**, which is the same disease as everything else here: a number
-with nowhere to attach its provenance. **Not moved** — four are referenced by path in code, so
-filing them is a change with blast radius, not a tidy-up. Queued as `plan.md` [P3-B5].
-Going forward the naming convention in `CLAUDE.md` forbids creating more.
+**11 files remain at the root deliberately.** Each is the named default output of exactly one
+script — `ladder_audit.json` ← `ladder_audit.py`, `direction_audit.json` ← `direction_audit.py`,
+and so on — so they are attributable by name even though they sit outside a run dir. Filing them
+means changing 11 default output paths; queued as [P3-B5] rather than done silently.
+
+⚠️ **Do not add to either.** The `CLAUDE.md` naming convention requires new artifacts to live in a
+run directory.
 
 **Disk:** ~75 GB total, dominated by `probes_20260706` (28G) and `class_probe_sweep` (23G).
 

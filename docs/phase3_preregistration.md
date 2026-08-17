@@ -182,6 +182,37 @@ real RIPP clusters score.
 floor is 0/50 for BOTH controls, which is the same zero, so n=150 still applies — but the effect
 size to detect is now against a true zero rather than against 0.080.
 
+### 8.4 CONTROL EXPANSION [P3-B3] — pre-registered 2026-08-17, BEFORE generating
+
+**This does not change the endpoint** (§2) or any decision rule. It fixes the *control* sample size,
+which §8.1–8.3 left at the pilot's n=50/arm.
+
+**Why.** A0 stands at 4/150 vs 0/100 pooled controls, p=0.128. Generating more *A0* does not close
+this — against a fixed 0/100 control, Fisher's exact plateaus at p≈0.09 and never reaches 0.05
+(150→0.128, 300→0.098, 500→0.091). The **control arm is the binding constraint**: 100 controls with
+zero hits is still consistent with a true control rate near A0's own.
+
+**Fixed now, before any sequence is generated:**
+- **n = 150 additional generations per control arm** (base 1B, general adapter) → 400 pooled.
+- **Seed = 1** (the pilot used seed 0; reusing it would reproduce the same sequences).
+- **Written to new files.** `phase3_pilot.py:generate()` returns early if the output exists, so the
+  pilot's 50 are untouched and are **pooled**, not replaced.
+- **A0 is NOT regenerated.** Its 4/150 is fixed and was collected before this was planned.
+- **Everything else identical to §5:** 4,000 nt generated, fixed 2,000 nt scoring window,
+  `OBLIGATE_DOMAINS[RIPP]`, same prompts file.
+
+**Decision rule, fixed in advance** (Fisher's exact, one-sided, A0 4/150 vs pooled controls):
+
+| control hits (of 400) | p | verdict |
+|---|---|---|
+| 0 | 0.0054 | ✅ A0 significant |
+| 1 | 0.0211 | ✅ A0 significant |
+| 2 | 0.0499 | ✅ marginal — report as marginal, not as a win |
+| ≥3 | >0.05 | ❌ A0 not significant; the de novo line closes |
+
+n=150/arm was chosen precisely because it survives two control hits. **Read once at n=400. Do not
+extend the sample after seeing the result** — that converts this to exploratory under §10.
+
 ## 9. Decision rules — fixed in advance
 
 - **An arm SUCCEEDS** iff its `on_class_rate` exceeds the A0 floor by Fisher's exact p < 0.05 **and**

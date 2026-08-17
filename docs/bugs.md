@@ -553,7 +553,7 @@ these in minutes.
   α-sweep cell regardless of layer, magnitude, or n. Class lives in the residual 1.9%: removing
   PC1 leaves the probe at 0.909 (vs 0.908 full), while PC1 alone gives 0.287.
   *Fix:* rebuild directions as PC1-orthogonalized class-vs-class contrasts (not whitened LDA —
-  rank-990 covariance in D=4096 is unstable); see `docs/steering_program.md` P0.
+  rank-990 covariance in D=4096 is unstable); see `docs/archive/steering_program.md` P0.
 - **Teacher-forced scoring with a true-sequence prefix masks the very effect it measures.**
   `steer_causal_tests.py` conditioned on taxonomy + the first 1000 nt of the *true* sequence, then
   scored the next 1000 nt. With the real thing sitting immediately before the scored window, the
