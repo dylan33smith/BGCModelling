@@ -174,6 +174,15 @@ cheap arm: base 1B and the general adapter, no training, generation only.
 - ✅ Archived `progress.md` TERPENE claim corrected in place; target reconfirmed **RIPP**.
 - ✅ Filesystem naming convention added to `CLAUDE.md`.
 
+### [P3-B7] Make the substrate explicit in code, not the shell
+- `generate_bgc.py` has no `EVO2_BASE_MODEL` guard and **defaults to the 7B**. Every 1B script
+  exports it at the top, so the substrate rides on the caller's shell. A bare invocation silently
+  generates from the wrong model and only fails if an adapter happens to be shape-incompatible.
+- Cost this already: 150 discarded control generations on 2026-08-17. See `bugs.md`.
+- Fix: require the env var (or an explicit `--base-model`) and exit non-zero when absent. Also
+  stamp the resolved checkpoint into every generation JSONL, the way scored outputs now stamp
+  their scoring config.
+
 ### [P3-B5] File the 69 loose artifacts at the runs root
 - `/data2/ds85/bgcmodel_runs/` holds 21 result files (4.0 MB), 47 logs, and 1 shell script outside
   any run directory. **The results are load-bearing** — `ladder_audit.json` is the ladder validation

@@ -30,6 +30,27 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Analysis / tooling
 
+- **[2026-08-17] ⚠️ SILENT SUBSTRATE SWAP: `EVO2_BASE_MODEL` unset → generation runs on the 7B.**
+  **[Symptom]** A Phase-3 control run "succeeded" and wrote 150 sequences, but the log says
+  `Found complete file in repo: evo2_7b_262k.pt`. The adapter arm then died with
+  `size mismatch ... copying a param with shape torch.Size([16, 1920]) ... current model is
+  torch.Size([16, 4096])`.
+  **[Cause]** `generate_bgc.py` does not read `EVO2_BASE_MODEL` itself and has no default guard;
+  every 1B experiment script sets `export EVO2_BASE_MODEL=evo2_1b_base` at the top, so the
+  substrate is carried by the **caller's shell**. Invoking `generate_bgc.py` (or
+  `phase3_pilot.py`, which also does not set it) from a bare shell silently uses the 7B.
+  **[Proven fix]** `export EVO2_BASE_MODEL=evo2_1b_base` before any Phase-3 generation, and grep
+  the generation log for `evo2_7b` before trusting the output. The B3 driver now discards its own
+  output if a 7B checkpoint appears in the log.
+  **[Severity]** ⚠️ **HIGH — this is the silent-degradation class.** The base arm produced 150
+  perfectly well-formed sequences from the wrong model with **no error at all**; only the adapter
+  arm crashed, because a 1B-trained LoRA cannot load into the 7B. Had both arms been base-model
+  runs, the experiment would have produced clean, invalid controls and violated Standing
+  Constraint 3 with nothing to show for it. 150 sequences were generated and discarded.
+  **[Recommended durable fix, NOT yet applied]** make `generate_bgc.py` fail loudly when
+  `EVO2_BASE_MODEL` is unset, rather than defaulting. Queued as [P3-B7].
+
+
 - **[2026-08-17] ⚠️ STILL LIVE: the production scorer accepts `--cls` and ignores it.**
   **[Symptom]** `scripts/novelty_battery.py --cls RIPP` reports `on_class` = 0.040 for A0, but the
   pre-registered RIPP-specific rate is 0.027. Every score file on disk holds the generic number.

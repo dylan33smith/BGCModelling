@@ -145,7 +145,7 @@ provenance is not.
 
 | Run dir | Date | Size | Contents | Status |
 |---|---|---|---|---|
-| `phase3_RIPP/` | 08-14 | 698M | **A0 + pilots** (merged 2026-08-14). `adapter_run/` (RIPP LoRA, 7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410); `A0_8k.jsonl`, `A0_noseed.jsonl` (150 de novo); `A0_8k_w2000.json` / `A0_8k_w8000.json`; `A0_battery.json`; `train.whole.jsonl`, `val.whole.jsonl`; `pilot_base.jsonl`, `pilot_general.jsonl`, `pilot_rates.json` | ✅ |
+| `phase3_RIPP/` | 08-14 | 698M | **A0 + pilots + controls.** `adapter_run/` (RIPP LoRA, 7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410); `A0_8k.jsonl`, `A0_noseed.jsonl`; `pilot_base.jsonl`, `pilot_general.jsonl`; `ctrl_base_n150_s1.jsonl`, `ctrl_general_n150_s1.jsonl` (B3, seed 1). **Stamped scores:** `A0_8k_w2000_RIPP.json`, `pilot_base_w2000_RIPP.json`, `pilot_general_w2000_RIPP.json`. `superseded/` holds the pre-fix generic-scored files. | ✅ |
 
 ✅ **Case collision resolved 2026-08-14.** `phase3_ripp/` (pilot baselines) was `rsync`-merged
 into `phase3_RIPP/` — no filename collisions, verified a strict subset before removal — and the
