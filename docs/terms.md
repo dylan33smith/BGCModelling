@@ -297,6 +297,44 @@ Aliases:              names seen in old docs. Do not use them.
 
 ## T
 
+### THE TWO MEASUREMENT STAGES  [evaluation] [method]
+- **Is:** Every Phase-3 arm is measured **twice, on two different denominators**, because a metric
+  that is meaningful over one is meaningless over the other. Conflating them produced a retracted
+  claim (`memory.md` 2026-08-18, the pooled-AAI artifact).
+
+  **STAGE A — SELECTION. Denominator: ALL generated sequences.** Asks *"is this generation a
+  positive or a negative?"* Every metric here must be defined for a sequence that contains nothing.
+
+  | metric | why it belongs here |
+  |---|---|
+  | `best_bio_bits`* @ `OBLIGATE_DOMAINS[cls]` | the endpoint; 0 is a valid, meaningful value |
+  | `containment`* | defined for any sequence |
+  | intra-set distinctness* | a property of the whole set, not of one record |
+  | `JOINT_PASS` | the per-record intersection of all gates |
+  | `n_orfs`, `coding_density`, `co_orient` | structural, defined everywhere |
+
+  **STAGE B — CHARACTERISATION. Denominator: the POSITIVES only** (records passing the endpoint).
+  Asks *"given that we made something on-class, what did we actually make?"* These are
+  **undefined-or-misleading over all sequences**, because an off-class record contributes a
+  degenerate value that swamps the statistic.
+
+  | metric | why it must be Stage B |
+  |---|---|
+  | `protein_aai`* | off-class records score **0.000 = no hit**, not "poor match". Pooling makes the median report *hit rate*, not similarity. **This is the exact error that was retracted.** |
+  | antiSMASH `is_bgc`*, `correct_class`* | expensive; and the question is whether our *positives* are real clusters |
+  | `n_class_domains`, `n_bio_domains`, `n_bio_orfs` | 0 by construction for a non-hit; the mean over all records is just the hit rate rescaled |
+  | `bio_span_frac` | undefined with no domains |
+  | `biosynthetic_fraction` | undefined when `best_any_bits` = 0 |
+
+- **Computed by:** `scripts/novelty_battery.py` emits both — Stage A as the top-level arrays, Stage B
+  as `mean_among_on_class` in the `ladder` block. antiSMASH is run separately on the positives.
+- **CHANGES MEANING WITH:** the denominator, and nothing else matters more. **A Stage-B metric
+  quoted over all sequences is not a weaker result — it is a different and usually wrong quantity.**
+- **Valid vs:** Stage A against Stage A, Stage B against Stage B. **Every Stage-B number needs a
+  real-core reference on the same denominator** (e.g. `protein_aai` 0.496 generated vs 0.641 real).
+- **Status:** **MANDATORY for every Phase-3 arm from 2026-08-18.** Label every reported number with
+  its stage and its n.
+
 ### THE PHASE-3 REPORTING SET  [evaluation] [method]
 - **Is:** The fixed block of numbers that **every** Phase-3 intervention MUST report, so that any
   two interventions are directly comparable. Emitted automatically by

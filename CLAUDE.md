@@ -13,14 +13,12 @@
 
 ## Documentation Architecture
 
-| File | Read policy | Holds |
-|---|---|---|
-| `CLAUDE.md` | **auto-loaded, every session** | this contract. **Zero findings.** |
-| `plan.md` | **read at session start** | current state, active interventions, phase ledger |
-| `terms.md` | **searched before naming any metric** | definitions + provenance of every metric |
-| `data.md` | **read before touching data, runs, or paths** | datasets, schemas, splits, run registry |
-| `memory.md` | **DO NOT read on startup.** `grep` it. | chronological ledger of results + decisions |
-| `bugs.md` | `grep` by symptom | `[Symptom] → [Proven fix]`, indexed by subject |
+* `CLAUDE.md` — **auto-loaded every session.** This contract. **Zero findings.**
+* `plan.md` — **read at session start.** Current state, active interventions, phase ledger.
+* `terms.md` — **search before naming any metric.** Definitions + provenance of every metric.
+* `data.md` — **read before touching data, runs or paths.** Datasets, schemas, splits, run registry.
+* `memory.md` — **never read on startup; `grep` it.** Chronological ledger of results + decisions.
+* `bugs.md` — **`grep` by symptom.** `[Symptom] → [Proven fix]`, indexed by subject.
 
 ## Standing Constraints (hard rules; rationale lives in `memory.md`)
 
@@ -62,21 +60,24 @@ invites cherry-picking which metrics to show, and the same metric must be visibl
 to be comparable across them.
 
 1. **Report THE PHASE-3 REPORTING SET in full, every time** (`terms.md`) — every metric, every arm,
-   including the ones that did not move. Do not select the interesting rows. If a metric is
-   inapplicable, print it with `n/a` and say why; never omit the row.
-2. **Row labels are the exact `terms.md` identifier** — snake_case, no prose synonyms. Not "bio
+   including the ones that did not move. Never omit a row; print `n/a` with a reason.
+2. **Label every number with its MEASUREMENT STAGE and n** (`terms.md`, THE TWO MEASUREMENT STAGES).
+   **Stage A** = all generated sequences (selection). **Stage B** = positives only
+   (characterisation). Quoting a Stage-B metric over all sequences yields a different, usually wrong
+   quantity — that error produced a retraction. Every Stage-B number needs a real-core reference.
+3. **Row labels are the exact `terms.md` identifier** — snake_case, no prose synonyms. Not "bio
    bits" — `best_bio_bits`.
-3. **Order rows by importance:** primary endpoint → novelty gates → cluster structure → context →
+4. **Order rows by importance:** primary endpoint → novelty gates → cluster structure → context →
    demoted/diagnostic. Mark every gate metric with `*` after the identifier.
-4. **Carry a provenance line** — checkpoint · generation set · n · scoring config · window. A number
+5. **Carry a provenance line** — checkpoint · generation set · n · scoring config · window. A number
    without provenance is not a result.
-5. **State the ceiling (real cores) and floor (base / non-BGC)** as their own columns, so every rate
+6. **State the ceiling (real cores) and floor (base / non-BGC)** as their own columns, so every rate
    is read against both without the reader hunting for them.
-6. **Follow the table with a PER-METRIC reading, then a SYNTHESIS.** One line per row: what it
+7. **Follow the table with a PER-METRIC reading, then a SYNTHESIS.** One line per row: what it
    measures, which direction is good, and how to read *this* table's value against its reference.
    Then: what the rows say together, what the table does not show, and which comparison is
    load-bearing. A table without both is data, not a result.
-7. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
+8. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
    generation path and regime. Emit with `scripts/novelty_battery.py`; never hand-assemble.
 
 ## IMPORTANT: Filesystem Naming Convention
