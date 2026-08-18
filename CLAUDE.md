@@ -24,51 +24,54 @@
 
 ## Standing Constraints (hard rules; rationale lives in `memory.md`)
 
-1. **Novelty is a gate on every rung, never a co-reported metric.** Every ladder metric is
-   maximised by copying training data. A rate without its novelty result is uninterpretable.
-2. **Live datasets are `splits_core/` and `splits_class/<CLASS>/` only.** Everything else in
-   `data.md` marked DEPRECATED is off-limits. `splits_combined/` leaked (94.6% genome overlap).
-3. **The 1B is the testing substrate for all of Phase 3.** The 7B confirms publishable results.
-   Testing does not fan out across models — that confounds method with model.
+1. **Novelty gates every rung, never co-reported** — every ladder metric is maximised by copying.
+2. **Live datasets: `splits_core/` and `splits_class/<CLASS>/` only** — DEPRECATED (`data.md`) is
+   off-limits; `splits_combined/` leaked (94.6% genome overlap).
+3. **The 1B is the Phase-3 testing substrate**; the 7B confirms. Testing does not fan out across
+   models — that confounds method with model.
 4. **Pre-registered endpoints do not change mid-phase** (`docs/phase3_preregistration.md`).
-5. **A null is only interpretable if the test was powered AND the intervention verified to have
-   landed.** Both must be shown, or the result is "uninformative", not "negative".
+5. **A null is interpretable only if the test was powered AND the intervention verified to have
+   landed** — otherwise the result is "uninformative", not "negative".
 6. **MiBIG stays held out.** Reserved for a later compound-conditioned fine-tune.
-7. **Never compare a number produced with antiSMASH against one produced with the `class_markers`
-   proxy.** The proxy inflates `correct_class` ~2.6×. See `terms.md`.
-8. **`correct_class` is not an optimisation target de novo.** It has read ~0 de novo since the
-   project began.
+7. **Never compare an antiSMASH number against a `class_markers` proxy number** — the proxy
+   inflates `correct_class` ~2.6×.
+8. **`correct_class` is not a de novo optimisation target** — it has read ~0 de novo throughout.
 
 ## Agent Behavior & Prohibitions
 
-* **Verify before acting.** Never guess file paths, tensor shapes, record counts, or splits. Use
-  `ls` / `grep` / read `data.md`. A path that "should" exist has repeatedly not.
-* **No sweeping changes.** YOU MUST NOT run global `sed` or refactor multiple files without
-  explicit permission. Targeted edits only.
-* **Strict documentation limits.** YOU MUST NOT create new documentation files. The six above are
-  the set. If you believe a new one is needed, ASK FIRST with a justification.
-* **Prevent definition drift.** Before defining a metric, writing a pipeline, or labelling a table
-  column, YOU MUST search `terms.md` and use the established name exactly. Do not invent synonyms.
-* **Report the failure, not the workaround.** If a tool, resource, or gate is missing, say so.
-  A missing resource must never silently become a negative result (`BGC_EVAL_STRICT` enforces
-  this in code; hold yourself to it in prose).
+* **Verify before acting.** Never guess paths, shapes, record counts, or splits — use `ls`/`grep`
+  or `data.md`. A path that "should" exist has repeatedly not.
+* **No sweeping changes.** No global `sed` or multi-file refactors without permission.
+* **Strict documentation limits.** Do not create new doc files; the six above are the set. ASK
+  FIRST with a justification if you believe one is needed.
+* **Prevent definition drift.** Search `terms.md` before defining a metric, writing a pipeline or
+  labelling a table row; use the established name exactly. Never invent synonyms.
+* **Report the failure, not the workaround.** A missing tool/resource/gate must never silently
+  become a negative result (`BGC_EVAL_STRICT` enforces this in code; hold to it in prose).
 
 ## IMPORTANT: Results Reporting Format
 
-Every table reporting results MUST:
-1. Use the exact `terms.md` identifier as the column header. **snake_case, no prose synonyms.**
-   Not "bio bits" / "biosynthetic bits" — `best_bio_bits`.
-2. Carry a provenance line — **checkpoint · generation set · n · scoring config · window**.
-   A number without provenance is not a result.
-3. State the ceiling (real cores) and floor (base model / non-BGC) alongside any rate.
-4. **Be followed by a PER-METRIC reading, then a SYNTHESIS.** For every column header, one line:
-   what it measures and how to read *this* table's value for it (direction, and against what
-   reference). Then a short synthesis: what the columns say *together*, what it does not show, and
-   which comparison is load-bearing. A table without both is data, not a result.
-5. **Every Phase-3 arm reports THE PHASE-3 REPORTING SET in full** (`terms.md`) — primary endpoint,
-   all novelty gates, the cluster-structure block, and context. Emit it with
-   `scripts/novelty_battery.py`; never hand-assemble a subset. Two arms are comparable only if
-   their `scoring` stamps match on Pfam subset, window, substrate, generation path and regime.
+**Metrics are ROWS. Experiments/arms are COLUMNS.** Never the transpose — a wide table of arms
+invites cherry-picking which metrics to show, and the same metric must be visible in every report
+to be comparable across them.
+
+1. **Report THE PHASE-3 REPORTING SET in full, every time** (`terms.md`) — every metric, every arm,
+   including the ones that did not move. Do not select the interesting rows. If a metric is
+   inapplicable, print it with `n/a` and say why; never omit the row.
+2. **Row labels are the exact `terms.md` identifier** — snake_case, no prose synonyms. Not "bio
+   bits" — `best_bio_bits`.
+3. **Order rows by importance:** primary endpoint → novelty gates → cluster structure → context →
+   demoted/diagnostic. Mark every gate metric with `*` after the identifier.
+4. **Carry a provenance line** — checkpoint · generation set · n · scoring config · window. A number
+   without provenance is not a result.
+5. **State the ceiling (real cores) and floor (base / non-BGC)** as their own columns, so every rate
+   is read against both without the reader hunting for them.
+6. **Follow the table with a PER-METRIC reading, then a SYNTHESIS.** One line per row: what it
+   measures, which direction is good, and how to read *this* table's value against its reference.
+   Then: what the rows say together, what the table does not show, and which comparison is
+   load-bearing. A table without both is data, not a result.
+7. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
+   generation path and regime. Emit with `scripts/novelty_battery.py`; never hand-assemble.
 
 ## IMPORTANT: Filesystem Naming Convention
 
@@ -94,10 +97,10 @@ lost a 698 MB run dir to a case collision and ~6,600 training records to a manif
 
 ## Execution & Long-Running Tasks
 
-* **Parallel execution.** Any task expected to exceed 60 s (training, generation, antiSMASH,
-  MMseqs2) MUST run in a detached `tmux` session. Do not block the interaction loop.
-* **GPU jobs go through the queue wrapper**, never raw `python train.py` — shared-host contention
-  silently invalidates memory and throughput measurements.
+* **Parallel execution.** Anything over ~60 s (training, generation, antiSMASH, MMseqs2) runs in a
+  detached `tmux` session.
+* **GPU jobs go through the queue wrapper**, never raw `python train.py` — contention silently
+  invalidates memory/throughput measurements.
 * **Status sentinel, not desktop notifications** (`notify-send` no-ops on this headless host).
   Poll the sentinel (`0` = success); never report a run finished without reading it:
   `tmux new-session -d -s <n> '<cmd> > logs/<n>.log 2>&1; echo $? > logs/<n>.status'`
