@@ -121,7 +121,7 @@ Novelty guard:       containment reported alongside, always.
 
 Ordered. Top item is next.
 
-### [P3-B0] ⛔ BLOCKER — make the scorer actually class-specific ◀ DO THIS FIRST
+### [P3-B0] ✅ DONE 2026-08-17 — scorer made class-specific
 - `scripts/novelty_battery.py` takes `--cls` and **ignores it** for `on_class`; it scores against
   the global 91-model biosynthetic set. Every saved score file holds the generic number under the
   same key. See `bugs.md` 2026-08-17.
@@ -134,7 +134,7 @@ Ordered. Top item is next.
 - Then re-derive and **persist** the real-core ceiling — the recorded 0.440 is not reproducible
   from disk and an independent 50-record draw gave 0.62, so the sample used was never saved.
 
-### [P3-B1] The SEED LADDER — leg 2 ◀ NEXT
+### [P3-B1] The SEED LADDER — leg 2 · **Stage 1 ✅ DONE (L\* = 8 nt); Stage 2 ◀ NEXT**
 **The objection this exists to answer:** *seed a real BGC → get a BGC* is unimpressive; the model
 could be finishing a cluster that already exists. The pre-registered arms (§7) are a ladder from
 instance-copying toward generation from a class representation.
@@ -307,7 +307,7 @@ order is undefined for most records. See `memory.md` 2026-08-17.
 - ⚠️ **`|END|` does not work and is not worth fixing** (0/150, previously 0/204; whole-record
   training did not change it). The phage paper used a **length filter (4–6 kb)**, not a stop token.
 
-### [P3-B3] Power A0 to significance — by generating CONTROLS, not more treatment
+### [P3-B3] ✅ DONE 2026-08-17 — A0 powered to p=0.0054 by generating controls
 **The obvious plan is wrong.** Generating more A0 sequences does **not** close this. Fisher's exact
 against a fixed 0/100 control plateaus at p≈0.09 and never crosses 0.05:
 
@@ -380,7 +380,7 @@ Disk is at 84% (1.2 TB free), so this is not urgent, but nothing here is documen
 
 | Item | Blocked on |
 |---|---|
-| 7B confirmation of any Phase-3 result | Nothing publishable yet — A0 is n.s. Do not spend 7B time until a 1B result is significant. |
+| 7B confirmation of any Phase-3 result | **Unblocked in principle** — A0 is now significant (p=0.0054). Hold anyway until Stage 2 lands, then confirm the single best arm, not every arm. Standing Constraint 3. |
 | Quartz multi-GPU long-context | PI allocation pending |
 
 ---
