@@ -499,7 +499,10 @@ the serial run. Only the idle GPU capacity is recovered.
   interrupted unit never looks finished to a later run's `[ -s "$out" ]` skip check.
 - **One tmux session + status sentinel per worker**, per the standing execution rule.
 
-Generalised as `scripts/fanout.sh`; rule added to `CLAUDE.md`.
+Generalised as `scripts/fanout.sh`; the *principle* is in `CLAUDE.md` and **the measured curve
+lives here** (it is a finding, not a rule): **N=1 → 124 seq/h at 41% util · N=3 → 432 seq/h at 100%
+util · N=5 → ~300 seq/h (regression).** N=3 was the optimum for 1B generation at 2.2 kb on an idle
+H100; utilisation, not memory, is the signal to stop.
 
 ⚠️ **Not valid for throughput or memory benchmarks** — contention is precisely what invalidates
 those, which is why the standing rule sends training through the queue wrapper. This applies to
@@ -761,6 +764,50 @@ it reduces to "how much of the window does the single gene span", which is not a
    ladder metric is ranking on noise.** That directly constrains [P3-B2a] and [P4-RL].
 4. ⇒ **The 2 kb window is itself implicated** — real cores show 1.04 domains in it. See the
    window question in `plan.md`.
+
+---
+
+## 2026-08-18 — ★ [P3-WIN] The cluster gap is NOT a window artefact. It is real, and now localised.
+
+Tested the possibility that "one enzyme, not a cluster" was an artefact of scoring in a 2 kb window
+where even real cores show ~1 domain. **Design: the sequence set is held FIXED** — 85 A0 de novo
+generations ≥8 kb and 68 real held-out cores ≥8 kb — and only the scoring window varies. Every row
+below is the same sequences.
+
+| set | window | on_class | rate | ≥2 markers | mean markers \| on-class | mean bio domains \| on-class | mean n_orfs |
+|---|---|---|---|---|---|---|---|
+| A0 generated | 2,000 | 2/85 | 0.024 | **0** | 1.00 | 1.00 | 2.1 |
+| A0 generated | 4,000 | 2/85 | 0.024 | **0** | 1.00 | 1.00 | 3.6 |
+| A0 generated | 8,000 | 2/85 | 0.024 | **0** | **1.00** | **1.00** | 7.0 |
+| REAL cores | 2,000 | 35/68 | 0.515 | 14 | 1.60 | 1.69 | 2.0 |
+| REAL cores | 4,000 | 38/68 | 0.559 | 16 | 1.63 | 2.16 | 4.1 |
+| REAL cores | 8,000 | **42/68** | **0.618** | **19** | 1.69 | **2.67** | 7.8 |
+
+**Per metric.** `on_class` / `rate` — carries ≥1 RIPP marker; higher better. `≥2 markers` — the
+cluster test; higher better. `mean markers | on-class` — Stage B, positives only. `mean bio domains
+| on-class` — Stage B, all biosynthetic families not just RIPP. `mean n_orfs` — genes called;
+confirms the window is actually doing something.
+
+**Synthesis — three findings, and the third is the important one.**
+1. **The window works.** `n_orfs` rises 2.1 → 7.0 (generated) and 2.0 → 7.8 (real). We really are
+   looking at ~4× more sequence.
+2. **Real cores GAIN structure further out**, exactly as the artefact hypothesis predicted they
+   would: rate 0.515 → 0.618, ≥2 markers 14 → 19, and **mean biosynthetic domains 1.69 → 2.67
+   (+58%)**. So a wider window genuinely recovers cluster content — when there is cluster content.
+3. **Generations gain NOTHING. Identical at all three windows** — 2/85, zero records with ≥2
+   markers, exactly 1.00 markers and 1.00 biosynthetic domains per positive, at 2 kb, 4 kb and 8 kb
+   alike. ⇒ **The gap is not where we were looking. It is real.**
+
+**What this localises.** At 8 kb the model writes **7.0 ORFs against real cores' 7.8** — it is not
+failing to produce genes, and not failing to produce *length*. Of those ~7 genes, **1.00 carries a
+biosynthetic domain versus 2.67 in real cores.** The deficit is specifically **biosynthetic content
+per gene**, not gene count, not sequence length, and not scoring window. That is a much sharper
+statement of the limitation than "one enzyme not a cluster", and it is the number [P4-WIDE] has to
+move.
+
+⚠️ **Scope:** this is the STRICT (A0) adapter, **de novo**. The seeded arm and the WIDE arm may
+differ and must be run through the identical fixed-set/varying-window design before being compared.
+Each window keeps its own real-core ceiling (0.515 / 0.559 / 0.618) — never cross-compare windows.
 
 ---
 

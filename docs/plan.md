@@ -492,7 +492,24 @@ under-report on the pre-registered 2,000-nt endpoint. **Do not change the endpoi
 (Standing Constraint 4) — report the 2 kb endpoint as primary and a wider window alongside as a
 declared secondary.
 
-### [P3-B2a] Pruning DURING generation (guided decoding) ◀ the underrated one
+### [P3-B2a] Pruning DURING generation (guided decoding) — ⛔ BLOCKED ON A SCORER
+> **Not the phage-paper approach.** This scores partial candidates *mid-generation*. [P3-B2b] below
+> generates complete sequences then discards most. Different mechanisms; they compose.
+
+⛔ **BLOCKED 2026-08-18 — we have no scorer with demonstrated within-positives discrimination.**
+Pruning only helps if the scorer can rank *among candidates that would pass the gate*. Re-deriving
+the ladder in this regime showed **nothing we measure does that**: within the on-class pool the best
+metric reaches 0.575 and `bio_span_frac` inverts to 0.173. Pruning on any of them ranks **noise**,
+and would look like it worked because the retained set still passes the gate it was selected on.
+
+**Prerequisite, and it is cheap:** the class probe is the only remaining candidate — it is
+continuous, model-internal, and never yet tested for *within-positives* discrimination. Test it
+against the 68 on-class records that now carry antiSMASH labels. **If the probe's AUROC for
+predicting antiSMASH confirmation among on-class records is not clearly above 0.5, leg 3 has no
+instrument and should stay closed** regardless of the Q1/Q2 history.
+⚠️ Use the **train-only** probe (`acts_v2_train500.probe_L16_s0.joblib`), never the pre-2026-08-10 fit.
+
+
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation* and keeps the
 > best, so a sequence is steered as it is written. [P3-B2b] below is the phage-paper approach —
 > generate complete sequences, then throw most away. Different mechanisms; they compose.

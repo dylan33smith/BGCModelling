@@ -8,8 +8,8 @@
 * **Environment:** `gputee`, single H100 80 GB, shared host. IU Quartz for multi-GPU long-context.
   Data and runs live on `/data2`, never in the repo.
 * **Stack:** `micromamba activate bgcmodel` (torch 2.5.1+cu124, transformers 4.46.3, antiSMASH
-  8.0.4 + Pfam). GenomeOcean uses a separate env: `micromamba run -p /data2/ds85/envs/genomeocean`.
-  Bash/tmux/HMMER/MMseqs2 matter as much as Python here — YOU MUST NOT assume a task is Python.
+  8.0.4 + Pfam); GenomeOcean has its own env (`data.md`). Bash/tmux/HMMER/MMseqs2 matter as much as
+  Python — YOU MUST NOT assume a task is Python.
 
 ## Documentation Architecture
 
@@ -41,17 +41,20 @@
    2026-08-18; the pre-Phase-3 rule asserted it reads ~0 de novo). Measure it before treating it
    as either a target or a dead end — see `memory.md`.
 
+9. **A validation holds only in the REGIME it was measured in.** Any discrimination score,
+   threshold or calibration must be re-derived when the scoring set, window, seed length, substrate
+   or generation path changes; the Phase-2 ladder rungs did not survive re-testing (`memory.md`).
+
 ## Agent Behavior & Prohibitions
 
-* **Verify before acting.** Never guess paths, shapes, record counts, or splits — use `ls`/`grep`
-  or `data.md`. A path that "should" exist has repeatedly not.
+* **Verify before acting.** Never guess paths, shapes, counts or splits — use `ls`/`grep`/`data.md`.
 * **No sweeping changes.** No global `sed` or multi-file refactors without permission.
 * **Strict documentation limits.** Do not create new doc files; the six above are the set. ASK
   FIRST with a justification if you believe one is needed.
 * **Prevent definition drift.** Search `terms.md` before defining a metric, writing a pipeline or
   labelling a table row; use the established name exactly. Never invent synonyms.
 * **Report the failure, not the workaround.** A missing tool/resource/gate must never silently
-  become a negative result (`BGC_EVAL_STRICT` enforces this in code; hold to it in prose).
+  become a negative result — `BGC_EVAL_STRICT` enforces this in code; hold to it in prose.
 
 ## IMPORTANT: Results Reporting Format
 
@@ -113,20 +116,19 @@ lost a 698 MB run dir to a case collision and ~6,600 training records to a manif
   `tmux new-session -d -s <n> '<cmd> > logs/<n>.log 2>&1; echo $? > logs/<n>.status'`
 * **Read synchronous results.** After a fast command, read and summarize the output unprompted.
 * **Fan out when the batched path is gated.** Generation is one-sequence-at-a-time (vortex batching
-  is gated, `bugs.md`), which leaves the H100 at ~41% util / 4 GB of 80 GB. Run N *sequential*
-  processes on disjoint units instead: semantics are unchanged (each still generates serially, so
-  outputs are identical). **N is not a constant — MEASURE IT.** Check `nvidia-smi` utilisation
-  first: fan-out only helps while the GPU is *under-utilised*. Once utilisation is ~100%, more
-  workers time-slice a saturated device and aggregate throughput FALLS. Verify by counting outputs
-  over a ~3 min window and comparing seq/hour against the previous N; if it did not rise, back off.
-  **Re-measure whenever the model, sequence length, batch shape or host changes** — a 7B, longer
-  generations or a busier host all move the optimum. *Measured 2026-08-17 for 1B generation at
-  2.2 kb on an idle H100:* N=1 → 124 seq/h (41% util), **N=3 → 432 seq/h (100% util)**,
-  N=5 → ~300 seq/h (regression). Treat that as a starting point, not a rule.
-  `scripts/fanout.sh <N> <claim_dir> <unit_file> '<cmd with {}>'` — claims units atomically with
-  `mkdir`, one tmux session + status sentinel per worker. Write to `<out>.partial` and `mv` on
-  success so an interrupted unit never looks complete. **Not for throughput/memory benchmarks** —
-  contention is exactly what invalidates those.
+  is gated, `bugs.md`), leaving the H100 far under-utilised. Run N *sequential* processes on disjoint
+  units: semantics are unchanged, so outputs are identical. **N is not a constant — MEASURE IT.**
+  Fan-out helps only while utilisation is below ~100%; past saturation, extra workers time-slice and
+  aggregate throughput FALLS. Verify by counting outputs over ~3 min against the previous N, and
+  re-measure whenever model, sequence length, batch shape or host changes (`memory.md` has the
+  measured curve). `scripts/fanout.sh <N> <claim_dir> <unit_file> '<cmd with {}>'` — atomic `mkdir`
+  claims, one tmux session + sentinel per worker; write `<out>.partial` and `mv` on success.
+  **Not for throughput/memory benchmarks** — contention is what invalidates those.
+* **Any fan-out or workflow MUST assert its own completeness and fail loudly.** A script that
+  filters results and reports a count cannot distinguish "found nothing" from "ran nothing" — an
+  all-agents-failed workflow returned a clean-looking zero (`bugs.md`). Assert
+  `results.length === expected` and throw; before trusting an empty result, count
+  `"type":"result"` lines in `journal.jsonl`.
 * ⚠️ **Never `pkill -f <pattern>` where the pattern can match your own command line.** `pkill -f
   seed_generate.py` issued from a shell whose command string contains that text kills the issuing
   shell. Kill by PID from `ps -eo pid,cmd`.
@@ -148,13 +150,11 @@ those legible later.
 
 When an intervention, script, or experiment is confirmed complete:
 
-1. **Archive to memory.** Append hypothesis, method, provenance, and results to `memory.md` under
-   today's date. Full prose lives here.
-2. **Compress to the ledger.** Add or update the one-row summary in `plan.md`'s Phase Ledger. The row
-   stays for the rest of the phase — do not make the next session grep `memory.md` for it.
+1. **Archive to memory.** Hypothesis, method, provenance, results → `memory.md` under today's date.
+2. **Compress to the ledger.** One-row summary in `plan.md`'s Phase Ledger; it stays for the phase,
+   so the next session need not grep `memory.md` for it.
 3. **Document fixes.** Append any `[Symptom] → [Fix]` to `bugs.md` under its subject heading.
-4. **Define new terms.** Any new metric, variant, or pipeline step gets a `terms.md` entry with the
-   full schema (Is / Computed by / Changes meaning with / Valid vs / Status). Tag it.
-5. **Register artifacts.** Any new checkpoint, generation set, or dataset gets a `data.md` row.
-6. **Reset the board.** Rewrite `plan.md`'s Current State paragraph and queue the next task.
-7. **Run the verifier.** `python tests/test_docs_contract.py` must pass before the session ends.
+4. **Define new terms.** Any new metric/variant/pipeline step gets a full `terms.md` entry, tagged.
+5. **Register artifacts.** Every new checkpoint, generation set or dataset gets a `data.md` row.
+6. **Reset the board.** Rewrite `plan.md`'s Current State and queue the next task.
+7. **Verify.** `python tests/test_docs_contract.py` must pass before the session ends.
