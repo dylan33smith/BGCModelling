@@ -235,6 +235,13 @@ Hold seed *content* fixed at exemplar so length is the only variable.
 seeded base rate.
 
 #### Gates that apply to every cell
+- ⚠️ **`--no-boundary-orf` IS MANDATORY.** At L=500, 12/12 on-class hits reproduced their own
+  source cluster's domain — the seed handed over most of a marker gene and the model finished it.
+  The flag truncates the seed at its last in-frame stop so no ORF spans seed→continuation, forcing
+  a class-defining domain in the continuation to be de novo. Run every Stage-2 arm with it, and
+  report a without-flag arm as the adversary control.
+- **Pre-register BOTH novelty gates** — `containment` AND protein AAI. Containment never exceeded
+  0.021 in Stage 1 and would have passed the memorising L=500 configuration as clean.
 - **MANIPULATION CHECK** (§9): seeded output must *differ from A0 on some measured axis*. A 4-nt
   seed that changes nothing is not a treatment, and its null is uninformative rather than negative.
 - **Novelty:** `containment` reported per cell; computed on the continuation, which is already all

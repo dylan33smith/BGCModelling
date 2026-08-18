@@ -566,4 +566,37 @@ informativeness; still 4/50 at best vs 9/31 = 29% for real cores. The cluster ga
 
 ---
 
+## 2026-08-17 — ★ Finding: at L=500 the model RECONSTRUCTS the seed's own cluster; at L=8 it does not
+
+Asked whether the generated domain relates to the cluster the seed came from. Each of the 50
+generations per cell uses a **different** seed — the first `seed_nt` of a different val record —
+and every record stores `seed_accession`, so this is directly checkable.
+
+| seed length | on-class hits | hits whose generated domain matches **their own source cluster** |
+|---|---|---|
+| **8 nt** | 8/50 | **0 / 8** |
+| **500 nt** | 12/50 | **12 / 12** |
+
+**Perfect separation.** At 500 nt every single on-class generation produced a domain the source
+cluster actually has — PF04055→PF04055, PF02624→PF02624, PF03070→PF03070. That is **recall of the
+seeded instance, not generation.** At 8 nt not one hit matched its source: 6 of 8 produced PF05114
+regardless of what the source carried, and PF05114 is simply the **most common** RIPP marker in
+real cores (12/50). The model is emitting a class prior, not a memory.
+
+**Mechanism.** 86% of RIPP cores begin *at* the marker gene, and the median core is 1.9 kb, so a
+500-nt seed hands over a large fraction of the first marker gene; the continuation finishes it and
+the domain is detected in the continuation. `seed_generate.py` already has **`--no-boundary-orf`**
+for exactly this — it truncates the seed at the last in-frame stop so no ORF spans seed→
+continuation, forcing any class-defining domain to be de novo. **The sweep did not use it.**
+
+⇒ This is the same phenomenon as the AAI rise (max 0.914, median 0.000→0.291) and the higher rate
+(0.240) at L=500. All three are one thing: **at 500 nt we are handing the model most of a gene and
+it completes it.** It is precisely the "the model is just filling in something that already exists"
+objection, now measured rather than argued.
+
+⇒ **Strongly confirms L\* = 8 nt**, and on a much more interpretable axis than AAI. Also makes
+`--no-boundary-orf` **mandatory for Stage 2**, and worth reporting as an adversary control.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
