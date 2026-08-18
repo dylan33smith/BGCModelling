@@ -85,6 +85,46 @@ Aliases:              names seen in old docs. Do not use them.
   2026-08-17 to fix the scorer that read the class-agnostic `best_bio_bits` as an on-class rate.
 - **Status:** SECONDARY — the substrate for `on_class`, not a rate itself.
 
+### `protein_aai`  [evaluation] [gate]
+- **Is:** Best amino-acid identity between any ORF of a generation and any protein of the TRAINING
+  set — one value per record, in [0,1]. Reported as **max** and **median over all records** in a
+  cell, not over on-class records only.
+- **Computed by:** `scripts/novelty_battery.py:protein_novelty` → MMseqs2 `easy-search` (`-e 1e-3`,
+  `-s 5.7`) of translated ORFs against `<class>/train_proteins.fa`; `fident` column.
+- **CHANGES MEANING WITH:** the training protein DB (per class), the MMseqs sensitivity, and the
+  ORF caller's `min_aa`. A record with **no** hit scores 0.000 — so a median of 0.000 means most
+  records match nothing, not that they match poorly.
+- **Valid vs:** same DB, same sensitivity. Complementary to `containment`, never a substitute:
+  ⚠️ **DNA containment cannot see protein-level reconstruction.** In the seed sweep containment
+  stayed ≤0.021 while `protein_aai` rose to 0.914 and the model was demonstrably rebuilding the
+  seeded cluster. See `bugs.md` 2026-08-17.
+- **Status:** **PRIMARY GATE** alongside `containment`. `FAIL_paraphrase` at ≥0.95. Both gates must
+  be pre-registered for any seeded arm.
+- **Aliases:** "AAI", "protein novelty", "T3.2".
+
+### `seed_nt`  [method]
+- **Is:** Length in nucleotides of the exemplar prefix handed to the model. Stored per record.
+- **Computed by:** `evo2/scripts/seed_generate.py --seed-nt N`; the seed is `src[:N]` of a **single
+  distinct source record per generation** (50 generations = 50 different seeds), recorded as
+  `seed_accession` and `seed_prefix_64`.
+- **CHANGES MEANING WITH:** nothing internal — but it is the dominant experimental variable in
+  leg 2, and the **seed is never scored** (`scored_span: continuation_only`).
+- **Valid vs:** same seed source split. Seeds for tuning come from **val**, confirmatory from test.
+- **Status:** **L\* = 8 nt** (chosen 2026-08-17). Beyond ~100 nt the model reconstructs the seeded
+  cluster rather than generating: at 500 nt, 12/12 on-class hits reproduced their own source
+  cluster's domain, vs 0/8 at 8 nt.
+
+### `no_boundary_orf`  [method]
+- **Is:** Adversary control that truncates the seed at its **last in-frame stop codon**, so no open
+  reading frame spans seed→continuation. Any class-defining domain found in the continuation must
+  therefore be written de novo rather than being the tail of a handed-over gene.
+- **Computed by:** `evo2/scripts/seed_generate.py --no-boundary-orf` → `_truncate_at_last_stop`.
+- **CHANGES MEANING WITH:** nothing; it either ran or it did not. Record it per arm.
+- **Valid vs:** an arm run **without** the flag, which is the informative pairing.
+- **Status:** **MANDATORY for Phase-3 seeded arms** (decided 2026-08-17). 86% of RIPP cores begin
+  at the marker gene, so a long seed hands over most of that gene; without this flag a "hit" can be
+  the model finishing what it was given. Stage 1 did **not** use it.
+
 ### `bio_span_frac`  [evaluation]
 - **Is:** Distance from the first to the last biosynthetic-domain-carrying ORF, as a fraction of
   sequence length. Asks "are the domains *clustered*?" — one domain is not a cluster.

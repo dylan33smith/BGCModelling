@@ -15,14 +15,20 @@ Leg 1: a RIPP-only LoRA produces RIPP machinery de novo at 4/150 = 0.027 vs **0/
 controls, **p = 0.0054** (pre-registered). Leg 2 Stage 1: seeding lifts that to **0.160 at an 8-nt
 seed** (~6×), and — the strongest control in the project so far — **base Evo2-1B scores 0/50 at
 every seed length up to 500 nt.** A real 500-nt RIPP prefix handed to the base model yields no RIPP
-domain at all, so the seed is not doing the work; the adapter is. Stage 1 also found that
-**nucleotide `containment` is blind to the memorisation it was meant to catch** (max 0.021 at
-L=500, vs a 0.80 gate) while **protein AAI rises monotonically to 0.914 with median 0.000 → 0.291**
-— the phage paper's warning, visible only because T3.2 exists. **L\* = 8 nt**, chosen over L=500
-because L=500's higher rate is not statistically distinguishable (p=0.227) and carries the
-memorisation signal. Next is Stage 2: arms A1/A2/A3 × LoRA/general at L=8, on TEST seeds, with n
-and **both novelty gates** pre-registered first. The persistent gap is structural — best cell is
-4/50 records with ≥2 distinct RIPP markers against 29% for real cores. **One enzyme, not a cluster.**
+domain at all, so the seed is not doing the work; the adapter is.
+
+**The seed length is where generation turns into recall.** At L=500, **12/12** on-class generations
+reproduced a marker domain their **own source cluster** carries; at L=8, **0/8** did — 6 of 8 emitted
+PF05114, simply the commonest RIPP marker, i.e. a class prior rather than a memory. Mechanism: 86%
+of cores begin at the marker gene, so a long seed hands over most of that gene and the model
+finishes it. **`containment` is blind to this** (max 0.021 at L=500 against a 0.80 gate) while
+protein AAI rises to 0.914 (median 0.000 → 0.291). **L\* = 8 nt** — L=500's higher rate is not
+statistically distinguishable (p=0.227) and carries the recall signal.
+
+Next is Stage 2: arms A1/A2/A3 × LoRA/general at L=8 on TEST seeds, **`--no-boundary-orf` mandatory**,
+with n and **both novelty gates** pre-registered first. The persistent gap is structural — best cell
+is 4/50 records with ≥2 distinct RIPP markers against 29% for real cores. **One enzyme, not a
+cluster** — consistent with 48.8% of training records being a single gene.
 
 ---
 

@@ -159,7 +159,7 @@ See the naming convention in `CLAUDE.md`.
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase3_RIPP_seedsweep/` | 08-17 | **Stage 1 of [P3-B1-EXP].** Exemplar-seeded generations, seed length ∈ {4, 8, 20, 100, 500} nt × {RIPP LoRA, base 1B}, n=50/cell, seeds drawn from `splits_class/RIPP/val_prompts.jsonl` (60 val records, len ≥ 1000, 0 genome overlap with train). Files `s1_<model>_L<len>.jsonl` + `_w2000.json` scored outputs. **Tuning run — picks L\*; not confirmatory.** | 🔄 running |
+| `phase3_RIPP_seedsweep/` | 08-17 | **Stage 1 of [P3-B1-EXP] — COMPLETE.** Exemplar-seeded generations, seed length ∈ {4, 8, 20, 100, 500} nt × {RIPP LoRA, base 1B}, n=50/cell, seeds from `splits_class/RIPP/val_prompts.jsonl` (60 val records, len ≥ 1000, 0% genome overlap with train). 10 × `s1_<model>_L<len>.jsonl` + 10 × `s1_<model>_L<len>_w2000_RIPP.json` (full Phase-3 reporting set) + `.log`. Generation 2,200 nt, `--seed 7`, substrate `evo2_1b_base`. **Result: L\* = 8 nt.** base 1B **0/50 at every length**; lora 0.140/0.160/0.100/0.100/0.240. ⚠️ Run **without** `--no-boundary-orf`, so the L=500 cells reconstruct the seeded cluster (12/12 domain match) — see `memory.md` 2026-08-17. `.claims/` holds the fan-out claim dirs. | ✅ |
 
 ### Phase 2 — objective change (CLOSED)
 

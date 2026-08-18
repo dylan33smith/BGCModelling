@@ -384,6 +384,22 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Eval suite
 
+- **[2026-08-17] ⚠️ `containment` reads CLEAN while the model is reconstructing the seeded cluster.**
+  **[Symptom]** In the seed sweep, L=500 posted the best on-class rate (0.240) with max nucleotide
+  containment **0.021** — two orders of magnitude below the 0.80 WARN gate, i.e. perfectly novel by
+  the DNA guard. It was not novel: **12/12 on-class generations reproduced a marker domain their own
+  source cluster carries.**
+  **[Cause]** `containment` is max canonical 21-mer overlap. A model that reconstructs the *protein*
+  a seed encodes, using different synonymous codons and its own sequence, shares few exact 21-mers.
+  DNA identity is the wrong resolution for this failure.
+  **[Proven fix]** Gate on **protein AAI** as well (T3.2, already in the battery — max AAI rose
+  monotonically 0.617→0.914 and median 0.000→0.291 across the same sweep), and run seeded arms with
+  **`--no-boundary-orf`** so no reading frame spans seed→continuation. Never report a seeded arm on
+  containment alone.
+  **[Severity]** HIGH. Following the pre-registered Stage-1 rule literally — which keyed on
+  containment only — would have selected the memorising configuration as L\*.
+
+
 - **[2026-08-11] THE 3 kb GENERATION LENGTH IS A CEILING, and for hybrids it is a ceiling of ZERO.**
   Nearly every generation experiment ran at 2-3 kb. Measured directly (`scripts/length_ceiling.py`)
   by truncating REAL held-out cores to the lengths we generate and running the same antiSMASH gate
