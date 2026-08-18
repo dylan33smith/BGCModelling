@@ -719,4 +719,49 @@ a family member, further from training than a real held-out cluster is. The 0.00
 
 ---
 
+## 2026-08-18 — ⚠️ THE LADDER AUROCs DO NOT TRANSFER to the class-specific regime
+
+Re-derived at the user's request, using the new antiSMASH labels as the independent outcome — the
+same outcome the original derivation used, so this is a like-for-like re-test in a new regime.
+
+**Method and the trap avoided.** The on-class pool was *selected* on `best_bio_bits > 0`, so pooling
+on-class with off-class and computing AUROC for a bio-derived metric is **circular**. The honest
+test is **within the on-class pool**: among sequences that pass our Pfam gate, do the rungs predict
+whether antiSMASH calls a cluster? n=68 (S2-1 + S2-4 on-class), 31 antiSMASH positives (0.456).
+
+| metric | **AUROC now** | original | verdict |
+|---|---|---|---|
+| `best_bio_bits` | **0.575** | 0.950 | **does not transfer** |
+| `best_any_bits` | 0.575 | — | no information |
+| `n_bio_orfs` | 0.532 | — | no information |
+| `max_orf_aa` | 0.520 | 0.709 | does not transfer |
+| `n_bio_domains` | **0.519** | 0.919 | **does not transfer** |
+| `co_orient` | 0.511 | — | no information |
+| `biosynthetic_fraction` | 0.500 | — | no information |
+| `bio_span_frac` | **0.173** | 0.896 | **INVERTED — anti-predictive** |
+
+Pooled on+off-class for contrast (circular, do not quote): 0.851 / 0.827 / 0.740.
+
+**Why, and it is not that the metrics are wrong.** The original AUROCs were measured on **long-seed
+(≈500 nt) arms scored against the GLOBAL Pfam set**, a regime with real spread in domain content.
+In the current regime there is **almost no variance left to rank with**: `n_class_domains` among
+on-class records is **1.000**, and real cores truncated to the 2 kb window average only **1.04**
+biosynthetic domains. A metric that is effectively constant cannot discriminate, and AUROC ≈ 0.5 is
+exactly what a constant returns. `bio_span_frac` inverting is the same degeneracy — with one domain
+it reduces to "how much of the window does the single gene span", which is not a cluster measure.
+
+**Consequences, and they are real.**
+1. **Stop quoting 0.950 / 0.919 / 0.896 as validation of these metrics in Phase 3.** They validated
+   adopting the metrics in the Phase-2 regime. They say nothing about Phase-3 rankings.
+2. **`bio_span_frac` must not be used as a cluster-structure rung at a 2 kb window.** It is
+   degenerate-to-inverted there. `n_class_domains` (a count) is the honest cluster measure.
+3. **Among on-class records, nothing we measure predicts antiSMASH confirmation** (best 0.575). The
+   Pfam gate is a good *filter* — off-class records are confirmed 0–4% vs on-class 45.6% — but it
+   cannot rank *within* its own positives. **Any pruning or RL that ranks on-class candidates by a
+   ladder metric is ranking on noise.** That directly constrains [P3-B2a] and [P4-RL].
+4. ⇒ **The 2 kb window is itself implicated** — real cores show 1.04 domains in it. See the
+   window question in `plan.md`.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

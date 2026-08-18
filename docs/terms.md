@@ -391,12 +391,14 @@ Aliases:              names seen in old docs. Do not use them.
 ### THE LADDER  [evaluation] [method]
 - **Is:** The validated ordering of capability metrics, replacing the single binary gate. Each rung
   is maximised by copying training data, so **novelty guards all of them**.
-- ⚠️ **AUROC PROVENANCE (flagged 2026-08-18).** All three AUROCs below were measured by
-  `ladder_audit.py` on **seeded** arms scored against the **GLOBAL** biosynthetic Pfam set, before
-  the class-specific scorer existed. Phase 3 scores against `OBLIGATE_DOMAINS[<CLASS>]` in a
-  **de novo and short-seed** regime. **Whether the AUROCs transfer to that configuration is
-  unverified.** They justified adopting these metrics; they are not evidence about Phase-3 rankings.
-  Re-deriving them under the class-specific scorer is cheap and unqueued.
+- ⚠️ **THE AUROCs BELOW DO NOT TRANSFER TO PHASE 3 — re-derived and refuted 2026-08-18.** They were
+  measured on **long-seed arms against the GLOBAL Pfam set**. Re-tested within the on-class pool
+  against antiSMASH labels (n=68): `best_bio_bits` **0.575** (was 0.950), `n_bio_domains` **0.519**
+  (was 0.919), `bio_span_frac` **0.173 — inverted** (was 0.896). Cause: no variance left to rank
+  with — `n_class_domains` among on-class is 1.000 and real cores average 1.04 domains in the 2 kb
+  window. **The AUROCs justified ADOPTING these metrics in Phase 2; they are not evidence about
+  Phase-3 rankings, and `bio_span_frac` must not be used as a cluster rung at 2 kb.** Nothing we
+  measure ranks within our own positives (best 0.575) — see `memory.md` 2026-08-18.
 
   | rung | metric | AUROC |
   |---|---|---|
