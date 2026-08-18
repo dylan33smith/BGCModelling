@@ -25,17 +25,23 @@
 ## Standing Constraints (hard rules; rationale lives in `memory.md`)
 
 1. **Novelty gates every rung, never co-reported** — every ladder metric is maximised by copying.
-2. **Live datasets: `splits_core/` and `splits_class/<CLASS>/` only** — DEPRECATED (`data.md`) is
-   off-limits; `splits_combined/` leaked (94.6% genome overlap).
+   **Both gates apply: `containment` AND `protein_aai`** — DNA containment is blind to
+   protein-level reconstruction, so it can pass a memorising arm on its own.
+2. **Live datasets: `splits_core/`, `splits_class/<CLASS>/`, `splits_class_wide/<CLASS>/`** —
+   DEPRECATED (`data.md`) is off-limits; `splits_combined/` leaked (94.6% genome overlap).
 3. **The 1B is the Phase-3 testing substrate**; the 7B confirms. Testing does not fan out across
-   models — that confounds method with model.
+   models. ⚠️ `evo2_1b_base` context is **8,192 — a hard model limit**, not a config choice; it
+   constrains substrate design (see `data.md`).
 4. **Pre-registered endpoints do not change mid-phase** (`docs/phase3_preregistration.md`).
 5. **A null is interpretable only if the test was powered AND the intervention verified to have
    landed** — otherwise the result is "uninformative", not "negative".
 6. **MiBIG stays held out.** Reserved for a later compound-conditioned fine-tune.
-7. **Never compare an antiSMASH number against a `class_markers` proxy number** — the proxy
-   inflates `correct_class` ~2.6×.
-8. **`correct_class` is not a de novo optimisation target** — it has read ~0 de novo throughout.
+7. **Never MIX antiSMASH and `class_markers` proxy numbers in one comparison** — the proxy inflates
+   substantially (`terms.md`). This is not a reason to skip antiSMASH: **run it, report it as its
+   own row.**
+8. **`correct_class` under a class-specific adapter is UNMEASURED, not zero** (rewritten
+   2026-08-18; the pre-Phase-3 rule asserted it reads ~0 de novo). Measure it before treating it
+   as either a target or a dead end — see `memory.md`.
 
 ## Agent Behavior & Prohibitions
 
