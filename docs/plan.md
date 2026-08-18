@@ -313,6 +313,46 @@ from A0, and that is a stronger claim than a hit-rate delta.
 those are collinear assembly lines. RiPP gene order is not collinear, and at 1.45 markers per core
 order is undefined for most records. See `memory.md` 2026-08-17.
 
+### [P4-WIDE] WIDE_KINDS fine-tune — 🔄 RUNNING 2026-08-18
+Substrate widened from `{"biosynthetic"}` to `{"biosynthetic","biosynthetic-additional"}`.
+Same recipe as A0, `DATA=splits_class_wide/RIPP`, **epochs matched to A0 (3) rather than steps**.
+⚠️ **3,723/7,808 records kept (47.7%)** — the rest exceed the 1B's **8,192 native context**
+(`evo2_1b_base`, a hard model limit) and are dropped, not chunked, so `|END|` still lands true.
+Read this arm as a **lower bound** on what WIDE can do: full WIDE is 4.41 genes/record, the
+≤8,192 subset only 2.27 (vs 1.87 strict).
+
+#### [P4-WIDE-CTRL] The size-matched control — SPEC (run after the WIDE arm reads out)
+**The confound:** WIDE trains on 3,723 records, A0 on ~7,000. A difference could be span width
+**or** dataset size. One extra arm separates them.
+
+**Do NOT use a random 3,723-record subsample.** The WIDE subset is not random — it is the *short*
+wide records, biased toward smaller clusters. Instead take **the STRICT spans of exactly the 3,723
+accessions that survived the WIDE ≤8,192 filter.** Verified: 3,723/3,723 accessions are shared, so
+the two arms contain **identical clusters, identical split membership, identical count** — the only
+difference is span width. That is a perfectly matched pair, which a random subsample would not be.
+
+| arm | records | total nt | median nt | status |
+|---|---|---|---|---|
+| A0 — strict, full | 6,963 | 14.58 M | 1,713 | ✅ done |
+| **STRICT-matched** | **3,723** | **6.96 M** | 1,209 | ⬜ spec'd |
+| WIDE | 3,723 | 13.69 M | 3,714 | 🔄 running |
+
+**What each comparison isolates:**
+- **WIDE vs STRICT-matched** → the effect of *span width*, at identical clusters and count.
+- **STRICT-matched vs A0** → the effect of *dataset size* alone, at identical span width.
+
+⚠️ **The one confound that cannot be removed: tokens.** At matched record count and matched epochs,
+WIDE sees **1.97× the tokens** (13.69 M vs 6.96 M). You cannot match records, tokens *and* epochs
+simultaneously — token-matching would require unequal epochs, and more passes over less data
+carries its own memorisation risk. **Decision: match records and epochs, declare the 1.97× token
+asymmetry, and report it with every WIDE number.** If WIDE wins, the honest claim is "wider spans
+and the extra tokens they carry", not "wider spans alone".
+
+**Endpoint:** unchanged (Standing Constraint 4) — `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`,
+2,000 nt. Report a wider window as a **declared secondary**, because WIDE markers spread over
+~8.5 kb and a 2 kb window sees only 31.0% of them vs 70.7% on the full record.
+**Primary question for this arm: does `n_class_domains ≥ 2` finally move off 2/188?**
+
 ### [P4-RL] REINFORCEMENT LEARNING on our own gates — a Phase-4 track
 **Idea (user, 2026-08-18):** generate in bulk, score, feed the winners back as positives and the
 losers as negatives. In practice this is **rejection-sampling fine-tuning** (retrain on the winners)
