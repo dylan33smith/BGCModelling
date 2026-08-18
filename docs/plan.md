@@ -32,6 +32,36 @@ cluster** — consistent with 48.8% of training records being a single gene.
 
 ---
 
+## ⚠️ OPEN STRATEGIC QUESTION — decide before committing to Phase 4
+
+**The model was never shown clusters, so it cannot be failing to generate them.**
+
+`n_class_domains >= 2` is **0 or near-0 in every arm run to date** — A0, base, general adapter, and
+every seed length — against **29%** for real cores. That number has not moved once all day.
+
+The cause is in the training data, not the model: **48.8% of RIPP training records are a single
+biosynthetic gene** (median 2, mean 1.86), and the strict core is a **median 9.1% of the antiSMASH
+region** (1,931 nt of 21,279). `STRICT_KINDS = {"biosynthetic"}` excludes transport, regulatory and
+`biosynthetic-additional` — for RiPPs that drops the exporter/protease. See `memory.md` 2026-08-17.
+
+So "generate a BGC" is not what any current arm tests. The honest description of every rate on this
+board is **"produces a biosynthetic enzyme gene of the right class"**, and the 0.440 ceiling is
+"a real trimmed core", not "a real BGC".
+
+**The candidate intervention: a `WIDE_KINDS` training arm** (`{"biosynthetic",
+"biosynthetic-additional"}`), giving 2–3 gene neighbourhoods instead of one gene.
+- **For:** it is the only item on the board that targets the gap every metric keeps reporting. The
+  window pressure that justified strict trimming has largely expired — Phase 3 trains at L=8192 on
+  median 1.9 kb cores, an order of magnitude under the limit.
+- **Against:** it needs a new training run, and whole-core-only training was tried before
+  (`mega_whole_32k`) and **failed** — "starves the data". `WIDE_KINDS` is a middle point that has
+  never been tried, not a repeat of that.
+- **Do NOT redefine the endpoint mid-phase** (Standing Constraint 4). This is a Phase-4 scope
+  decision or a deliberate re-open, not a quiet change.
+
+⇒ **Stage 2 measures the same ceiling either way, so it is safe to run first — but decide this
+before designing anything after it.**
+
 ## Reporting contract — every Phase-3 arm
 
 **All Phase-3 interventions report THE PHASE-3 REPORTING SET in full** (`terms.md`), emitted by

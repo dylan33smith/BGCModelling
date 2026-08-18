@@ -213,6 +213,41 @@ zero hits is still consistent with a true control rate near A0's own.
 n=150/arm was chosen precisely because it survives two control hits. **Read once at n=400. Do not
 extend the sample after seeing the result** — that converts this to exploratory under §10.
 
+### 8.5 STAGE 2 — seeded arms at L\*=8 nt. Pre-registered 2026-08-17, BEFORE generating.
+
+**Endpoint unchanged** (§2). This fixes the arms, n, and both novelty gates.
+
+⚠️ **§7's A2 (mosaic) and A3 (consensus) are DEGENERATE at L\*=8 and are NOT run.** A mosaic
+splits a seed across k clusters — at 8 nt that is ~2–3 nt each. A consensus over RIPP starts is
+noise past position 3 (measured entropy ≈2.0 bits). Both were designed when seeds were ~500 nt.
+**At 8 nt the meaningful contrast is the MODEL and the seed's INFORMATION CONTENT, not its
+provenance.** Recorded rather than silently dropped.
+
+**Arms — n=200 each, L=8 nt, `--no-boundary-orf`, TEST seeds (`eval_prompts.jsonl`), seed 11:**
+
+| id | model | seed | question |
+|---|---|---|---|
+| S2-1 | RIPP LoRA | real RIPP 8-mer | the main arm |
+| S2-2 | general all-class adapter | real RIPP 8-mer | **is the lift class-specific?** (the §7 comparison) |
+| S2-3 | base 1B | real RIPP 8-mer | floor |
+| S2-4 | RIPP LoRA | **codon-shuffled** 8-mer | does seed *content* matter, or just having a prefix? |
+| S2-5 | RIPP LoRA | real 8-mer, **mismatched class tag** | does the continuation track the SEED or the TAG? |
+
+**Powered contrasts, fixed now** (Fisher exact, one-sided, from the Stage-1 rate of 0.160):
+- **S2-1 vs S2-2** — powered to p<0.001 at n=200 if general ≈0.02.
+- **S2-1 vs S2-4** — powered to **p=0.0101** at n=200 if shuffling halves the rate (0.160→0.08).
+  ⚠️ A 4-point difference (0.160 vs 0.12) needs n≈600 and is **out of reach**; if the observed gap
+  is that small the result is **"underpowered, read descriptively"**, NOT "no effect".
+- S2-3 is a floor, not a contrast.
+
+**BOTH novelty gates are gates** (Stage 1 showed containment alone passes a memorising arm):
+`containment` FAIL ≥0.95 · **`protein_aai` FAIL ≥0.95** · intra-set distinctness · JOINT_PASS.
+
+**Reported for every arm:** THE PHASE-3 REPORTING SET in full, plus the seed→generation domain
+match (Stage 1's decisive readout: 0/8 at L=8 vs 12/12 at L=500).
+
+**Read once at n=200. Do not extend after seeing results** — that makes it exploratory under §10.
+
 ## 9. Decision rules — fixed in advance
 
 - **An arm SUCCEEDS** iff its `on_class_rate` exceeds the A0 floor by Fisher's exact p < 0.05 **and**
