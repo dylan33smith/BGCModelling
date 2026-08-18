@@ -92,6 +92,12 @@ fresh MMseqs2 cross-split pass — **not filtered out of `splits_core`**. Manife
 | TERPENE | 14,122 | 11,297 | 793 | 732 | 960 | 46% | ✅ | available |
 | PKS | 6,495 | 5,195 | 323 | 309 | 2,103 | — | ✅ | available |
 
+⚠️ **`accession` is NOT unique** — RIPP train has 8,129 rows over 7,808 distinct accessions (321
+collisions; val 576/558, test 579/560). Colliding rows are *different regions sharing one label*, not
+duplicated data. **Splits remain genome- and accession-disjoint across train/val/test (verified
+2026-08-18), so there is no leakage** — but any accession-keyed join must state its collision policy.
+See `bugs.md`.
+
 `splits_class/RIPP/eval_prompts.jsonl` — 200 fixed generation prompts. ⚠️ **100% drawn from
 TEST** (199/199 accessions, 0% genome overlap with train), so tuning anything on it selects on the
 test set. `splits_class/RIPP/val_prompts.jsonl` — 60 records from **val** (len ≥ 1000 so a 500-nt
@@ -103,6 +109,12 @@ whole manifest** at 12:34 covering only RIPP/PKS/TERPENE. Their leakage controls
 unverifiable from the record, and both classes were already disqualified on diversity (69% / 81%
 near-dup loss), so **they were deleted 2026-08-14** rather than given a fabricated provenance entry.
 ⚠️ The builder overwrites `manifest.json` wholesale — rebuilding one class drops every other entry.
+
+### `splits_class_strictmatched/RIPP/` — size- and cluster-matched control, built 2026-08-18
+**3,723 train / 258 val**, strict spans, restricted to **exactly the rows** the WIDE split kept
+(same accessions, mirroring WIDE's last-wins collision rule). Test and eval_prompts copied unchanged.
+Purpose: isolate span width from training-set size in [P4-WIDE-SEEDED]. Without it, a WIDE-vs-S2-1
+difference confounds width with the 7,250 → 3,723 size drop.
 
 ### `splits_class_wide/<CLASS>/` — WIDE_KINDS spans, built 2026-08-18
 

@@ -568,6 +568,30 @@ that 3 kb captures most of a typical one.
 
 ## Data pipeline
 
+- **[2026-08-18] `accession` IS NOT A UNIQUE KEY — 321 collisions in the RIPP train split.**
+  **[Symptom]** Building a size-matched control by selecting strict rows whose accession appears in
+  the WIDE split returned **3,877 rows for 3,723 accessions**. `splits_class/RIPP` holds
+  train 8,129 rows / **7,808 distinct accessions (321 dupes)**, val 576/558, test 579/560.
+  **[Cause]** Two genuinely **different regions** can carry the same `GCF_x.regionN` label — the
+  colliding rows differ in `region_start`, `region_end`, `region_len`, `antismash_products` and
+  `sequence` (e.g. 1,915 nt vs 927 nt for the same accession). They are not duplicated data; they
+  are distinct spans with one label. The exact-duplicate check in the split builder cannot see this
+  (`exact_dups_removed: 0` is correct and irrelevant).
+  **[NOT a leakage bug — verified]** train∩val, train∩test, val∩test = **0 accessions and 0 genomes**.
+  Splits are genome-disjoint. **A0 and Stage-2 results are unaffected.**
+  **[Real consequence]** Any accession-keyed join silently picks one row per accession. The WIDE
+  split was built with `want[accession] = record`, so it **kept the last of each colliding pair and
+  dropped 321 legitimate training records (3.9%)** — which is the true reason
+  `splits_class_wide/RIPP` has 7,808 train rows against strict's 8,129, not "unmatched accessions"
+  as first recorded.
+  **[Proven fix]** For any accession-keyed join, decide the collision policy explicitly and state it.
+  The size-matched control mirrors the WIDE build's last-wins rule so the two arms contain the
+  **same rows**. Longer term: key on `(accession, region_start, region_end)`, or add a
+  `record_uid`.
+  **[Severity]** Medium. No result invalidated; but a 3.9% silent drop and a non-unique join key are
+  exactly how a quiet confound enters.
+
+
 - **`splits_core` records initially dropped `training_text`** →
   `training_prefix_for_chunking` raises. *Fix:* add
   `training_text = canonical_prefix + sequence` to each record.

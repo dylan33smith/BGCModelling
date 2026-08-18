@@ -268,6 +268,38 @@ match (Stage 1's decisive readout: 0/8 at L=8 vs 12/12 at L=500).
 
 **Read once at n=200. Do not extend after seeing results** — that makes it exploratory under §10.
 
+### 8.6 [P4-WIDE-SEEDED] — pre-registered 2026-08-18, BEFORE generating
+
+**Why this supersedes the de novo WIDE arm.** That arm ran at n≈80 in the 0.024 de novo regime and
+is **uninformative** — detecting a doubling there needs n≈800. This runs in the **seeded L\*=8
+regime** where the base rate is 0.176 and n=188 is already demonstrated adequate.
+
+**Arms — n=188, L=8 nt, `--no-boundary-orf`, TEST seeds (`eval_prompts.jsonl`), seed 21, 2,200 nt:**
+
+| id | adapter | trained on | question |
+|---|---|---|---|
+| W-1 | **WIDE** | 3,723 wide spans (mean 4.41 genes pre-filter) | does a wider substrate produce multi-domain output? |
+| W-2 | **STRICT size+cluster matched** | 3,723 **strict** spans, **the same accessions** | isolates span width from dataset size |
+| S2-1 | STRICT (existing) | 7,250 strict spans | the published 0.176 reference |
+
+W-2 is the control that matters: same clusters, same count, **only the span width differs**. A
+WIDE−S2-1 difference alone would confound width with the 7,250→3,723 size drop.
+
+**PRIMARY endpoint unchanged** (§2): `best_bio_bits > 0` @ `OBLIGATE_DOMAINS[RIPP]`, 2,000 nt.
+**CO-PRIMARY for this arm, declared now:** **`n_class_domains ≥ 2`** — the metric the whole
+WIDE hypothesis targets. It has read **0–2/188 in every arm ever run**; real cores read 29%.
+
+**Powered contrasts, fixed now:**
+- **W-1 vs W-2** — the clean span-width test. At 0.176 baseline, n=188 detects a lift to ~0.28.
+- **W-1 vs S2-1 (0.176)** — reported, but confounded with training-set size; secondary.
+- **`n_class_domains ≥ 2`:** from 2/188, n=188 detects a rise to ≥10/188 (Fisher p<0.05). A smaller
+  rise is **underpowered, read descriptively** — not "no effect".
+
+**Both novelty gates** (§4.1): `containment` < 0.80 **and** `protein_aai` < 0.95. Report Stage A and
+Stage B separately (§ THE TWO MEASUREMENT STAGES) and Holm-correct across the contrasts (§9.1).
+
+**Read once at n=188.** Do not extend after seeing results (§10).
+
 ## 9. Decision rules — fixed in advance
 
 - **An arm SUCCEEDS** iff its `on_class_rate` exceeds the A0 floor by Fisher's exact p < 0.05 **and**
