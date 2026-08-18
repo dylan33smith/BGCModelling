@@ -582,10 +582,113 @@
   <!-- ===================== 14. WHERE THIS LEAVES US ===================== -->
   <section>
     <span class="sec-no">14</span>
-    <h2>Where this leaves the project</h2>
+    <h2>Phase 3 — one class at a time: the first de novo positives</h2>
+
+    <p class="lede">Phase 3 abandoned label conditioning entirely and trained a <strong>class-specific
+    adapter</strong> — a LoRA fine-tuned on RIPP clusters alone. The model never sees a class label;
+    the class is carried by <em>which adapter you load</em>. Every Phase-1 conditioning closure
+    stops applying, and restricting to one small class does not work around the long-context
+    problem so much as delete it.</p>
 
     <div class="callout verdict">
-      <p class="k">The one thing that does work</p>
+      <p class="k">Two results, both pre-registered</p>
+      <p><strong>1. A class-specific adapter generates RIPP machinery de novo.</strong> 4/150 =
+      <strong>0.027</strong> against <strong>0/400</strong> pooled controls, Fisher exact
+      <strong>p = 0.0054</strong>. Neither the base model nor an all-class adapter produces a single
+      RIPP domain in 400 attempts.</p>
+      <p><strong>2. Seeding lifts that ~6×, and the lift is class-specific.</strong> An <strong>8-nt</strong>
+      seed reaches <strong>0.176</strong>; the all-class adapter given the identical seed scores
+      <strong>0/188</strong>, at <strong>p = 2.5 × 10<sup>-11</sup></strong>.</p>
+    </div>
+
+    <h3>The confirmatory arms</h3>
+    <p class="meta">provenance: phase3_RIPP_stage2 · L=8 nt · <code>--no-boundary-orf</code> · held-out
+    test seeds · n=188/arm · scoring <code>OBLIGATE_DOMAINS[RIPP]</code> · window 2,000 nt ·
+    substrate Evo2-1B · pre-registered §8.5</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Arm</th><th class="num">on_class</th><th class="num">rate</th><th class="num">95% CI</th><th class="num">generic</th><th class="num">&ge;2 markers</th><th class="num">max AAI</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">RIPP adapter + real seed</td><td class="num">33/188</td><td class="num"><strong>0.176</strong></td><td class="num">0.124–0.238</td><td class="num">0.197</td><td class="num">2</td><td class="num">0.697</td></tr>
+          <tr><td class="rowlab">all-class adapter + real seed</td><td class="num zero">0/188</td><td class="num zero">0.000</td><td class="num">0.000–0.019</td><td class="num">0.181</td><td class="num zero">0</td><td class="num">0.714</td></tr>
+          <tr><td class="rowlab">base Evo2-1B + real seed</td><td class="num zero">0/188</td><td class="num zero">0.000</td><td class="num">0.000–0.019</td><td class="num zero">0.000</td><td class="num zero">0</td><td class="num">0.000</td></tr>
+          <tr><td class="rowlab">RIPP adapter + <em>shuffled</em> seed</td><td class="num">35/188</td><td class="num">0.186</td><td class="num">0.133–0.249</td><td class="num">0.218</td><td class="num">1</td><td class="num">0.781</td></tr>
+          <tr><td class="rowlab">real RIPP cores (ceiling)</td><td class="num">22/50</td><td class="num">0.440</td><td class="num">—</td><td class="num">0.580</td><td class="num">9/31 = 29%</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="defs">
+      <p class="def"><span class="name">on_class / rate</span><span class="desc">Fraction of generations
+      carrying at least one Pfam domain from the RIPP-defining set. The pre-registered primary
+      endpoint. Higher is better; read against the 0.440 real-core ceiling and the 0.000 base floor.</span></p>
+      <p class="def"><span class="name">95% CI</span><span class="desc">Clopper–Pearson interval on that
+      rate. The adapter's interval (0.124–0.238) does not overlap the two zero arms (0.000–0.019),
+      which is the separation the p-value formalises.</span></p>
+      <p class="def"><span class="name">generic</span><span class="desc">Same measurement against <em>any</em>
+      biosynthetic domain rather than RIPP-specific ones. It exists to catch a specific illusion:
+      the all-class adapter looks productive here (0.181) while producing zero RIPP. Writing
+      biosynthetic protein and writing the <em>right</em> biosynthetic protein are different
+      achievements.</span></p>
+      <p class="def"><span class="name">&ge;2 markers</span><span class="desc">Records carrying two or more
+      <em>distinct</em> RIPP domains — our proxy for "a cluster rather than a single enzyme". Higher
+      is better; the reference is 29% of real cores. Every generated arm is at or near zero.</span></p>
+      <p class="def"><span class="name">max AAI</span><span class="desc">Highest amino-acid identity between
+      any generated protein and any training protein. <em>Lower</em> is better; ≥0.95 fails as
+      paraphrase. All arms sit well clear.</span></p>
+    </div>
+
+    <p class="prose"><strong>Reading the table together.</strong> The load-bearing comparison is row 1
+    against row 2: same seed, same prompt, same scoring — only the adapter differs, and the RIPP
+    domains appear only with the RIPP adapter. Row 3 shows the base model contributes nothing at
+    all. Row 4 is the surprise: <em>codon-shuffling the seed changes nothing</em> (0.186 vs 0.176,
+    p = 0.66), so an 8-nt seed supplies a starting prefix, not RIPP information — the class comes
+    entirely from the adapter. What the table does <em>not</em> show is cluster structure: the
+    &ge;2-marker column is 2/188 at best against 29% for real cores, and that column has not moved in
+    any arm all phase.</p>
+
+    <h3>Three independent answers to "it is only completing a cluster it already knows"</h3>
+    <ul class="prose">
+      <li><strong>The base model, given a real 500-nt RIPP prefix, produces zero RIPP domains in 50
+      attempts</strong> — at every seed length tested. The seed alone does nothing.</li>
+      <li><strong>Shuffling the seed costs nothing</strong> (p = 0.66). Its cluster identity is irrelevant.</li>
+      <li><strong>Long seeds are where recall begins, and we can see the transition.</strong> At a
+      500-nt seed, <strong>12 of 12</strong> on-class generations reproduced a domain their own
+      source cluster carries. At 8 nt, <strong>0 of 8</strong> did. We therefore work at 8 nt.</li>
+    </ul>
+
+    <div class="callout caveat">
+      <p class="k">A novelty gate we would have trusted, and should not have</p>
+      <p>Our DNA novelty guard (21-mer containment) read <strong>0.021</strong> — two orders of
+      magnitude inside the pass threshold — on the very configuration that was demonstrably
+      rebuilding the seeded cluster. A model that reconstructs a <em>protein</em> using different
+      synonymous codons shares almost no exact DNA k-mers. <strong>Protein-level identity caught it;
+      nucleotide identity was blind.</strong> Both are now hard gates on every seeded arm.</p>
+    </div>
+
+    <h3>The limitation we can now state precisely</h3>
+    <p class="prose">Across every arm — de novo, seeded, both adapters, five seed lengths — generations
+    carry <strong>one</strong> RIPP domain, essentially never two. Real cores average 1.45, with 29%
+    carrying two or more. The cause is in the training data rather than the model:
+    <strong>48.8% of our RIPP training records are a single biosynthetic gene</strong>, because the
+    "core" is trimmed to biosynthetic CDS only and keeps a median <strong>9.8%</strong> of the
+    antiSMASH region. The model has not failed to learn clusters; it was never shown one. Honestly
+    stated, every rate above means <em>"produces a biosynthetic enzyme gene of the right class"</em>,
+    and the 0.440 ceiling is <em>a real trimmed core</em>, not a real BGC.</p>
+    <p class="prose">A wider training substrate is built and quantified: including
+    <code>biosynthetic-additional</code> genes takes the median record from 1,854 to
+    <strong>8,494 nt</strong> and from 1.87 to <strong>4.41 genes</strong>, cutting single-gene
+    records from 48.8% to <strong>14.8%</strong> and raising ≥3-gene records from 21.9% to
+    <strong>67.7%</strong>. The cost is context: at our current 8,192-token window only 48.6% of
+    wide records fit, against 89.6% of narrow ones. That trade is the next decision.</p>
+
+    <h2>Where this leaves the project</h2>
+    <p class="meta">Written before Phase 3. Retained for the record; the Phase-3 section above
+    supersedes its framing — de novo generation is no longer at zero.</p>
+
+    <div class="callout verdict">
+      <p class="k">The one thing that does work <em>(pre-Phase-3)</em></p>
       <p><strong>Exemplar conditioning is a validated capability.</strong> Seed the model with a real fragment of a cluster and it extends it in the right class — correct_class <strong>0.283</strong> against a <strong>0.067</strong> mismatched floor, with memorization ruled out and all four pre-registered controls passed. The class comes from the <em>seed</em>, never from the label. Framed honestly, that is <em>"extend and diversify a known cluster"</em>, not <em>"generate class X de novo"</em> — and it is a publishable capability today. A same-day scare that this number was confounded by the seed was <strong>retracted</strong>: the scored sequence contains no seed, verified across all 1,512 seeded records ever produced.</p>
     </div>
 

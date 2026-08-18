@@ -104,6 +104,35 @@ unverifiable from the record, and both classes were already disqualified on dive
 near-dup loss), so **they were deleted 2026-08-14** rather than given a fabricated provenance entry.
 ⚠️ The builder overwrites `manifest.json` wholesale — rebuilding one class drops every other entry.
 
+### `splits_class_wide/<CLASS>/` — WIDE_KINDS spans, built 2026-08-18
+
+`/data2/ds85/bgcmodel_data/splits_class_wide/RIPP/` — **7,808 train · 558 val · 560 test.**
+Same accessions and **the same train/val/test assignment inherited verbatim** from
+`splits_class/RIPP`, so WIDE vs STRICT is a clean A/B on span width alone. Sequence is
+`wide_sequence` from `asdb5_core_records.jsonl` = the span of
+`{"biosynthetic", "biosynthetic-additional"}` CDS. 8,926/8,926 accessions matched.
+
+| | STRICT | **WIDE** | ratio |
+|---|---|---|---|
+| median nt | 1,854 | **8,494** | 4.58× |
+| mean genes | 1.87 | **4.41** | 2.36× |
+| **single-gene records** | **48.8%** | **14.8%** | — |
+| **≥3 genes** | 21.9% | **67.7%** | — |
+| share of the antiSMASH region kept | 9.8% | **46.7%** | — |
+
+⚠️ **Context-window cost — this is the `mega_whole_32k` "starves the data" risk, quantified:**
+
+| L | STRICT fit | WIDE fit |
+|---|---|---|
+| 8,192 (current Phase-3 config) | 89.6% | **48.6%** |
+| 16,384 | 96.7% | **80.3%** |
+| 32,768 | 98.9% | 97.5% |
+
+⇒ WIDE at the current L=8192 would drop or truncate **half** the data. At L=16384 it keeps 80%.
+**Not yet used for training** — see the strategic question in `plan.md`.
+⚠️ Cross-split near-dup dedup was performed on the STRICT spans; widening could reintroduce
+near-duplicates and **must be re-checked before any WIDE training run**.
+
 ⚠️ **ECTOINE and MELANIN are DISQUALIFIED, not merely unbuilt.** 85% and 95% of their held-out
 clusters are near-duplicates of training clusters. Length and diversity are anti-correlated across
 these classes — the short classes are short *because* they are conserved.

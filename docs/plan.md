@@ -373,10 +373,11 @@ cheap arm: base 1B and the general adapter, no training, generation only.
 - ✅ Archived `progress.md` TERPENE claim corrected in place; target reconfirmed **RIPP**.
 - ✅ Filesystem naming convention added to `CLAUDE.md`.
 
-### [P3-B9] Make `--mismatch-tag` fail instead of degrading
-- With `--classes RIPP` there is no other class to tag with, so `seed_generate.py:290` falls back to
-  the seed's own class and the flag becomes a silent no-op. Cost: one arm of 188 (~50 min GPU).
-- Fix: exit non-zero when `others` is empty. Re-run the arm as `--classes RIPP PKS`.
+### [P3-B9] ~~Fix `--mismatch-tag`~~ — **DROPPED 2026-08-18 (user)**
+Not worth fixing: class-prepended tokens were already shown to have no effect in Phase 1 (the class
+tag is worth **−0.0006 nats**), and Phase 3 side-steps label conditioning entirely by **routing to
+class-specific adapters**. The S2-5 arm asked a question the architecture no longer poses. The
+underlying no-op is still recorded in `bugs.md` so nobody re-runs into it.
 
 ### [P3-B8] Re-run the batched-generation equivalence gate
 - Every Phase-3 number was generated through `generate_batch()`, which left-pads ragged prompts so
