@@ -10,16 +10,19 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
-Phase 3, target **RIPP**, substrate **Evo2 1B**. **Leg 1 is closed positive:** a RIPP-only LoRA
-produces RIPP-specific biosynthetic machinery de novo at **4/150 = 0.027 against 0/400 pooled
-controls, Fisher p = 0.0054** — pre-registered, and the base model and all-class adapter both read
-exactly zero. That is the first de novo positive in this project. It is also **small and thin**:
-~6% of the 0.440 ceiling, and every hit carries a *single* RIPP domain where real cores average
-1.45. A cluster it is not. Two blockers found and fixed on 2026-08-17 — the production scorer
-accepted `--cls` and ignored it (the bug that inverted A0, diagnosed in August and never fixed),
-and `generate_bgc.py` silently defaults to the 7B when `EVO2_BASE_MODEL` is unset, which cost 150
-discarded generations. **Legs 2 and 3 are untouched, and leg 2 is the regime that actually works**
-(seeded detection 0.367 vs 0.012 de novo). Next is the seed-length pilot, then seeded-vs-seeded.
+Phase 3, target **RIPP**, substrate **Evo2 1B**. **Legs 1 and 2 both now have positive results.**
+Leg 1: a RIPP-only LoRA produces RIPP machinery de novo at 4/150 = 0.027 vs **0/400** pooled
+controls, **p = 0.0054** (pre-registered). Leg 2 Stage 1: seeding lifts that to **0.160 at an 8-nt
+seed** (~6×), and — the strongest control in the project so far — **base Evo2-1B scores 0/50 at
+every seed length up to 500 nt.** A real 500-nt RIPP prefix handed to the base model yields no RIPP
+domain at all, so the seed is not doing the work; the adapter is. Stage 1 also found that
+**nucleotide `containment` is blind to the memorisation it was meant to catch** (max 0.021 at
+L=500, vs a 0.80 gate) while **protein AAI rises monotonically to 0.914 with median 0.000 → 0.291**
+— the phage paper's warning, visible only because T3.2 exists. **L\* = 8 nt**, chosen over L=500
+because L=500's higher rate is not statistically distinguishable (p=0.227) and carries the
+memorisation signal. Next is Stage 2: arms A1/A2/A3 × LoRA/general at L=8, on TEST seeds, with n
+and **both novelty gates** pre-registered first. The persistent gap is structural — best cell is
+4/50 records with ≥2 distinct RIPP markers against 29% for real cores. **One enzyme, not a cluster.**
 
 ---
 
@@ -58,6 +61,9 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | P3-C2 | general all-class adapter, de novo | ″ | **200** | 0/200 = 0.000 | floor (0.067 generic — other classes' domains) | 2026-08-17 |
 | P3-CEIL | real RIPP cores | ″ | 50 | 22/50 = 0.440 | ceiling | 2026-08-14 |
 | P3-NOV | novelty guard on A0 | `containment` | 150 | max 0.003; AAI med 0.000 / max 0.470; 150/150 distinct | ✅ pass | 2026-08-14 |
+| P3-S1 | **seed-length sweep, LoRA** | ″ | 50/cell | L4 0.140 · **L8 0.160** · L20 0.100 · L100 0.100 · L500 0.240 | ✅ all beat de novo | 2026-08-17 |
+| P3-S1c | **seed sweep, BASE 1B control** | ″ | 50/cell | **0/50 at every length incl. 500 nt** | ★ the seed alone does nothing | 2026-08-17 |
+| P3-S1n | protein-novelty guard on the sweep | max AAI | 50/cell | 0.617 · 0.620 · 0.801 · 0.793 · **0.914** | ⚠️ memorisation at L=500 | 2026-08-17 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·
@@ -104,7 +110,7 @@ Novelty guard:       containment reported alongside, always.
 | leg | status |
 |---|---|
 | 1. class-specific LoRA fine-tuning | ✅ **DONE — 0.027 vs 0/400, p=0.0054 significant** |
-| 2. class-specific seeding | ⬜ **not started** — and it is the regime that works |
+| 2. class-specific seeding | 🔄 **Stage 1 done, L\* = 8 nt.** Stage 2 arms next |
 | 3. inference pruning | ⬜ not started — two distinct mechanisms: [P3-B2a] prunes *during* generation, [P3-B2b] filters *after* |
 
 Ordered. Top item is next.

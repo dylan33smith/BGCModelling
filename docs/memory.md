@@ -511,4 +511,59 @@ script being parallelised.
 
 ---
 
+## 2026-08-17 — Intervention: P3-B1 Stage 1, seed-length sweep. **L\* = 8 nt.**
+
+- **Hypothesis:** seeding lifts the RIPP-specific rate above the de novo floor, and there is a seed
+  length beyond which the model memorises (phage paper: 4–8 nt optimal, longer memorises).
+- **Method:** exemplar seeds from **val** (`val_prompts.jsonl`, 60 records, 0% genome overlap with
+  train), seed length ∈ {4, 8, 20, 100, 500} nt × {RIPP LoRA, base 1B}, n=50/cell. Tuning stage —
+  not confirmatory.
+- **Provenance:** `phase3_RIPP_seedsweep` · `s1_<model>_L<len>.jsonl` · scoring
+  `OBLIGATE_DOMAINS[RIPP]` (8 accessions) · window 2,000 nt · substrate `evo2_1b_base` ·
+  generation 2,200 nt · THE PHASE-3 REPORTING SET on every cell.
+
+| model | seed | on_class | rate | JOINT | ≥2 markers | max containment | **max AAI** | median AAI |
+|---|---|---|---|---|---|---|---|---|
+| base | 4–500 nt | **0/50 every length** | 0.000 | 0 | 0 | ≤0.001 | 0.000 | 0.000 |
+| lora | 4 nt | 7/50 | 0.140 | 7 | 0 | 0.011 | 0.617 | 0.000 |
+| **lora** | **8 nt** | **8/50** | **0.160** | **8** | 1 | 0.015 | **0.620** | **0.000** |
+| lora | 20 nt | 5/50 | 0.100 | 3 | 0 | 0.016 | 0.801 | 0.000 |
+| lora | 100 nt | 5/50 | 0.100 | 5 | 3 | 0.014 | 0.793 | 0.000 |
+| lora | 500 nt | 12/50 | 0.240 | 12 | 4 | 0.021 | **0.914** | **0.291** |
+
+**★ THE BASE MODEL SCORES ZERO AT EVERY SEED LENGTH, INCLUDING 500 nt.** Handed a real 500-nt RIPP
+prefix, base Evo2-1B produces **no** RIPP domain in 50 tries. This is the direct answer to "the
+model is just finishing a cluster that already exists": the seed alone does nothing. Every LoRA
+cell beats base at the same length (p=0.0062 / 0.0029 / 0.0281 / 0.0281 / 0.0001).
+
+**Seeding works, and it is the adapter doing it.** Every LoRA cell also beats the A0 de novo rate
+of 4/150 = 0.027 (p = 0.0061 / 0.0020 / 0.0450 / 0.0450 / 0.0000). L=8 is a **~6× lift** over
+de novo; L=500 reaches 0.240 = **55% of the 0.440 ceiling**.
+
+**★ THE MEMORISATION SIGNAL IS REAL, AND `containment` IS BLIND TO IT.** Nucleotide containment
+never exceeds **0.021** at any length — nowhere near the 0.80 WARN gate — so the DNA novelty gate
+sees nothing at all. **Protein AAI sees it clearly and monotonically:** max 0.617 → 0.620 → 0.801 →
+0.793 → **0.914**, and the *median* jumps from **0.000 at every other length to 0.291 at L=500**.
+At 500 nt half the outputs have a protein resembling a training protein; at ≤100 nt most have no
+protein match at all. This is exactly the phage paper's warning — visible only because T3.2
+(protein novelty) exists. A DNA-only novelty gate would have passed L=500 as clean.
+
+**L\* = 8 nt.** L=500's higher rate is **not statistically distinguishable** from L=8 (12/50 vs
+8/50, p=0.227), so its only real difference is the memorisation signal. L=8 has the best rate among
+the clean lengths, median AAI 0.000, max AAI 0.620, and independently reproduces the phage paper's
+4–8 nt optimum.
+
+⚠️ **Selection-rule note.** The pre-registered Stage-1 rule read "longest length whose max
+containment stays under 0.80, then best on-class rate" — which taken literally selects **L=500**,
+because containment never fires. The rule's *intent* was "longest length before memorisation
+starts", and the memorisation appeared on an axis the rule did not name. Stage 1 is explicitly a
+**tuning** stage, not confirmatory, so refining the criterion here is legitimate — but it is
+recorded rather than silently applied. **Stage 2 must pre-register both gates: containment AND
+protein AAI.**
+
+**Also:** `n_class_domains ≥ 2` rises with seed length (0/1/0/3/4) but is confounded with seed
+informativeness; still 4/50 at best vs 9/31 = 29% for real cores. The cluster gap persists.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
