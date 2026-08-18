@@ -10,25 +10,23 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
-Phase 3, target **RIPP**, substrate **Evo2 1B**. **Legs 1 and 2 both now have positive results.**
-Leg 1: a RIPP-only LoRA produces RIPP machinery de novo at 4/150 = 0.027 vs **0/400** pooled
-controls, **p = 0.0054** (pre-registered). Leg 2 Stage 1: seeding lifts that to **0.160 at an 8-nt
-seed** (~6×), and — the strongest control in the project so far — **base Evo2-1B scores 0/50 at
-every seed length up to 500 nt.** A real 500-nt RIPP prefix handed to the base model yields no RIPP
-domain at all, so the seed is not doing the work; the adapter is.
+Phase 3, target **RIPP**, substrate **Evo2 1B**. **Legs 1 and 2 are both closed positive.**
 
-**The seed length is where generation turns into recall.** At L=500, **12/12** on-class generations
-reproduced a marker domain their **own source cluster** carries; at L=8, **0/8** did — 6 of 8 emitted
-PF05114, simply the commonest RIPP marker, i.e. a class prior rather than a memory. Mechanism: 86%
-of cores begin at the marker gene, so a long seed hands over most of that gene and the model
-finishes it. **`containment` is blind to this** (max 0.021 at L=500 against a 0.80 gate) while
-protein AAI rises to 0.914 (median 0.000 → 0.291). **L\* = 8 nt** — L=500's higher rate is not
-statistically distinguishable (p=0.227) and carries the recall signal.
+**Leg 1 (class-specific LoRA):** 4/150 = 0.027 de novo vs **0/400** pooled controls, **p=0.0054**.
+**Leg 2 (seeding), Stage 2, n=188/arm, pre-registered:** an 8-nt seed lifts that to **0.176**
+(p<10⁻⁴ vs de novo), and the lift is **class-specific at p=2.5×10⁻¹¹** — the general all-class
+adapter given the identical seed scores **0/188 RIPP** while scoring 0.181 *generic* biosynthetic,
+and base 1B scores zero on both. **Codon-shuffling the seed changes nothing (0.186 vs 0.176,
+p=0.66)**, so the seed supplies a *prefix*, not RIPP information; the class comes entirely from the
+adapter. Together with base-1B 0/50 at every seed length up to 500 nt, the "it is just completing a
+real cluster" objection is answered from three directions.
 
-Next is Stage 2: arms A1/A2/A3 × LoRA/general at L=8 on TEST seeds, **`--no-boundary-orf` mandatory**,
-with n and **both novelty gates** pre-registered first. The persistent gap is structural — best cell
-is 4/50 records with ≥2 distinct RIPP markers against 29% for real cores. **One enzyme, not a
-cluster** — consistent with 48.8% of training records being a single gene.
+**What has not moved, at any point, in any arm:** ≥2 distinct RIPP markers — **2/188** best, vs
+**29%** of real cores. See the strategic question below; the training data is 48.8% single genes.
+
+**Leg 3 (inference pruning) is untouched.** Next: either [P3-B2a] guided decoding, or resolve the
+`WIDE_KINDS` question first. One arm was wasted this round — `--mismatch-tag` is a silent no-op
+with a single `--classes` value ([P3-B9]).
 
 ---
 
@@ -100,6 +98,11 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | P3-S1 | **seed-length sweep, LoRA** | ″ | 50/cell | L4 0.140 · **L8 0.160** · L20 0.100 · L100 0.100 · L500 0.240 | ✅ all beat de novo | 2026-08-17 |
 | P3-S1c | **seed sweep, BASE 1B control** | ″ | 50/cell | **0/50 at every length incl. 500 nt** | ★ the seed alone does nothing | 2026-08-17 |
 | P3-S1n | protein-novelty guard on the sweep | max AAI | 50/cell | 0.617 · 0.620 · 0.801 · 0.793 · **0.914** | ⚠️ memorisation at L=500 | 2026-08-17 |
+| **P3-S2-1** | **RIPP LoRA + real seed @ L=8** | ″ | 188 | **33/188 = 0.176** [0.124,0.238] | ✅ **vs general p=2.5e-11** | 2026-08-18 |
+| **P3-S2-2** | **general adapter + real seed** | ″ | 188 | **0/188 = 0.000** (0.181 *generic*) | ★ lift is class-specific | 2026-08-18 |
+| P3-S2-3 | base 1B + real seed | ″ | 188 | 0/188 on RIPP **and** generic | floor | 2026-08-18 |
+| **P3-S2-4** | **LoRA + SHUFFLED seed** | ″ | 188 | 35/188 = 0.186 | ★ **p=0.66 — seed content is irrelevant** | 2026-08-18 |
+| ~~P3-S2-5~~ | ~~LoRA + mismatch tag~~ | ″ | 188 | ⚠️ **treatment did not land** — flag is a no-op with one class | UNINFORMATIVE | 2026-08-18 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·
@@ -146,7 +149,7 @@ Novelty guard:       containment reported alongside, always.
 | leg | status |
 |---|---|
 | 1. class-specific LoRA fine-tuning | ✅ **DONE — 0.027 vs 0/400, p=0.0054 significant** |
-| 2. class-specific seeding | 🔄 **Stage 1 done, L\* = 8 nt.** Stage 2 arms next |
+| 2. class-specific seeding | ✅ **DONE — 0.176 at L=8, class-specific (p=2.5e-11), seed content irrelevant** |
 | 3. inference pruning | ⬜ not started — two distinct mechanisms: [P3-B2a] prunes *during* generation, [P3-B2b] filters *after* |
 
 Ordered. Top item is next.
@@ -164,7 +167,7 @@ Ordered. Top item is next.
 - Then re-derive and **persist** the real-core ceiling — the recorded 0.440 is not reproducible
   from disk and an independent 50-record draw gave 0.62, so the sample used was never saved.
 
-### [P3-B1] The SEED LADDER — leg 2 · **Stage 1 ✅ DONE (L\* = 8 nt); Stage 2 ◀ NEXT**
+### [P3-B1] The SEED LADDER — leg 2 · ✅ **BOTH STAGES DONE 2026-08-18**
 **The objection this exists to answer:** *seed a real BGC → get a BGC* is unimpressive; the model
 could be finishing a cluster that already exists. The pre-registered arms (§7) are a ladder from
 instance-copying toward generation from a class representation.
@@ -369,6 +372,11 @@ cheap arm: base 1B and the general adapter, no training, generation only.
   `phase1_lora_prod_20260604_151541_L32768/`.
 - ✅ Archived `progress.md` TERPENE claim corrected in place; target reconfirmed **RIPP**.
 - ✅ Filesystem naming convention added to `CLAUDE.md`.
+
+### [P3-B9] Make `--mismatch-tag` fail instead of degrading
+- With `--classes RIPP` there is no other class to tag with, so `seed_generate.py:290` falls back to
+  the seed's own class and the flag becomes a silent no-op. Cost: one arm of 188 (~50 min GPU).
+- Fix: exit non-zero when `others` is empty. Re-run the arm as `--classes RIPP PKS`.
 
 ### [P3-B8] Re-run the batched-generation equivalence gate
 - Every Phase-3 number was generated through `generate_batch()`, which left-pads ragged prompts so

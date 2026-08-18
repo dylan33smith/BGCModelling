@@ -384,6 +384,20 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Eval suite
 
+- **[2026-08-18] `--mismatch-tag` is a silent NO-OP when `--classes` names only one class.**
+  **[Symptom]** Arm S2-5 recorded `mismatch_tag: True` yet produced generations **byte-identical to
+  the un-mismatched arm (188/188)** and `tag_class: RIPP` on every record.
+  **[Cause]** `evo2/scripts/seed_generate.py:289-290` —
+  `others = [c for c in classes_present if c != cls]; tag_cls = others[hk_i % len(others)] if
+  others else cls`. Run with `--classes RIPP`, `others` is empty and the tag falls back to the
+  seed's own class. No warning, no error.
+  **[Proven fix]** Pass ≥2 classes (`--classes RIPP PKS`) so there is something to mismatch to.
+  Better: make the flag **exit non-zero** when `others` is empty rather than degrade.
+  **[Severity]** Wasted one arm of 188 generations (~50 min GPU). Caught only by the mandatory
+  manipulation check — the scored numbers looked perfectly plausible, and identical-to-control is
+  exactly what a real null would also look like.
+
+
 - **[2026-08-17] Two seed-leakage guards were calibrated for ~500 nt seeds and mis-fire at 4-8 nt.**
   **[Symptom]** `tests/test_scored_span.py` failed on the Phase-3 seed sweep with
   `3/2012 stored sequences BEGIN with their own seed` and later

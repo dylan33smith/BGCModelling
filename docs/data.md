@@ -159,7 +159,7 @@ See the naming convention in `CLAUDE.md`.
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase3_RIPP_stage2/` | 08-17 | **Stage 2 of [P3-B1-EXP]**, pre-registered §8.5. Five arms × n=200 at **L=8 nt**, `--no-boundary-orf`, TEST seeds (`eval_prompts.jsonl`), `--seed 11`, generation 2,200 nt, substrate `evo2_1b_base`. `S2-1` RIPP LoRA · `S2-2` general adapter · `S2-3` base 1B · `S2-4` LoRA + codon-shuffled seed · `S2-5` LoRA + mismatched class tag. Files `S2-<n>.jsonl`, `S2-<n>_w2000_RIPP.json`, `S2-<n>_gen.log`. | 🔄 running |
+| `phase3_RIPP_stage2/` | 08-18 | **Stage 2 of [P3-B1-EXP] — COMPLETE**, pre-registered §8.5. Five arms × **n=188** (188 of 200 test prompts are ≥ seed_nt+500) at **L=8 nt**, `--no-boundary-orf`, TEST seeds, `--seed 11`, 2,200 nt, `evo2_1b_base`. `S2-1` LoRA **0.176** · `S2-2` general **0.000** · `S2-3` base **0.000** · `S2-4` LoRA+shuffled **0.186** · ~~`S2-5`~~ mismatch-tag **no-op, uninformative**. Files `S2-<n>.jsonl`, `S2-<n>_w2000_RIPP.json`, `S2-<n>_gen.log`, `S2-<n>_score.log`. | ✅ |
 
 ### Phase 3 — seed sweep
 

@@ -599,4 +599,55 @@ objection, now measured rather than argued.
 
 ---
 
+## 2026-08-18 — Intervention: P3-B1 Stage 2, confirmatory seeded arms. **The lift is class-specific.**
+
+- **Pre-registered** §8.5 before generating. **Deviation:** n = **188**, not the registered 200 —
+  only 188 of 200 test prompts are ≥ `seed_nt+500` nt. Uniform across all five arms, fixed by the
+  data not by the results, and reported rather than quietly absorbed.
+- **Provenance:** `phase3_RIPP_stage2` · L=8 nt · `--no-boundary-orf` · TEST seeds
+  (`eval_prompts.jsonl`) · `--seed 11` · 2,200 nt generated · `OBLIGATE_DOMAINS[RIPP]` · window
+  2,000 nt · substrate `evo2_1b_base` · THE PHASE-3 REPORTING SET on every arm.
+
+| arm | | on_class | rate | 95% CI | generic | ≥2 markers | max AAI |
+|---|---|---|---|---|---|---|---|
+| **S2-1** | RIPP LoRA + real seed | **33/188** | **0.176** | [0.124, 0.238] | 0.197 | 2 | 0.697 |
+| **S2-2** | general adapter + real seed | **0/188** | **0.000** | [0.000, 0.019] | **0.181** | 0 | 0.714 |
+| S2-3 | base 1B + real seed | 0/188 | 0.000 | [0.000, 0.019] | 0.000 | 0 | 0.000 |
+| S2-4 | RIPP LoRA + **shuffled** seed | 35/188 | 0.186 | [0.133, 0.249] | 0.218 | 1 | 0.781 |
+| ~~S2-5~~ | ~~mismatch tag~~ | — | — | — | — | — | — |
+
+**★ RESULT 1 — the lift is CLASS-SPECIFIC, decisively.** S2-1 **0.176 vs S2-2 0.000**,
+**p = 2.5 × 10⁻¹¹**. The general all-class adapter, given the identical RIPP seed, produces
+**0/188** RIPP domains while producing **0.181 generic** biosynthetic domains — it writes plenty of
+biosynthetic protein, just never RIPP. Base 1B writes neither (0/188 on both). This is the §7
+comparison the whole phase was built around, and it is unambiguous.
+
+**★ RESULT 2 — at 8 nt the seed's CONTENT is irrelevant.** Codon-shuffling the seed changed
+nothing: **0.186 vs 0.176, p = 0.656**, shuffle verified to have landed (157/188 seeds differ;
+31 unchanged because shuffling an 8-mer often returns itself). ⇒ **The seed is not supplying RIPP
+information — it is supplying a prefix.** What it buys is the 0.027 → 0.176 lift over de novo
+(**p < 10⁻⁴**), i.e. "start writing a gene here", and the *class* comes entirely from the adapter.
+This is the cleanest possible answer to "the model is just completing a real cluster": the cluster
+identity of the seed does not matter, and destroying it costs nothing.
+
+**Consistency:** S2-1 0.176 (test seeds, n=188) vs Stage-1 L=8 0.160 (val seeds, n=50), p=0.49 —
+the tuning estimate replicated on held-out prompts.
+
+### ⚠️ S2-5 IS UNINFORMATIVE — the treatment did not land
+
+`--mismatch-tag` was accepted, recorded `mismatch_tag: True`, and **did nothing**: `tag_class` was
+`RIPP` for all 188 records, and the generations are **byte-identical to S2-1 (188/188)**.
+**Cause:** `seed_generate.py:290` — `others = [c for c in classes_present if c != cls]; tag_cls =
+others[...] if others else cls`. With `--classes RIPP` there is no other class, so the flag
+silently degrades to a no-op. **It needs ≥2 classes in `--classes`.**
+Per Standing Constraint 5 this is **"uninformative", not a negative result.** Recorded in
+`bugs.md`. The manipulation check caught it — which is precisely the Phase-2 weighted-arm failure
+not repeating.
+
+**The cluster gap is unchanged and now very well powered:** ≥2 distinct RIPP markers in
+**2/188** (S2-1) and **1/188** (S2-4), against **9/31 = 29%** for real cores. Novelty is clean
+everywhere — max containment ≤0.018, max AAI ≤0.781, no record ≥0.95 on either gate.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
