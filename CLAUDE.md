@@ -101,8 +101,7 @@ lost a 698 MB run dir to a case collision and ~6,600 training records to a manif
 * **Status sentinel, not desktop notifications** (`notify-send` no-ops on this headless host).
   Poll the sentinel (`0` = success); never report a run finished without reading it:
   `tmux new-session -d -s <n> '<cmd> > logs/<n>.log 2>&1; echo $? > logs/<n>.status'`
-* **Read synchronous results.** After a fast command, automatically read and summarize the output.
-  Do not wait to be asked.
+* **Read synchronous results.** After a fast command, read and summarize the output unprompted.
 * **Fan out when the batched path is gated.** Generation is one-sequence-at-a-time (vortex batching
   is gated, `bugs.md`), which leaves the H100 at ~41% util / 4 GB of 80 GB. Run N *sequential*
   processes on disjoint units instead: semantics are unchanged (each still generates serially, so
