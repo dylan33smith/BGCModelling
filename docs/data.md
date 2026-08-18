@@ -184,6 +184,15 @@ into `phase3_RIPP/` — no filename collisions, verified a strict subset before 
 lowercase directory deleted. `evo2_1b/experiments/phase3_pilot.py` updated to the merged path.
 See the naming convention in `CLAUDE.md`.
 
+### Phase 3 — WIDE_KINDS fine-tune
+
+| Run dir | Date | Contents | Status |
+|---|---|---|---|
+| `phase3_RIPP_wide/` | 08-18 | **[P4-WIDE] fine-tune on the WIDE_KINDS substrate.** Same recipe as A0 (`train_ripp.sh`, LoRA, L=8192, bs=1 ga=16, **3 epochs**) with `DATA=splits_class_wide/RIPP`. ⚠️ **3,723/7,808 train records kept (47.7%)** — the rest exceed the 1B's 8,192 native context and are DROPPED, not chunked, so `\|END\|` still lands at a true boundary. val 258/558. Epochs matched to A0 rather than steps, because the dataset is smaller. `adapter_run/`, `train.log`, `train.whole.jsonl`, `val.whole.jsonl`. | 🔄 training |
+
+⚠️ **This arm confounds span width with dataset size** (3,723 wide vs 7,250 strict records used by
+A0). A size-matched STRICT control is required before the comparison is clean — see `plan.md`.
+
 ### Phase 3 — Stage 2 confirmatory arms
 
 | Run dir | Date | Contents | Status |

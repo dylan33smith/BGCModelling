@@ -41,7 +41,10 @@ Aliases:              names seen in old docs. Do not use them.
   silently falls back to the `class_markers` proxy. Check `_verdict_source`.
 - **Valid vs:** other antiSMASH-derived rates only.
 - **Status:** PRIMARY — the gold-standard `is_bgc` / `correct_class` gate. Measured FPR on real
-  non-BGC DNA: **0.000**.
+  non-BGC DNA: **0.000**. **First Phase-3 numbers 2026-08-18:** among Pfam-on-class generations
+  `is_bgc` = `correct_class` = **0.485**; real held-out cores **0.760 / 0.740**; off-class
+  generations 0.000–0.040. `is_bgc` and `correct_class` were identical on every set — when this
+  model produces a cluster, it is a RIPP.
 - **Aliases:** "de novo detection", "P(detect)", "antiSMASH detect", "detection rate".
 
 ### `any` (code key)  →  see **`best_any_bits`**
@@ -87,8 +90,13 @@ Aliases:              names seen in old docs. Do not use them.
 
 ### `protein_aai`  [evaluation] [gate]
 - **Is:** Best amino-acid identity between any ORF of a generation and any protein of the TRAINING
-  set — one value per record, in [0,1]. Reported as **max** and **median over all records** in a
-  cell, not over on-class records only.
+  set — one value per record, in [0,1].
+- ⚠️ **REPORT IT AMONG ON-CLASS RECORDS, against the real-core reference.** A pooled median is
+  **not interpretable**: it is dominated by how many records have *any* hit, not by how similar the
+  hits are. Measured 2026-08-18 — real held-out cores **0.641** (98.3% with a hit); on-class
+  generations **0.496** (97.0%); off-class generations **0.000** (10.0%). A pooled median of 0.000
+  therefore means "mostly off-class", not "nothing resembles training". This artifact produced a
+  retracted claim — see `memory.md` 2026-08-18.
 - **Computed by:** `scripts/novelty_battery.py:protein_novelty` → MMseqs2 `easy-search` (`-e 1e-3`,
   `-s 5.7`) of translated ORFs against `<class>/train_proteins.fa`; `fident` column.
 - **CHANGES MEANING WITH:** the training protein DB (per class), the MMseqs sensitivity, and the

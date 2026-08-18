@@ -103,6 +103,10 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | P3-S2-3 | base 1B + real seed | ″ | 188 | 0/188 on RIPP **and** generic | floor | 2026-08-18 |
 | **P3-S2-4** | **LoRA + SHUFFLED seed** | ″ | 188 | 35/188 = 0.186 | ★ **p=0.66 — seed content is irrelevant** | 2026-08-18 |
 | ~~P3-S2-5~~ | ~~LoRA + mismatch tag~~ | ″ | 188 | ⚠️ **treatment did not land** — flag is a no-op with one class | UNINFORMATIVE | 2026-08-18 |
+| **P3-AS** | **antiSMASH on S2-1 on-class** | `is_bgc`* / `correct_class`* | 33 | **0.485 / 0.485** | ★ gold standard, all detections on-class | 2026-08-18 |
+| P3-AS-c | antiSMASH on real held-out cores | ″ | 50 | 0.760 / 0.740 | ceiling | 2026-08-18 |
+| P3-AS-o | antiSMASH on S2-1 **off**-class | ″ | 50 | 0.040 / 0.040 | the Pfam gate hides no clusters | 2026-08-18 |
+| P3-AAI | AAI among on-class vs real cores | `protein_aai`* | 33 | **0.496** vs real **0.641** | ✅ homologous but more divergent than nature | 2026-08-18 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·
@@ -308,6 +312,72 @@ from A0, and that is a stronger claim than a hit-rate delta.
 ⚠️ **Do NOT add an ordering metric for RIPP.** `MODULE_PATTERNS` covers NRPS/PKS only, correctly —
 those are collinear assembly lines. RiPP gene order is not collinear, and at 1.45 markers per core
 order is undefined for most records. See `memory.md` 2026-08-17.
+
+### [P4-RL] REINFORCEMENT LEARNING on our own gates — a Phase-4 track
+**Idea (user, 2026-08-18):** generate in bulk, score, feed the winners back as positives and the
+losers as negatives. In practice this is **rejection-sampling fine-tuning** (retrain on the winners)
+or **DPO** (winners vs losers as explicit pairs). Tractable: LoRA on a 1B, and the scoring pipeline
+already exists. At 0.176 a batch of 1,000 yields ~176 positives.
+
+**Ordering — RL is DOWNSTREAM of the substrate work.** RL optimises what the model already puts in
+its output distribution; it cannot teach structure the training data never contained. With 48.8% of
+strict records being a single gene there is no gradient toward multi-gene output. **Run after
+[P4-WIDE].**
+
+#### [P4-RL-1] Reward = `JOINT_PASS`, never `on_class`
+Standing Constraint 1's rationale is that every capability metric is maximised by copying training
+data. RL optimises exactly what it is rewarded, so rewarding `on_class` rewards regurgitation. A
+positive sample must pass **all** gates at once: on-class AND `containment` < 0.80 AND
+`protein_aai` < 0.95 AND intra-set distinct. That is `JOINT_PASS`, already computed per record.
+
+#### [P4-RL-2] GRADED NEGATIVES — weight by how many gates a record passes (user, 2026-08-18)
+Run the full battery on **every** generation, not just the winners, and weight each record by its
+gate count rather than a binary pass/fail.
+- **Why it is better:** a record that is on-class but fails `protein_aai` is a *specific* kind of
+  failure — "right answer, wrong route" — and is far more informative than one that failed
+  everything. Binary labelling throws that distinction away.
+- It also converts a sparse 17.6% binary signal into a dense one, which RL handles far better.
+- No new machinery: the battery already emits every gate per record.
+- **Open question to settle empirically:** whether to weight linearly in gate count or to treat
+  novelty failures as hard zeros. Novelty-failing records are the ones RL will drift toward, so
+  they may deserve negative rather than merely low weight.
+
+#### [P4-RL-3] Marker-frequency weighting — run AFTER [P4-WIDE], unweighted first
+See the measured marker table below. Weight a positive by the **rarity of the marker it produced**,
+so PF02624 (YcaO) is worth more than another PF05114.
+⚠️ **Do not stack this with [P4-WIDE] in one run.** One intervention at a time, or a gain cannot be
+attributed. WIDE unweighted first; weighting only if the skew survives it.
+
+#### MEASURED 2026-08-18 — the marker distributions that decide whether weighting is needed
+Per-marker share of records carrying that marker (n=300 each, 2 kb window unless noted):
+
+| marker | REAL held-out | STRICT train | WIDE train (full) | **GENERATED (S2-1)** |
+|---|---|---|---|---|
+| PF05114 DUF692 | 16.7% | 19.0% | 19.0% | **14.4%** |
+| PF04055 RadSAM | 15.0% | 20.0% | 25.0% | **1.6%** |
+| PF02624 YcaO | 14.0% | 13.7% | 19.3% | **0.0%** |
+| PF05402 PqqD | 14.0% | 12.3% | 15.7% | **2.1%** |
+| PF13353 Fer4_12 | 12.7% | 18.7% | 22.0% | **0.5%** |
+| PF03070 TENA | 3.0% | 4.3% | 4.7% | 0.0% |
+| PF14028 SkfB | 3.0% | 3.7% | 5.3% | 0.0% |
+| PF00881 Nitrored | 2.7% | 3.0% | 7.3% | 0.0% |
+| **any marker** | 58.3% | 63.7% | **70.7%** | 17.6% |
+
+**Three things this settles.**
+1. **The skew is in the MODEL, not the data.** STRICT train and REAL held-out agree closely on every
+   marker. So "weight by training frequency" and "weight by real frequency" are the same thing — the
+   choice of reference set does not matter, which was an open question.
+2. **The collapse is sharper than "mostly PF05114".** The model emits PF05114 at **near-natural rate
+   (14.4% vs 16.7%)** and essentially **none** of the other four common markers (0–2% against
+   12–15%). It has learned one marker well and the rest not at all.
+3. **WIDE raises marker content across the board** — every marker up, any-marker 63.7% → 70.7% —
+   which is the mechanism by which it might fix the collapse without any reward shaping.
+
+⚠️ **Scoring-window tension for WIDE.** The same WIDE records scored in a 2 kb window show only
+31.0% any-marker, because the markers are spread across ~8.5 kb. A WIDE model may therefore
+under-report on the pre-registered 2,000-nt endpoint. **Do not change the endpoint mid-phase**
+(Standing Constraint 4) — report the 2 kb endpoint as primary and a wider window alongside as a
+declared secondary.
 
 ### [P3-B2a] Pruning DURING generation (guided decoding) ◀ the underrated one
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation* and keeps the

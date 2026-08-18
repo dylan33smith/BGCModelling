@@ -650,4 +650,73 @@ everywhere — max containment ≤0.018, max AAI ≤0.781, no record ≥0.95 on 
 
 ---
 
+## 2026-08-18 — ★ antiSMASH run on Phase-3 output for the FIRST TIME
+
+The Phase-3 battery is Pfam-only, so ladder rungs 4–5 (`antiSMASH detection`, `correct_class`) had
+**no Phase-3 numbers at all** — not a negative result, simply never computed. Run now on 218
+sequences (user's suggestion). `--minimal`, prodigal gene-finding, DBs at
+`/data2/ds85/antismash_db`, class map applied, 2,000-nt window to match the endpoint.
+
+| set | n | `is_bgc` | `correct_class` |
+|---|---|---|---|
+| **S2-1 on-class** (RIPP adapter) | 33 | **0.485** | **0.485** |
+| **S2-4 on-class** (shuffled seed) | 35 | 0.429 | 0.429 |
+| S2-1 **off**-class | 50 | 0.040 | 0.040 |
+| S2-4 **off**-class | 50 | 0.000 | 0.000 |
+| **real held-out cores** (ceiling) | 50 | **0.760** | **0.740** |
+
+**Readings.** `is_bgc` — antiSMASH detects a cluster; higher better; ceiling 0.760.
+`correct_class` — the detected cluster is RIPP; higher better; ceiling 0.740.
+
+**Synthesis.**
+1. **Of our Pfam-on-class generations, antiSMASH confirms 48.5% as real BGCs — and every single
+   detection is the CORRECT class** (`is_bgc` == `correct_class` exactly, all five rows). The model
+   is not producing off-target clusters; when it produces a cluster, it is a RIPP.
+2. **Arm-level, gold-standard:** 33/188 on-class × 0.485 ⇒ ~**16/188 = 0.085** antiSMASH-confirmed
+   RIPP clusters, against a **0.740** real-core ceiling — **~11.5% of ceiling** on the strictest
+   metric we own. That is the number to quote to a reviewer.
+3. **Our Pfam gate is well-calibrated, and inflates ~2×** — 0.176 Pfam vs 0.085 antiSMASH-confirmed,
+   consistent with the documented ~2.6× proxy inflation. Off-class records are 0.000–0.040, so the
+   gate is not hiding real clusters.
+4. ⇒ **Standing Constraint 8 is now testable and looks obsolete.** It says `correct_class` is not a
+   de novo optimisation target because it reads ~0. Under a class-specific adapter it reads 0.485
+   among on-class records. Rewrite rather than delete — see the audit.
+
+---
+
+## 2026-08-18 — ⚠️ CORRECTION: the Stage-1 AAI trend was an artifact of POOLING
+
+[INCORRECT] - protein AAI rises monotonically 0.617 → 0.620 → 0.801 → 0.793 → 0.914, and its median jumps from 0.000 at every other length to 0.291 at L=500
+[CORRECTION - 2026-08-18]: Those were **pooled over all 50 records per cell**, and are dominated by
+how many records have *any* protein hit rather than how similar the hits are. Recomputed **among
+on-class records only**, the trend does not hold:
+
+| seed length | on-class n | median AAI **among on-class** | pooled median (as reported) |
+|---|---|---|---|
+| 8 nt | 8 | **0.499** | 0.000 |
+| 100 nt | 5 | **0.635** | 0.000 |
+| 500 nt | 12 | **0.450** | 0.291 |
+
+L=500's on-class AAI (0.450) is **lower** than L=8's (0.499). The 0.914 maximum is a single outlier.
+**The L=500 memorisation conclusion still stands, but on the domain-match evidence alone** — 12/12
+on-class hits reproducing their own source cluster's domain, which is independent of AAI and much
+stronger. The AAI framing was over-claimed.
+
+**And the answer to "is AAI = 0 also a bad signal?"** (user, 2026-08-18) — a fair worry, and the
+reference we had never computed settles it. Best AAI vs the RIPP training proteins:
+
+| set | records with a hit | median AAI |
+|---|---|---|
+| **REAL held-out RIPP cores** | 98.3% | **0.641** |
+| **S2-1 on-class generations** | **97.0%** | **0.496** |
+| S2-1 off-class generations | 10.0% | 0.000 |
+
+⇒ **On-class generations are homologous but more divergent than nature** — 0.496 against a real
+held-out core's 0.641, with the same ~97% hit rate. That is the ideal novelty profile: recognisably
+a family member, further from training than a real held-out cluster is. The 0.000 medians were
+**entirely** off-class records, which fail the endpoint anyway. Pooled AAI is not interpretable;
+**report AAI among on-class records, against the real-core reference.**
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

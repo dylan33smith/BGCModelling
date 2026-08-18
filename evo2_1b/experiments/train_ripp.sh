@@ -46,7 +46,9 @@ export HF_HOME=/data2/ds85/hf_cache
 export EVO2_BASE_MODEL=evo2_1b_base
 
 CLASS=${CLASS:-RIPP}
-DATA=/data2/ds85/bgcmodel_data/splits_class/$CLASS
+# DATA is overridable so the same recipe can train the WIDE_KINDS substrate
+# (splits_class_wide/) without a forked script -- the only difference is span width.
+DATA=${DATA:-/data2/ds85/bgcmodel_data/splits_class/$CLASS}
 ROOT=${ROOT:-/data2/ds85/bgcmodel_runs/phase3_$CLASS}
 STEPS=${STEPS:-2000}
 SAVE=${SAVE:-500}
