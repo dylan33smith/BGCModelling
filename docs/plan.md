@@ -107,6 +107,9 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | P3-AS-c | antiSMASH on real held-out cores | ″ | 50 | 0.760 / 0.740 | ceiling | 2026-08-18 |
 | P3-AS-o | antiSMASH on S2-1 **off**-class | ″ | 50 | 0.040 / 0.040 | the Pfam gate hides no clusters | 2026-08-18 |
 | P3-AAI | AAI among on-class vs real cores | `protein_aai`* | 33 | **0.496** vs real **0.641** | ✅ homologous but more divergent than nature | 2026-08-18 |
+| **P3-WIN** | **window sweep, A0 de novo, fixed set** | `n_class_domains` | 85 | **1.00 at 2k/4k/8k** (real 1.60→1.69, bio 1.69→**2.67**) | ★ gap is NOT a window artefact | 2026-08-18 |
+| **P3-PROBE** | **class probe within-positives** | probe P(RIPP) vs antiSMASH | 68 | **AUROC 0.337** (anti-correlated; saturated at ~0.997) | ⛔ **leg 3 has no instrument** | 2026-08-18 |
+| P4-WIDE-dn | WIDE adapter, **de novo** 8 kb | `best_bio_bits` @ RIPP | 79 | 0/79 · 0/79 · 1/79 (n.s. vs A0) | ⚠️ **UNINFORMATIVE — not powered** | 2026-08-18 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·
@@ -381,6 +384,15 @@ and the extra tokens they carry", not "wider spans alone".
 ~8.5 kb and a 2 kb window sees only 31.0% of them vs 70.7% on the full record.
 **Primary question for this arm: does `n_class_domains ≥ 2` finally move off 2/188?**
 
+#### ⚠️ [P4-WIDE-SEEDED] ◀ THE ACTUAL TEST — de novo was underpowered
+The de novo WIDE arm ran and is **uninformative**: 0/79 · 0/79 · 1/79 vs A0's 2/85, n.s. at every
+window, and at a ~0.024 base rate detecting even a doubling needs **n≈800/arm**. Generating de novo
+was right for window-comparability with A0_8k and **wrong for power**.
+⇒ **Run WIDE seeded at L\*=8 nt, n=188, `--no-boundary-orf`, test seeds — identical to S2-1** so it
+reads directly against 0.176 in the regime that has power. Add the [P4-WIDE-CTRL] size-matched
+STRICT arm at the same time. Watch `n_class_domains`: the one de novo WIDE hit carried **3**
+biosynthetic domains, the most any generation has produced (n=1, an anecdote, not a result).
+
 ### [P4-RL] REINFORCEMENT LEARNING on our own gates — a Phase-4 track
 **Idea (user, 2026-08-18):** generate in bulk, score, feed the winners back as positives and the
 losers as negatives. In practice this is **rejection-sampling fine-tuning** (retrain on the winners)
@@ -496,7 +508,16 @@ declared secondary.
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation*. [P3-B2b] below
 > generates complete sequences then discards most. Different mechanisms; they compose.
 
-⛔ **BLOCKED 2026-08-18 — we have no scorer with demonstrated within-positives discrimination.**
+⛔ **CLOSED 2026-08-18 — MEASURED, not assumed. Two instrument families both fail.**
+The prerequisite below was run. The class probe scores **AUROC 0.337** for predicting antiSMASH
+confirmation among on-class records — *anti*-correlated, saturated at median P(RIPP) ≈ 0.997, from a
+classifier with 0.933 held-out balanced accuracy. Ladder metrics reach 0.575 at best. **Nothing we
+own separates a real cluster from a Pfam-passing near-miss.** Pruning on any of them ranks noise.
+⇒ **Do NOT fit a 1B probe** — the failure is saturation against a target the probe cannot see, which
+a refit inherits. ⇒ Reopen only if a *new* signal appears (e.g. an antiSMASH-derived reward, or a
+structure model), not by re-testing what is already measured.
+
+Historical note kept: the original blocker reasoning was —
 Pruning only helps if the scorer can rank *among candidates that would pass the gate*. Re-deriving
 the ladder in this regime showed **nothing we measure does that**: within the on-class pool the best
 metric reaches 0.575 and `bio_span_frac` inverts to 0.173. Pruning on any of them ranks **noise**,

@@ -198,8 +198,13 @@ def check_governor_size(F):
         return
     n = len(read(F["CLAUDE.md"]).splitlines())
     if n > GOVERNOR_MAX_LINES:
-        fail(cat, f"CLAUDE.md under {GOVERNOR_MAX_LINES} lines",
-             f"{n} lines — auto-loaded every session. CUT a section; do not raise the cap again.")
+        # WARN, not FAIL (user 2026-08-18: the cap is a loose target, revisited at intervals).
+        # The signal still surfaces every run so growth cannot go unnoticed, but it no longer
+        # blocks a session over a few lines. The zero-findings check below stays a hard FAIL --
+        # that one is about correctness, not size.
+        warn(cat, f"CLAUDE.md near/over the {GOVERNOR_MAX_LINES}-line target",
+             f"{n} lines, {n - GOVERNOR_MAX_LINES} over — auto-loaded every session; trim at the "
+             f"next documentation pass.")
     else:
         ok(cat, f"CLAUDE.md under {GOVERNOR_MAX_LINES} lines",
            f"{n} lines ({GOVERNOR_MAX_LINES - n} spare)")

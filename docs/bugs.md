@@ -402,6 +402,26 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Eval suite
 
+- **[2026-08-18] ⛔ The class probe CANNOT score Phase-3 generations — it is a 7B probe.**
+  **[Symptom]** Planned to test the class probe for within-positives discrimination on the 68
+  antiSMASH-labelled on-class records. It cannot run at all.
+  **[Cause]** `acts_v2_train500.probe_L16_s0.joblib` has `coef_` of shape **(22, 4096)** — it was fit
+  on **evo2_7b** hidden states (4096-dim). Phase-3 generations come from **`evo2_1b_base`, hidden
+  1920**. Dimension mismatch; there is no way to feed 1B activations to it. It is the **only** probe
+  on disk — a filesystem-wide search found no 1920-dim probe.
+  **[Also]** `steer_probe_score.log` confirms the probe pipeline ran on `evo2_7b_262k.pt`, so
+  **guided decoding's one positive result (Q1 +5.71) was established on the 7B**, not on the Phase-3
+  substrate. Leg 3 needs both a new probe *and* its positive re-established on the 1B.
+  **[Proven fix]** NOT APPLIED. Two routes, and the cheap one screens the expensive one:
+  (a) **7B as an external oracle** — run the 68 on-class sequences through the 7B, extract layer 16,
+  score with the existing probe. This does **not** validate guided decoding (pruning needs the
+  *generating* model's own activations) but it answers "can any strong class classifier rank our
+  positives by antiSMASH confirmation?" If not, leg 3 closes cheaply.
+  (b) **Fit a 1B probe** — extract layer-16 activations from `evo2_1b_base` over
+  `splits_core/train.jsonl`, fit the 22-class logistic regression. Only justified if (a) is positive.
+  **[Severity]** Blocks [P3-B2a] structurally, not for want of effort.
+
+
 - **[2026-08-18] `--mismatch-tag` is a silent NO-OP when `--classes` names only one class.**
   **[Symptom]** Arm S2-5 recorded `mismatch_tag: True` yet produced generations **byte-identical to
   the un-mismatched arm (188/188)** and `tag_class: RIPP` on every record.

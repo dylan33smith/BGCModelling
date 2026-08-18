@@ -811,4 +811,81 @@ Each window keeps its own real-core ceiling (0.515 / 0.559 / 0.618) — never cr
 
 ---
 
+## 2026-08-18 — ⛔ LEG 3 HAS NO INSTRUMENT. The class probe anti-correlates with truth.
+
+The prerequisite for [P3-B2a]: can any scorer rank *within* our on-class positives? Ran the cheap
+screen — the existing 7B probe as an external oracle over the 68 on-class records that carry
+antiSMASH labels.
+
+⚠️ **First, a structural finding:** the only probe on disk, `acts_v2_train500.probe_L16_s0.joblib`,
+has `coef_` shape **(22, 4096)** — fit on **evo2_7b** hidden states. Phase-3 generations come from
+**`evo2_1b_base`, hidden 1920.** It **cannot** drive guided decoding on the 1B at all, and
+`steer_probe_score.log` confirms guided decoding's Q1 +5.71 positive was itself established on the
+**7B**. Leg 3 needs a probe that does not exist *and* its positive re-established on the substrate.
+
+**The screen (7B probe reading finished 1B sequences — an oracle, not a decoder hook):**
+
+| | n | median P(RIPP) | argmax==RIPP |
+|---|---|---|---|
+| S2-1 on-class | 33 | **0.9997** | 27/33 |
+| S2-4 on-class | 35 | **0.9965** | 30/35 |
+
+| | value |
+|---|---|
+| antiSMASH-confirmed / not | 31 / 37 |
+| median P(RIPP), **confirmed** | **0.9963** |
+| median P(RIPP), **not confirmed** | **1.0000** |
+| **AUROC** | **0.337** |
+| Mann-Whitney U (greater) | p = 0.9894 |
+
+**Reading.** AUROC **below 0.5** means P(RIPP) is *anti*-correlated with being a real cluster — the
+records the probe is most certain about are **less** likely to be antiSMASH-confirmed. The mechanism
+is **saturation**: median P(RIPP) ≈ 0.997–0.9997, so the probe says "RIPP, ~100%" to essentially
+everything that passes our Pfam gate and has no dynamic range left to rank with. This is not a weak
+classifier failing — its held-out balanced accuracy on the 22-class task is **0.933**.
+
+**Synthesis, and it closes a leg.** Two independent instrument families have now been tested for
+*within-positives* discrimination and both fail: **ladder metrics** best 0.575 (`bio_span_frac`
+inverted at 0.173), **class probe** 0.337. Nothing we own can tell a real cluster from a
+Pfam-passing near-miss. ⇒ **Pruning and RL-by-ranking have no instrument. [P3-B2a] stays closed,
+and this is now a measured closure rather than an unpowered one.**
+⇒ **Do NOT fit a 1B probe.** The screen was designed so its negative would be decisive, and it is:
+the failure is saturation against a target the probe cannot see, which a 1B refit would inherit.
+⇒ **Rewards must be built from verified gate passes** (antiSMASH confirmation, marker identity),
+never from a continuous score. [P4-RL] is unaffected; [P4-RL-1] already specified `JOINT_PASS`.
+
+---
+
+## 2026-08-18 — [P4-WIDE] de novo: UNINFORMATIVE, not negative. The powered test is the seeded one.
+
+WIDE adapter trained cleanly (3,723 records, 3 epochs, 675 steps, 87 min, `loss_ce` 1.309 → 0.844)
+and generated 150 de novo at 8 kb, matching A0_8k's regime so the window sweep is comparable.
+Fixed-set window sweep, 79 WIDE generations ≥8 kb vs the same 68 real cores:
+
+| set | window | on_class | rate | ≥2 markers | mean bio domains \| on-class | mean n_orfs |
+|---|---|---|---|---|---|---|
+| **WIDE generated** | 2,000 | 0/79 | 0.000 | 0 | — | 2.2 |
+| **WIDE generated** | 4,000 | 0/79 | 0.000 | 0 | — | 3.9 |
+| **WIDE generated** | 8,000 | 1/79 | 0.013 | 0 | **3.00** | 7.3 |
+| A0 (strict) | any | 2/85 | 0.024 | 0 | 1.00 | 2.1→7.0 |
+| REAL cores | 8,000 | 42/68 | 0.618 | 19 | 2.67 | 7.8 |
+
+**WIDE vs A0 is n.s. at every window** (p = 0.498 / 0.498 / 1.000). **And the test is not powered:**
+at a de novo base rate of ~0.024, detecting even a *doubling* needs **n ≈ 800/arm**; we ran ~80.
+Per Standing Constraint 5 this is **UNINFORMATIVE, not a negative result.** WIDE is not shown to
+fail; it is untested.
+
+**My design error, recorded.** I generated de novo to match A0_8k's regime for window comparability.
+That was right for comparability and **wrong for power** — de novo is the 0.024 regime. The powered
+test is **seeded at L\*=8**, where the base rate is 0.176 and n=188 is already demonstrated adequate.
+⇒ **Next: WIDE seeded at L=8, n=188, against S2-1 (0.176) — plus the [P4-WIDE-CTRL] size-matched
+STRICT arm.**
+
+⚠️ One anecdote worth keeping: the single WIDE hit at 8 kb carried **3 biosynthetic domains**, the
+most any generation has produced (every A0/Stage-2 positive carried exactly 1). **n=1, not a
+result** — but it is the first generated sequence with multi-domain content, and it is what the
+seeded arm should be watched for.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
