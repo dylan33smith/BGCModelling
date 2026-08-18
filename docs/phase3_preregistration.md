@@ -77,6 +77,26 @@ reported as a failure, not a result. Containment is reported for every arm regar
 memorisation — 4–8 nt optimal, longer seeds caused the model to reproduce known sequences. Our seed
 arms are therefore the highest-risk arms for this gate, and it is why the gate is absolute.
 
+### 4.1 AMENDMENT 2026-08-18 — §4 above is NECESSARY BUT NOT SUFFICIENT
+
+The original §4 text stands unedited (Standing Constraint 4). This amendment records that the gate
+it specifies is **insufficient on its own**, discovered in Stage 1.
+
+§4 names `containment` as the absolute gate and cites the phage paper's memorisation warning as the
+reason. **The gate it specifies cannot see the memorisation it is guarding against.** In the Stage-1
+sweep the L=500 cell held max containment **0.021** — two orders of magnitude inside the 0.80
+threshold, i.e. maximally clean — while **12/12 of its on-class generations reproduced a marker
+domain their own source cluster carries.** A model that rebuilds the *protein* with different
+synonymous codons shares almost no exact 21-mers.
+
+⇒ **Both gates are hard gates from 2026-08-18: `containment` < 0.80 AND `protein_aai` < 0.95.**
+Pre-registered for Stage 2 in §8.5 before that stage generated. Any arm reported on containment
+alone is reported incompletely.
+
+⇒ **`protein_aai` must be read among ON-CLASS records against the real-core reference** (real
+held-out cores 0.641). A pooled median is not interpretable — it is dominated by how many records
+have any hit at all. See `memory.md` 2026-08-18.
+
 ## 5. Generation and scoring protocol — frozen
 
 1. **All arms use identical `max_new_tokens`.** No arm gets more room than another.
@@ -260,6 +280,28 @@ match (Stage 1's decisive readout: 0/8 at L=8 vs 12/12 at L=500).
   this substrate. The response is to change substrate or target — **not** to re-cut the metric.
 - **Multiple comparisons:** with 4 arms × 4 seed lengths, report Holm-corrected p alongside raw p.
   The primary claim rests on the corrected value.
+
+### 9.1 AMENDMENT 2026-08-18 — two ambiguities in §9, resolved
+
+§9 text stands unedited. Two clarifications, both forced by A0 landing positive:
+
+1. **"exceeds the A0 floor" is ambiguous now that A0 is not a floor.** A0 was designed as an
+   unseeded floor presumed ~0; it returned 4/150 = 0.027, significant at p=0.0054. The comparator is
+   therefore stated explicitly: **an arm is compared against (a) the base-model floor 0/N, (b) A0,
+   and (c) the same-seed general adapter.** Stage 2 reported all three, so no result rests on the
+   ambiguity.
+2. **Holm correction was required by §9 and was NOT reported with the Stage-1/Stage-2 results.**
+   Declared here rather than quietly fixed. Computed 2026-08-18 across the four Stage-2 contrasts:
+
+   | contrast | raw p | **Holm p** |
+   |---|---|---|
+   | S2-1 vs S2-2 (class-specific) | 2.50e-11 | **9.99e-11** |
+   | S2-1 vs S2-3 (vs base) | 2.50e-11 | **9.99e-11** |
+   | S2-1 vs A0 de novo | 4.27e-06 | **8.55e-06** |
+   | S2-1 vs S2-4 (seed content) | 0.656 | 0.656 (n.s.) |
+
+   **Every claim significant raw remains significant corrected.** No conclusion changes — but the
+   omission was a real deviation from the pre-registered analysis plan and is recorded as one.
 
 ## 10. What would make this exploratory rather than confirmatory
 

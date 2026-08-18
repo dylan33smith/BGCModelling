@@ -30,6 +30,24 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Analysis / tooling
 
+- **[2026-08-18] A failed subagent workflow returns `raised: 0` — which reads exactly like "audit
+  found nothing".**
+  **[Symptom]** An assumption-audit workflow returned `{"raised":0,"confirmed":0,"synthesis":null}`.
+  Taken at face value that is a clean bill of health. It was not: all 5 agents had failed with
+  `API Error: 529 Overloaded`, `agents_done: 0`, and the journal held **0 result lines**. Two full
+  retries failed identically.
+  **[Cause]** The workflow's post-processing filters findings and reports a count. Zero findings and
+  zero *executions* are indistinguishable in that return value; only the `failures` block and
+  `journal.jsonl` separate them.
+  **[Proven fix]** **Read `journal.jsonl` and count `"type":"result"` lines before believing any
+  empty workflow result.** `grep -c '"type":"result"' <transcript>/journal.jsonl`. Zero result lines
+  means nothing ran. Better: have the script assert `results.length === AREAS.length` and throw
+  otherwise, so a partial run fails loudly instead of returning a clean-looking zero.
+  **[Severity]** This is the project's signature failure mode — a tooling failure becoming a
+  negative result — arriving via a new route. `BGC_EVAL_STRICT` guards the eval suite against
+  exactly this; workflow post-processing had no equivalent.
+
+
 - **[2026-08-17] Every Phase-3 generation used the BATCHED path, which applies a workaround that
   once failed an on-GPU equivalence gate.**
   **[Symptom]** Not an error — a provenance gap. `A0_8k_gen.log`, `A0_gen.log`, `pilot_base.log`,

@@ -353,6 +353,12 @@ Aliases:              names seen in old docs. Do not use them.
 ### THE LADDER  [evaluation] [method]
 - **Is:** The validated ordering of capability metrics, replacing the single binary gate. Each rung
   is maximised by copying training data, so **novelty guards all of them**.
+- ⚠️ **AUROC PROVENANCE (flagged 2026-08-18).** All three AUROCs below were measured by
+  `ladder_audit.py` on **seeded** arms scored against the **GLOBAL** biosynthetic Pfam set, before
+  the class-specific scorer existed. Phase 3 scores against `OBLIGATE_DOMAINS[<CLASS>]` in a
+  **de novo and short-seed** regime. **Whether the AUROCs transfer to that configuration is
+  unverified.** They justified adopting these metrics; they are not evidence about Phase-3 rankings.
+  Re-deriving them under the class-specific scorer is cheap and unqueued.
 
   | rung | metric | AUROC |
   |---|---|---|
