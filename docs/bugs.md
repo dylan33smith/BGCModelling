@@ -384,6 +384,25 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Eval suite
 
+- **[2026-08-17] Two seed-leakage guards were calibrated for ~500 nt seeds and mis-fire at 4-8 nt.**
+  **[Symptom]** `tests/test_scored_span.py` failed on the Phase-3 seed sweep with
+  `3/2012 stored sequences BEGIN with their own seed` and later
+  `113/2012 = 5.6% contain a 60-mer of their seed`.
+  **[Cause]** Both assertions assume a long seed. (a) A 4-nt prefix match happens by chance —
+  seeds and generations both start at a gene, so both are ATG-enriched. Measured: 3/50 at L=4 with
+  agreement running to nt **5, 4, 4**, i.e. exactly the seed and no further; 0/50 at every length
+  ≥8. Real leakage runs for hundreds of nt. (b) The 60-mer scan used
+  `range(0, max(1, len(seed)-60), 60)`, so for a 4-nt seed it tested "is this **4-mer** anywhere in
+  2,200 nt" — ~certain. Measured 49/50 at L=4 and 4/50 at L=8 (chance), against **0/50 at L=20,
+  100 and 500** where the test is real.
+  **[Proven fix]** (a) discriminate on **how far** the agreement extends, not whether it starts —
+  flag only if it runs past `max(seed_nt + 30, 60)`; (b) run the 60-mer scan only when
+  `seed_nt >= 60`, so the guard keeps full strength where it was designed to apply. Both now pass:
+  0/2012 real prefix leaks, 8/1712 eligible records carry a 60-mer (0.5%).
+  **[Severity]** Test calibration, not data. **The sweep results are unaffected** — the code-level
+  assertion (generators build the scored sequence from generated text only) passed throughout.
+
+
 - **[2026-08-17] ⚠️ `containment` reads CLEAN while the model is reconstructing the seeded cluster.**
   **[Symptom]** In the seed sweep, L=500 posted the best on-class rate (0.240) with max nucleotide
   containment **0.021** — two orders of magnitude below the 0.80 WARN gate, i.e. perfectly novel by

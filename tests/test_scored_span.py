@@ -76,7 +76,7 @@ def test_no_stored_record_begins_with_its_seed():
     if not cores or not RUNS.exists():
         print("SKIP scored-span: no run artifacts / splits on this host")
         return
-    n = begins = contains = 0
+    n = begins = contains = coincidental = eligible = 0
     offenders = []
     for f in sorted(RUNS.glob("*/*.jsonl")):
         try:
@@ -90,24 +90,48 @@ def test_no_stored_record_begins_with_its_seed():
             n += 1
             seed, gen = cores[acc][:sn], r.get("sequence", "").upper()
             if gen[:sn] == seed:
-                begins += 1
-                offenders.append(f"{f.parent.name}/{f.name}")
-            if any(seed[i:i + 60] in gen for i in range(0, max(1, len(seed) - 60), 60)):
-                contains += 1
+                # SHORT SEEDS COINCIDE BY CHANCE. This guard was written when seeds were ~500 nt,
+                # where a prefix match is impossible unless the seed was prepended. Phase-3 uses
+                # 4-8 nt seeds (L*=8), and both seeds and generations start at a gene, so both are
+                # ATG-enriched: at 4 nt, 3/50 matched on 2026-08-17 with agreement running to nt
+                # 5, 4, 4 -- i.e. exactly the seed and no further. Real leakage runs for hundreds.
+                # So the discriminator is HOW FAR the agreement extends, not whether it starts.
+                src = cores[acc]
+                k = 0
+                while k < len(src) and k < len(gen) and src[k] == gen[k]:
+                    k += 1
+                if k >= max(sn + 30, 60):
+                    begins += 1
+                    offenders.append(f"{f.parent.name}/{f.name} (agrees to nt {k}, seed {sn})")
+                else:
+                    coincidental += 1
+            # 60-MER CARRY-OVER — only meaningful when the seed actually contains a 60-mer.
+            # With `max(1, len(seed)-60)` a short seed degenerates to "is this k-mer anywhere in
+            # 2,200 nt", which is ~certain for k=4. Measured 2026-08-17: 49/50 at L=4 and 4/50 at
+            # L=8 (chance), vs 0/50 at L=20/100/500 where the test is real. Restrict to sn >= 60
+            # so the guard keeps its original strength for long seeds and stops manufacturing
+            # hits for short ones.
+            if sn >= 60:
+                eligible += 1
+                if any(seed[i:i + 60] in gen for i in range(0, len(seed) - 60 + 1, 60)):
+                    contains += 1
     if n == 0:
         print("SKIP scored-span: no seeded records found on disk")
         return
     assert begins == 0, (
-        f"{begins}/{n} stored sequences BEGIN with their own seed (in {sorted(set(offenders))}). "
-        f"antiSMASH would then be scoring real class-X DNA we supplied, and every correct_class "
-        f"number from those runs is confounded.")
+        f"{begins}/{n} stored sequences begin with their own seed AND keep agreeing well past it "
+        f"(in {sorted(set(offenders))}). antiSMASH would then be scoring real class-X DNA we "
+        f"supplied, and every correct_class number from those runs is confounded.")
+    if coincidental:
+        print(f"     ({coincidental}/{n} short-seed prefix coincidences, agreement not extending "
+              f"past the seed — expected at 4-8 nt, not leakage)")
     # Verbatim carry-over of a seed fragment is a separate, milder issue (novelty covers it), but
     # a sudden jump would mean the model started copying rather than continuing.
-    frac = contains / n
-    assert frac < 0.05, (f"{contains}/{n} = {frac:.1%} of generations contain a 60-mer of their "
-                         f"seed — copying, not continuing")
-    print(f"PASS scored-span: 0/{n} stored sequences contain their seed as a prefix "
-          f"({contains} contain any 60-mer, {frac:.1%})")
+    frac = (contains / eligible) if eligible else 0.0
+    assert frac < 0.05, (f"{contains}/{eligible} = {frac:.1%} of generations with a >=60 nt seed "
+                         f"contain a 60-mer of it — copying, not continuing")
+    print(f"PASS scored-span: 0/{n} stored sequences begin with their seed and keep agreeing; "
+          f"{contains}/{eligible} of >=60 nt-seed records carry a 60-mer ({frac:.1%})")
 
 
 def main() -> int:
