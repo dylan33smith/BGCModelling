@@ -58,20 +58,22 @@
 Every table reporting results MUST:
 1. Use the exact `terms.md` identifier as the column header. **snake_case, no prose synonyms.**
    Not "bio bits" / "biosynthetic bits" — `best_bio_bits`.
-2. Carry a provenance line naming: **checkpoint, generation set, n, scoring config, window**.
-   A number without provenance is not a result. Example:
-   `provenance: phase3_RIPP/adapter_run @ step1350 | A0_8k.jsonl | n=150 | scoring=OBLIGATE_DOMAINS[RIPP] | window=2000nt`
+2. Carry a provenance line — **checkpoint · generation set · n · scoring config · window**.
+   A number without provenance is not a result.
 3. State the ceiling (real cores) and floor (base model / non-BGC) alongside any rate.
-4. **Every Phase-3 arm reports THE PHASE-3 REPORTING SET in full** (`terms.md`) — primary endpoint,
+4. **Be followed by a PER-METRIC reading, then a SYNTHESIS.** For every column header, one line:
+   what it measures and how to read *this* table's value for it (direction, and against what
+   reference). Then a short synthesis: what the columns say *together*, what it does not show, and
+   which comparison is load-bearing. A table without both is data, not a result.
+5. **Every Phase-3 arm reports THE PHASE-3 REPORTING SET in full** (`terms.md`) — primary endpoint,
    all novelty gates, the cluster-structure block, and context. Emit it with
    `scripts/novelty_battery.py`; never hand-assemble a subset. Two arms are comparable only if
    their `scoring` stamps match on Pfam subset, window, substrate, generation path and regime.
 
 ## IMPORTANT: Filesystem Naming Convention
 
-Artifacts on `/data2` are the evidence base. A name that cannot be grepped, or that collides, is a
-data-integrity bug — this repo has already lost a 698 MB run dir to a case collision and ~6,600
-training records to a manifest overwrite.
+A name that cannot be grepped, or that collides, is a data-integrity bug — this repo has already
+lost a 698 MB run dir to a case collision and ~6,600 training records to a manifest overwrite.
 
 * **Run directories:** `<phase>_<TARGET>[_<arm>]` — `phase3_RIPP_A0`, `phase2_1b_weighted`.
   Phase lowercase, **class UPPERCASE exactly as in `OBLIGATE_DOMAINS`**, arm lowercase.
@@ -96,20 +98,22 @@ training records to a manifest overwrite.
   MMseqs2) MUST run in a detached `tmux` session. Do not block the interaction loop.
 * **GPU jobs go through the queue wrapper**, never raw `python train.py` — shared-host contention
   silently invalidates memory and throughput measurements.
-* **Status sentinel, not desktop notifications.** `notify-send` no-ops on this headless host.
-  Chain a status file so the *agent* can poll:
-  ```
-  tmux new-session -d -s <name> '<cmd> > logs/<name>.log 2>&1; echo $? > logs/<name>.status'
-  ```
-  Poll `logs/<name>.status` (`0` = success). Never report a run as finished without reading it.
+* **Status sentinel, not desktop notifications** (`notify-send` no-ops on this headless host).
+  Poll the sentinel (`0` = success); never report a run finished without reading it:
+  `tmux new-session -d -s <n> '<cmd> > logs/<n>.log 2>&1; echo $? > logs/<n>.status'`
 * **Read synchronous results.** After a fast command, automatically read and summarize the output.
   Do not wait to be asked.
 * **Fan out when the batched path is gated.** Generation is one-sequence-at-a-time (vortex batching
   is gated, `bugs.md`), which leaves the H100 at ~41% util / 4 GB of 80 GB. Run N *sequential*
   processes on disjoint units instead: semantics are unchanged (each still generates serially, so
-  outputs are identical). **N=3 is the measured optimum: ~3.5x (432 seq/h). N=5 REGRESSES to
-  ~300 seq/h** — the GPU is already saturated at N=3, so extra workers add contention, not
-  throughput. Do not raise N past 3 on this host.
+  outputs are identical). **N is not a constant — MEASURE IT.** Check `nvidia-smi` utilisation
+  first: fan-out only helps while the GPU is *under-utilised*. Once utilisation is ~100%, more
+  workers time-slice a saturated device and aggregate throughput FALLS. Verify by counting outputs
+  over a ~3 min window and comparing seq/hour against the previous N; if it did not rise, back off.
+  **Re-measure whenever the model, sequence length, batch shape or host changes** — a 7B, longer
+  generations or a busier host all move the optimum. *Measured 2026-08-17 for 1B generation at
+  2.2 kb on an idle H100:* N=1 → 124 seq/h (41% util), **N=3 → 432 seq/h (100% util)**,
+  N=5 → ~300 seq/h (regression). Treat that as a starting point, not a rule.
   `scripts/fanout.sh <N> <claim_dir> <unit_file> '<cmd with {}>'` — claims units atomically with
   `mkdir`, one tmux session + status sentinel per worker. Write to `<out>.partial` and `mv` on
   success so an interrupted unit never looks complete. **Not for throughput/memory benchmarks** —
