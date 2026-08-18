@@ -107,7 +107,9 @@ training records to a manifest overwrite.
 * **Fan out when the batched path is gated.** Generation is one-sequence-at-a-time (vortex batching
   is gated, `bugs.md`), which leaves the H100 at ~41% util / 4 GB of 80 GB. Run N *sequential*
   processes on disjoint units instead: semantics are unchanged (each still generates serially, so
-  outputs are identical), and measured gain is **~3.5x** at N=3 (100% util, 22 GB).
+  outputs are identical). **N=3 is the measured optimum: ~3.5x (432 seq/h). N=5 REGRESSES to
+  ~300 seq/h** — the GPU is already saturated at N=3, so extra workers add contention, not
+  throughput. Do not raise N past 3 on this host.
   `scripts/fanout.sh <N> <claim_dir> <unit_file> '<cmd with {}>'` — claims units atomically with
   `mkdir`, one tmux session + status sentinel per worker. Write to `<out>.partial` and `mv` on
   success so an interrupted unit never looks complete. **Not for throughput/memory benchmarks** —

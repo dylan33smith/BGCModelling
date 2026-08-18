@@ -536,6 +536,20 @@ that 3 kb captures most of a typical one.
 
 ## Agent / shell self-traps (when operating the repo)
 
+- **[2026-08-17] Fan-out has a sweet spot at N=3; N=5 is SLOWER in aggregate.**
+  **[Symptom]** Stage 2 launched 5 concurrent generation workers (one per arm) and produced
+  ~300 seq/h, against **432 seq/h measured at N=3** in Stage 1 — a ~1.4x regression despite 67%
+  more workers.
+  **[Cause]** The GPU is already at 100% utilisation with N=3 (22 GB of 80). Memory was never the
+  constraint; compute was. Additional workers time-slice the same saturated device and each one
+  slows proportionally, so aggregate throughput falls once scheduling overhead is added.
+  **[Proven fix]** Cap fan-out at **N=3** on this host. Utilisation, not memory, tells you when to
+  stop — 100% util means adding workers cannot help. Recorded in `CLAUDE.md`.
+  **[Cost]** Stage 2 ran ~45 min longer than necessary. Not restarted: a third restart of the same
+  pipeline would have cost the 90 already-generated sequences plus model-load overhead for a
+  smaller saving.
+
+
 - **[2026-08-17] `pkill -f <pattern>` KILLS THE SHELL THAT ISSUES IT** when the pattern appears in
   its own command line.
   **[Symptom]** A compound command exited 144 having done only its first step; the rest (an `rm`,
