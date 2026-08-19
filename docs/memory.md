@@ -1229,4 +1229,54 @@ precursors. No amount of training, weighting or composition on that substrate wi
 
 ---
 
+## 2026-08-19 — ⚠️ CORRECTION: my precursor "detector" was ~half ENZYME. Use RODEO/antiSMASH instead.
+
+User challenged the rigour of the component panels. **The challenge was correct.**
+
+**How the three panels were actually built — three different methodologies, silently mixed:**
+- **ENZ** = `OBLIGATE_DOMAINS[RIPP]`, 8 accessions, **data-derived** from our own corpus
+  (`derive_class_markers.py`: keep Pfams with freq≥0.3 & enr≥4, OR freq≥0.08 & enr≥8). Defensible.
+- **PREC / TRANS** = **regex keyword match over Pfam-A `NAME`+`DESC` text.** Not curated, not
+  validated per-family, not derived from BGC data. 81 and 302 families respectively.
+
+**The flaw, measured.** Of the six "precursor" families that actually fired on real WIDE spans:
+
+| accession | name | what it really is |
+|---|---|---|
+| PF14028 | Lant_dehydr_C | ⚠️ **lantibiotic DEHYDRATASE — an ENZYME**, and already in `OBLIGATE_DOMAINS[RIPP]` |
+| PF04738 | Lant_dehydr_N | ⚠️ **lantibiotic DEHYDRATASE — an ENZYME** |
+| PF03515 | Cloacin | ⚠️ colicin tRNase — a **toxin**, not a RiPP precursor |
+| PF10439 | Bacteriocin_IIc | ✅ genuine (double-glycine leader peptide) |
+| PF09683 | Lactococcin_972 | ✅ genuine |
+| PF28317 | Lant_leader_dom | ✅ genuine (Class I lanthipeptide leader) |
+
+**Half the panel is enzymes or toxins.** The regex matched `lantibiotic` and caught the *dehydratase
+that modifies* the precursor rather than the precursor. **PREC and ENZ were not disjoint**, so the
+"P+E" combination was partly tautological — one PF14028 hit lit up both columns.
+
+[INCORRECT] - | panel | real WIDE | base 1B (FP control) | verdict | ... | **precursor** | **25/120 = 0.208** | **1/120 = 0.008** | **USABLE — 25× discrimination** |
+[CORRECTION - 2026-08-19]: The whole-panel validation (25/120 vs 1/120) was real but **uninformative
+about precursors specifically** — it validated a mixed enzyme/precursor panel against a floor that
+has neither. Recomputed with the enzyme contaminant removed: precursor **17/120** (from 19), and
+**P+E drops 9/120 → 7/120**. Removing PF04738 and PF03515 as well would lower it further. **The
+Level-3 P+E numbers in the 2026-08-19 final panel are not trustworthy and must be re-derived.**
+
+**What the literature says we should have done** (searched 2026-08-19):
+- RiPP precursors are **typically <150 aa and frequently unannotated** — our observation confirmed.
+- **Standard gene callers are not optimised for short ORFs**; the field uses **Prodigal-short** /
+  **Prodigal-shorter** (down to ~5 aa), not a `min_aa` tweak on stock Prodigal.
+- **Pfam alone is explicitly insufficient** — the field pairs it with **RiPP-specific HMMs**.
+- The standard tool is **RODEO** (HMM + heuristic scoring + supervised ML), and
+  **antiSMASH's RiPP modules already run RODEO for precursor validation.**
+- Alternatives: **NeuRiPP** (neural net), **DeepRiPP**, **RiPPMiner**, **RiPPER**.
+
+⇒ **We already own the right detector and have been discarding its output.** antiSMASH has been run
+on 833 of our sequences and we kept only `is_bgc` / `class_match`. **Parse antiSMASH's precursor
+calls instead of rolling our own panel.** This is the same error as `build_core_records.py`
+computing `gene_kind` and storing only spans.
+⇒ **TRANS panel (302 keyword families) is equally unvalidated per-family** and should be treated as
+provisional until checked the same way.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

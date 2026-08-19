@@ -175,7 +175,29 @@ invalidates the premise of the other two options.**
 4. **The model is not the limit.** The enzyme+transport complement spans a median **6,653 nt** and
    fits the 1B's ~7,900 usable budget in **55.5%** of real regions.
 
-### [P5-SPAN] ◀◀ DO THIS FIRST — a precursor-inclusive training span
+### [P5-DETECT] ◀◀ DO THIS FIRST — use RODEO/antiSMASH, do NOT roll our own precursor panel
+**My keyword-built precursor panel was ~half enzyme** (PF14028/PF04738 lantibiotic *dehydratases*,
+PF03515 colicin) and overlapped `OBLIGATE_DOMAINS[RIPP]`, making "P+E" partly tautological. Every
+Level-3 P+E number from 2026-08-19 must be re-derived. See `memory.md`.
+
+**The field-standard answer, and we already own it:**
+1. **antiSMASH already runs RODEO** for RiPP precursor validation. We have run antiSMASH on 833
+   sequences and kept only `is_bgc`/`class_match`. **Parse the precursor calls out of the antiSMASH
+   output** — no new tool, no new panel. *(If the raw output dirs were not retained, re-run: 615
+   calls took 4 minutes.)*
+2. Use a **short-ORF caller** — `Prodigal-short`/`Prodigal-shorter` (down to ~5 aa) — not a `min_aa`
+   tweak on stock Prodigal, which the literature says is not optimised for short ORFs.
+3. Pfam alone is explicitly insufficient; pair it with **RiPP-specific HMMs** (NCBI RiPP HMMs), or
+   use **NeuRiPP** as a second opinion.
+4. **Re-validate the TRANS panel per-family** the same way — it is 302 keyword-matched families and
+   has had no per-family check.
+
+⚠️ **Scope discipline.** Do NOT build detectors, a new span, and a new training run at once. The
+detector is a prerequisite for the span (you cannot define a precursor-inclusive span without a
+trustworthy precursor call), and the span is a prerequisite for training. **One at a time, each
+validated against real cores AND the base-model floor before the next starts.**
+
+### [P5-SPAN] AFTER [P5-DETECT] — a precursor-inclusive training span
 Define and build a **functional-complement span**: biosynthetic genes **+ short (20–80 aa)
 unannotated CDS within a proximity window + transport**, from `ripp_components.jsonl` (built
 2026-08-19, per-CDS `gene_kind` + coordinates for every RIPP region).
