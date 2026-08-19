@@ -1034,4 +1034,53 @@ biosynthetic signal per token. **[P4-WIDE] stays closed negative.**
 
 ---
 
+## 2026-08-19 — ⚠️ LEVEL 3 IS UNMEASURABLE ON THE CURRENT SUBSTRATE. Even real cores score zero.
+
+Re-scored every arm at `min_aa=20` and added a **component panel** — precursor (20–80 aa ORF),
+modifying enzyme (`OBLIGATE_DOMAINS[RIPP]`), transporter/protease (PF03412 Peptidase_C39, PF00005
+ABC_tran, PF00664 ABC_membrane, PF07690 MFS_1), regulator (PF00196, PF00440, PF13411, PF01381).
+n=120/arm, 2,000 nt window, panel = 16 HMMs.
+
+| arm | n | ORF@50 | ORF@20 | short | ENZ | TRANS | REG | E+P | **E+P+T** |
+|---|---|---|---|---|---|---|---|---|---|
+| **real cores (CEILING)** | 120 | 1.59 | 1.65 | **17** | 68 | **3** | 2 | **8** | **0** |
+| base 1B (FLOOR) | 120 | 1.48 | 1.82 | **80** | 0 | 0 | 0 | 0 | **0** |
+| A0 de novo | 120 | 1.99 | 2.08 | 26 | 3 | 1 | 1 | 0 | 0 |
+| S2-1 seeded 2.2k | 120 | 2.12 | 2.21 | 29 | 21 | 1 | 0 | 4 | 0 |
+| W-1 WIDE 2.2k | 120 | 2.23 | 2.39 | 42 | 5 | 5 | 2 | 1 | 0 |
+| W-2 STRICT 2.2k | 120 | 1.38 | 1.44 | 18 | 26 | 0 | 3 | 3 | 0 |
+| W-1 WIDE 8k | 120 | 2.20 | 2.25 | 25 | 5 | 3 | 3 | 0 | 0 |
+| W-2 STRICT 8k | 120 | 1.80 | 1.86 | 19 | 24 | 6 | 2 | 4 | 0 |
+| STRICT-full 8k | 120 | 2.25 | 2.39 | 38 | 17 | 6 | 5 | 3 | 0 |
+
+**Three findings, and they redirect Phase 5.**
+
+**1. `min_aa=20` recovers almost nothing.** ORF counts barely move (real 1.59→1.65, S2-1 2.12→2.21).
+The precursors were **not** hidden by the `min_aa=50` default. That hypothesis is dead — cheaply,
+which is what it was for.
+
+**2. A short ORF alone is a WORTHLESS signal.** The **base 1B floor has the MOST** precursor-sized
+ORFs of any arm — **80/120**, against real cores' **17/120** — while producing **zero** RIPP markers.
+Random-ish DNA is full of 20–80 aa open frames. ⇒ The confirmed-vs-rejected discriminator found on
+2026-08-19 (0.43 vs 0.00 short ORFs) is real but must be read **jointly with an enzyme**, never
+alone. `n_short_orfs` is a **diagnostic, not a gate.**
+
+**3. ★ THE BLOCKER: Level 3 cannot be measured here — real cores score 0/120 too.** Transporters
+appear in only **3/120** real cores and the full complement (E+P+T) in **0/120**. The cause is
+structural: `STRICT_KINDS = {"biosynthetic"}` **excludes transport and regulatory genes by
+construction**, so they are absent from the training data *and* from the real-core reference. A
+metric no real cluster can satisfy cannot score a generation.
+
+⇒ **Pursuing Level 3 requires changing the evaluation substrate to whole antiSMASH regions**
+(median 21,262 nt), not strict cores (median 1,854 nt). That immediately collides with
+`evo2_1b_base`'s **8,192-token hard cap** — a full RiPP region does not fit in the model's context.
+**The substrate question ([P5-SUBSTRATE]) is therefore a prerequisite for Level 3, not an
+alternative to it.**
+
+⇒ Best current arm on components: **STRICT-full 8k** — 17 ENZ, 6 TRANS, 5 REG, 3 E+P of 120. It
+leads or ties on transporter and regulator content. **WIDE remains worse on every component column**
+(W-1 8k: 5 ENZ vs W-2's 24), independently confirming [P4-WIDE]'s closure.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

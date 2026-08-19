@@ -10,30 +10,29 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
-Phase 3/4, target **RIPP**, substrate **Evo2 1B**. **Legs 1 and 2 closed positive; leg 3 and the
-WIDE hypothesis both closed negative — all four on powered, pre-registered tests.**
+Phase 5 opening. Target **RIPP**, substrate **Evo2 1B** — and the substrate is now the blocker.
 
-**Best arm to date: STRICT-full regenerated at 8 kb — antiSMASH-corrected 0.116** against a
-real-core ceiling of 0.760 and a base-model floor of 0.000. Seeding at L\*=8 nt is what buys it;
-the class comes entirely from the adapter (shuffling the seed changes nothing, p=0.66).
+**Achieved.** Level 1 (class-associated biosynthetic domain de novo): ✅ p=0.0054 vs 0/400 controls.
+Level 2 (**antiSMASH calls it a RIPP cluster**): ✅ best arm **STRICT-full seeded @8 kb, corrected
+0.116** against a **0.760** real-core ceiling and **0.000** base-model floor — about **15% of
+ceiling**, with novelty clean on both gates. Seeding at L\*=8 nt supplies the lift; the class comes
+entirely from the adapter (shuffled seed changes nothing, p=0.66; general adapter 0/188, p=2.5e-11).
 
-**[P4-WIDE] is refuted with a mechanism.** Widening training spans to include
-`biosynthetic-additional` genes made the model **significantly worse** (W-1 vs the size- and
-cluster-matched W-2: Holm p=4.1e-04 at 2.2 kb, p=3.2e-05 at 8 kb), while the training-set size drop
-itself cost nothing (p=0.79). **Cause measured: dilution.** The biosynthetic fraction of a training
-span falls 0.683 → 0.477, i.e. **1.43× less biosynthetic signal per token** — and *not* from
-intergenic space (coding density barely moves, 0.976 → 0.938) but from **additional
-non-biosynthetic genes**. The WIDE adapter's 8 kb Pfam hits were **0/8 antiSMASH-confirmed**
-(P≈0.004–0.009 under the other arms' rates): it emits isolated biosynthetic-looking genes with no
-cluster context — exactly what dilution predicts.
+**Closed negative, both powered:** leg 3 inference pruning (no instrument — ladder 0.575, class
+probe 0.337 for within-positives discrimination) and [P4-WIDE] span widening (Holm p=4.1e-04 /
+3.2e-05 worse than a size- and cluster-matched control; cause measured as 1.43× dilution of
+biosynthetic signal per token; the "hidden accessory machinery" hypothesis refuted 2/60 vs 8/60).
 
-**The number that has never moved:** `n_class_domains ≥ 2` is **0/188 in all five arms** — 940
-sequences, five adapters, three windows, zero generations with two distinct RIPP markers. Real cores
-14/68. Every intervention aimed at it has failed, and the model writes near-natural gene *counts*
-while only ever one gene is biosynthetic.
+**The finding that redirects Phase 5.** Among single-marker generations, what separates
+antiSMASH-CONFIRMED from REJECTED is **not** domain content (3.57 vs 3.50 distinct Pfam domains)
+but **an extra short ORF of 20–80 aa — 0.43 vs 0.00.** That is the **RiPP precursor peptide**, the
+gene encoding the product, and every metric we had optimised was structurally blind to it.
 
-**Next:** add span width **without** losing biosynthetic density — domain-weighted loss on WIDE
-spans ([P5-WEIGHTED]), with a mandatory manipulation check since Phase-2's weighted arm never landed.
+**But Level 3 is not yet measurable.** The component panel (precursor + enzyme + transporter) scores
+**0/120 on real held-out cores**, because `STRICT_KINDS = {"biosynthetic"}` excludes transport and
+regulatory genes from the data *and* the reference. Transporters appear in 3/120 real cores.
+⇒ **Level 3 requires whole antiSMASH regions (median 21,262 nt), which exceed the 1B's 8,192-token
+hard cap.** The substrate decision ([P5-SUB]) is a prerequisite, not an alternative.
 
 ---
 
@@ -160,103 +159,61 @@ Novelty guard:       containment reported alongside, always.
 
 ---
 
-## Proposed interventions after [P4-WIDE] — ordered
+## PHASE 5 ROADMAP — target is LEVEL 3 (minimal functional complement)
 
-Every one of these follows from a *measured* cause, not a guess. `n_class_domains ≥ 2` = 0/188 in
-all five arms is the target; the STRICT-full 8 kb arm (corrected **0.116**) is the baseline to beat.
+**Where we are.** Level 1 (class-associated domain) ✅ p<1e-10. Level 2 (antiSMASH calls it a
+cluster of the right class) ✅ **0.116 vs 0.760 real-core ceiling — ~15% of ceiling.**
+Level 3 (precursor + enzyme + transporter) ❌ — and as of 2026-08-19, **not currently measurable:
+real held-out cores score 0/120 on it too**, because strict-core trimming excludes transport and
+regulatory genes from both the training data and the reference.
 
-### [P5-WEIGHTED] WIDE spans + domain-weighted loss — DEMOTED
-Still the right response to the measured dilution, but **no longer first**: the precursor finding
-says the missing thing is a *component*, not signal density. Also note the user's hypothesis that
-WIDE was secretly producing accessory machinery was **tested and refuted** (2/60 vs 8/60 carrying
-the additional-domain vocabulary), so WIDE has no hidden upside to recover.
-**Rationale (measured):** WIDE failed because biosynthetic density fell 0.683 → 0.477. Domain
-weighting up-weights loss on biosynthetic spans, so the model can see wider context *without* the
-signal being diluted. This is the only intervention that directly addresses the measured cause.
-- **Machinery exists.** `finetune_evo2_lora.py` takes a `*.domain_spans.jsonl` sidecar;
-  `scripts/build_domain_spans.py --data-dir splits_class_wide/RIPP --hmm-subset ripp_only.hmm`
-  builds it. Never yet run on a WIDE split.
-- ⚠️ **MANDATORY MANIPULATION CHECK.** Phase-2's weighted arm produced an uninterpretable null
-  because **the treatment never landed**. Before reading any endpoint, verify the weights reach the
-  optimiser — log the per-token weight distribution and confirm biosynthetic spans carry the
-  intended multiple. A flat distribution means the run is void, not negative.
-- **Arms:** WIDE+weighted vs WIDE unweighted (already have) vs STRICT-matched (already have). Only
-  one new training run.
+**The critical path is therefore SUBSTRATE, not another training trick.**
 
-### [P5-PRECURSOR] ◀◀ NOW THE TOP PRIORITY — MEASURED, not speculative
-**Evidence (2026-08-19).** Among single-marker generations, what separates antiSMASH-CONFIRMED from
-REJECTED is **not** domain content (3.57 vs 3.50 distinct Pfam domains — identical). It is
-**an extra gene, specifically a SHORT one of 20–80 aa: 0.43 in confirmed vs 0.00 in rejected.**
-That is the **RiPP precursor peptide — the gene encoding the actual product.**
+### [P5-SUB] ◀◀ FIRST — make Level 3 measurable at all
+Level 3 needs whole antiSMASH regions (median **21,262 nt**), not strict cores (median 1,854 nt).
+`evo2_1b_base` caps at **8,192 tokens**, so a full RiPP region does not fit. Two routes:
+- **(a) GenomeOcean-4B — 32,768 ctx**, leakage gate already passed, takes a real trainable class
+  token. A whole region fits. **This is the natural move and it doubles as the model comparison
+  the paper wants.**
+- **(b) Evo2 7B — 262k ctx.** Fits trivially; more expensive; the guided-decoding probe already
+  lives in this space.
+- ⚠️ Changes substrate — a deliberate Phase-5 scope decision (Constraint 3). Port **only the single
+  best protocol** (class-specific adapter + L\*=8 nt seeding), not the whole matrix.
+- **First step costs nothing:** build `splits_class_region/RIPP` from whole regions and report the
+  component panel on **real cores** at 8/16/32 kb. If real cores do not reach E+P+T even there, the
+  panel itself is wrong and must be fixed before any training.
 
-**Our instruments are structurally blind to it:**
-- none of the 8 `OBLIGATE_DOMAINS[RIPP]` markers is a precursor (all modifying enzymes/binders);
-- `find_orfs` defaults to **`min_aa=50`**, and Prodigal's own floor is ~30 aa.
+### [P5-COMPONENT] Fix the component instruments (cheap, do alongside)
+The panel exists but is not yet trustworthy:
+- `n_short_orfs` is **not a gate** — the base-model floor has 80/120 vs real cores' 17/120. Only
+  meaningful **jointly with an enzyme**.
+- Need a **real precursor detector**: RiPP-precursor HMMs, or parse antiSMASH's own precursor calls
+  out of runs already on disk. Leader/core structure, not just length.
+- Re-derive the transporter panel against **whole regions** — 3/120 in strict cores means we have
+  never actually measured transporter content.
 
-**Actions, in order:**
-1. **Re-score every existing arm with `min_aa=20`** and report `n_short_orfs` (20–80 aa) as a new
-   metric. Costs nothing — no generation, no training. It may show the models are already producing
-   precursor-sized ORFs we have been discarding.
-2. **Add precursor detection**: a RiPP-precursor HMM set, or parse antiSMASH's own precursor calls
-   out of the runs we have already done.
-3. Only then consider training changes.
-⚠️ Do not change the pre-registered PRIMARY mid-phase (Constraint 4). Add these as reported metrics.
+### [P5-COMPOSE] Component-wise adapters, generated in sequence
+User's proposal; still the most promising *training* idea, but **blocked behind [P5-SUB]**: you
+cannot train a transporter adapter on a substrate that excludes transporters. Revisit once regions
+are the substrate. Design notes (error compounding, long-seed reconstruction risk, monolithic
+control) are unchanged — see the entry below.
 
-### [P5-COMPOSE] Component-wise adapters, generated in sequence ◀ follows directly from the above
-**User's proposal, and the precursor finding supports it.** A RiPP is not one thing — it is
-precursor + modifying enzyme(s) + protease/transporter. Train a small adapter per component and
-generate compositionally, each step seeded on the previous output:
-`precursor → (precursor as seed) enzyme → (precursor+enzyme as seed) transporter`.
+### [P5-CEILING] Is the target achievable? (cheap, CPU-only, no training)
+Corrupt real regions progressively — mask k% of genes — and measure recovery. Gives an achievability
+ceiling for "produce the missing component" and says whether current numbers reflect a hard problem
+or a fixable one. **Run this early; it is the cheapest way to avoid a long dead end.**
 
-**Why it fits what we now know:**
-- The binding constraint is a **missing component**, not weak content — so target components.
-- We already know **seeding works and is class-specific** (0.176 vs 0.000 for the general adapter,
-  p=2.5e-11), and that the model *continues* what it is given. Compositional seeding is that
-  mechanism used deliberately.
-- Component splits are buildable from `gene_kind` + our own ORF calls; no new data collection.
+### [P5-RL] Rejection sampling / DPO — deferred until Level 3 is measurable
+Reward must be **antiSMASH confirmation**, never the Pfam gate (inflates 1.8×; confirmed 0/8 in the
+WIDE arm), weighted by component completeness. ⛔ Never rank candidates by a continuous score —
+ladder metrics reach 0.575 and the class probe 0.337 for within-positives discrimination.
 
-**Risks to design against:**
-- ⚠️ **Error compounding** — a bad precursor poisons every later step. Measure each stage against
-  its own control, not only the end product.
-- ⚠️ **Seed length**: L\*=8 nt was chosen because longer seeds cause reconstruction (12/12 source-
-  domain match at 500 nt). Compositional seeding *deliberately* uses long seeds, so the novelty
-  gates must be read per stage, and `--no-boundary-orf` cannot protect a deliberate hand-off.
-- Needs a joint-vs-monolithic control: does composition beat one adapter generating the whole thing?
+### [P5-WEIGHTED] ❌ DROPPED 2026-08-19 (user)
+Domain-weighted loss on WIDE spans addressed the measured dilution, but WIDE is closed on two
+independent tests and the binding constraint is a **missing component**, not signal density. Also
+refuted: WIDE was not secretly producing accessory machinery (2/60 vs 8/60). No upside to recover.
 
-
-**Rationale:** none of the 8 RIPP markers is a **precursor peptide** — they are all modifying
-enzymes. And Prodigal calls **0 ORFs under 30 aa**, so typical short RiPP precursors are invisible
-to our caller *and* absent from our marker set. We may be asking for clusters while measuring only
-half of one.
-- Add precursor detection (a dedicated RiPP-precursor HMM set, or antiSMASH's own precursor calls)
-  as a **reported metric first** — do not make it an endpoint mid-phase (Constraint 4).
-- If generations do contain precursors we cannot see, the "one gene" story is partly an artefact of
-  the instrument, which would be the most important finding available.
-
-### [P5-RL] Rejection-sampling / DPO on verified positives
-**Rationale:** literature-supported ([P4-RL-0]) and now much better specified by today's results.
-- **Reward on antiSMASH confirmation, not the Pfam gate** — the gate inflates 1.8× and, in the WIDE
-  arm, confirmed 0/8. Rejection sampling is documented to hack exactly this kind of proxy.
-- **Weight positives by `n_class_domains`** — the metric that has never moved.
-- ⛔ **Do NOT rank candidates by any continuous score.** Measured: ladder metrics reach 0.575 and the
-  class probe 0.337 for within-positives discrimination. Rewards must be built from **verified gate
-  passes**, not scores.
-- Cost: antiSMASH on every sampled batch. Feasible — 615 calls ran in 4 minutes.
-
-### [P5-SUBSTRATE] Re-test the best arm on a longer-context model
-**Rationale:** `evo2_1b_base` caps at **8,192** tokens, and real cores need 8 kb to show 2.67
-domains. The 1B may be structurally unable to hold a cluster. GenomeOcean-4B (32,768 ctx, leakage
-gate already passed) or the 7B would test this.
-- ⚠️ Changes the substrate — a deliberate Phase-5 scope decision, not a mid-phase switch
-  (Constraint 3). Run **only the single best arm** (STRICT-full seeded @8 kb), not the whole matrix.
-
-### [P5-CEILING] Ask whether the target is achievable at all
-**Rationale:** before spending more on interventions, establish what *any* model can do here. Take
-real RIPP cores, corrupt them progressively (mask k% of the biosynthetic genes), and measure the
-recovery curve. That gives an achievability ceiling for "produce a second marker" and tells us
-whether 0/188 reflects a hard problem or a fixable one. Cheap, CPU-only, no training.
-
-## Backlog — Phase 3
+## Backlog — Phase 3## Backlog — Phase 3
 
 **The phase has three legs.** Leg 1 is done and negative-but-directional; legs 2 and 3 are untried.
 
