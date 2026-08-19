@@ -1370,4 +1370,44 @@ scoped to RiPP.
 
 ---
 
+## 2026-08-19 — Dropped `--minimal`. Detection unchanged; but generations are ONLY ever "RiPP-like".
+
+**Q: what did `--minimal` cost us?** A/B on **identical** sequences, both modes, n=10:
+`--minimal` detected 8/10, full mode 8/10, **100% agreement on `is_bgc`.**
+⇒ **No prior number is retracted.** `is_bgc` and `correct_class` come from core detection, which
+runs in minimal mode. What we lost was the *analysis modules* — precursor prediction, domain
+analysis, CompaRiPPson — never the detection verdict.
+
+**Full-mode results, 2,000 nt window, identical scoring path:**
+
+| arm | n | detected | rate | precursor motif |
+|---|---|---|---|---|
+| real cores | 40 | 33 | 0.825 | 0 |
+| SF Pfam-positive (best arm) | 16 | 12 | 0.750 | 0 |
+| W-2 Pfam-positive | 16 | 16 | 1.000 | 0 |
+| SF Pfam-negative | 38 | 4 | 0.105 | 0 |
+| base 1B | 39 | 0 | **0.000** | 0 |
+
+**★ THE FINDING — product specificity, which `--minimal` output never surfaced in our pipeline:**
+
+| arm | antiSMASH products called |
+|---|---|
+| **real cores** | lassopeptide 7 · RiPP-like 4 · lanthipeptide-class-iv 4 · lanthipeptide-class-i 3 · lanthipeptide-class-iii 3 · redox-cofactor 2 |
+| **SF Pfam+ (best arm)** | **RiPP-like 12 — nothing else** |
+| **W-2 Pfam+** | **RiPP-like 16 — nothing else** |
+
+⇒ **Every generated detection is antiSMASH's generic catch-all.** Real clusters are assigned a
+*specific chemistry* — lassopeptide, lanthipeptide class I/III/IV. **Ours never are.** The model
+trips the generic RiPP rules and never a subclass rule.
+
+⇒ This is a far more precise statement of the limitation than any domain-count metric, and it is
+**directly reportable**: *"generates sequence antiSMASH calls a RiPP-like cluster, but not yet any
+specific RiPP subclass."* It also explains the precursor result — precursor prediction only exists
+for the specific subclasses, and we never produce one.
+
+⇒ **`n_class_domains`, `bio_span_frac` and the precursor panels were all indirect proxies for this.**
+**Product specificity is the honest, field-standard readout of how far short we fall.**
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
