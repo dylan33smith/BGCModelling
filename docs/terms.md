@@ -408,7 +408,7 @@ Aliases:              names seen in old docs. Do not use them.
 
   | metric | what it answers |
   |---|---|
-  | `n_class_domains` | **distinct markers of the class — >1 means a cluster, not one enzyme** |
+  | `n_class_domains` | distinct markers of the class. ⚠️ **NOT the definition of a cluster** — only ~16% of real cores reach ≥2 in a 2 kb window, and antiSMASH confirms single-marker records (12/24, 16/36). Diagnostic, demoted 2026-08-19. |
   | `n_bio_domains` | total biosynthetic domain hits (AUROC 0.919) |
   | `n_bio_orfs` | how many distinct genes carry one |
   | `bio_span_frac` | how far apart they sit = is it a CLUSTER (AUROC 0.896) |

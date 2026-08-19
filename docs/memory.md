@@ -945,4 +945,45 @@ spans. ⚠️ Phase-2's weighted arm never landed, so any such run needs a manip
 
 ---
 
+## 2026-08-19 — ⚠️ CORRECTION: `n_class_domains ≥ 2` WAS THE WRONG TARGET
+
+Prompted by the user asking whether we are measuring the right thing. **We were not**, and I had
+been amplifying the error across several reports.
+
+**What I had been claiming.** That "0/188 records with ≥2 distinct RIPP markers, against 29% of real
+cores" was a damning structural failure — "one enzyme, not a cluster" — and that moving it was the
+central objective of Phase 4/5.
+
+**What the data says.** antiSMASH — the field-standard detector, and our own gold standard —
+**confirms RIPP clusters that carry exactly ONE of our markers**:
+
+| arm | records with exactly 1 marker | antiSMASH confirmed |
+|---|---|---|
+| STRICT-full 8 kb | 24 | **12/24** |
+| W-2 STRICT-matched 8 kb | 36 | **16/36** |
+
+Every confirmation was classed **RIPP**. And the marker-count distribution of **real held-out cores**
+in the same 2 kb window is: **0 markers 28/50 · 1 marker 14/50 · 2 markers 6/50 · 4 markers 2/50.**
+
+⇒ **Only ~16% of REAL RIPP cores carry ≥2 of our markers in a 2 kb window.** The metric I was
+treating as the definition of a cluster is a *minority property of genuine clusters*.
+
+[INCORRECT] - The co-primary never moved: `n_class_domains ≥ 2` is 0/188 in ALL FIVE ARMS ... Real cores 14/68. WIDE was the intervention aimed at this number and it went 2/188 → 0/188.
+[CORRECTION - 2026-08-19]: The 0/188 finding is **real but was over-weighted**. `n_class_domains ≥ 2`
+is satisfied by only ~16–21% of real cores in the scoring window, and antiSMASH confirms clusters
+with a single marker. It is a **stricter-than-field-standard proxy**, not the definition of success.
+**The cluster verdict we should quote is antiSMASH confirmation**, where the best arm reads
+**0.116 against a 0.760 real-core ceiling — about 15% of ceiling**, not zero.
+
+**Why the proxy misleads.** Our 8 markers are *modifying enzymes*; antiSMASH's RiPP rules also use
+**precursor-peptide evidence and gene context**, which our Pfam-only scan cannot see. A real RiPP
+cluster is a precursor + modifying enzyme(s) + protease/transporter; requiring two *modifying
+enzyme families* is neither necessary nor sufficient.
+
+⇒ **Demote `n_class_domains ≥ 2` from co-primary to diagnostic.** Do not change the pre-registered
+PRIMARY mid-phase (Constraint 4) — but stop reporting the ≥2 metric as the headline failure, and
+quote **antiSMASH-confirmed rate against the real-core ceiling** as the cluster claim.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
