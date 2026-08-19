@@ -1335,4 +1335,39 @@ wrong per-family content.
 
 ---
 
+## 2026-08-19 — Precursor absence is a DETECTION gap, not biology. But the detector caps at ~50%.
+
+Direct test of "are precursors missing, or just untagged?" Full-mode antiSMASH on two matched sets
+of 12 real RIPP wide spans.
+
+| region set | n | with precursor motif | rate |
+|---|---|---|---|
+| mixed subclasses (**as our RIPP class actually is**) | 12 | 1 | **8%** |
+| **only subclasses with a dedicated precursor module** | 12 | 6 | **50%** |
+
+⇒ **Both effects are real.** Restricting to module-covered subclasses raises detection **6×**, so the
+8% is largely a **coverage gap** — the precursors are there, antiSMASH just has no model for 79.7%
+of our subclasses. **But even with a dedicated module, detection is only 50%**, so the detector
+itself is also limiting.
+
+⇒ **A precursor-based endpoint would have a ~50% ceiling on ~20% of the data.** Not viable as a
+gate. Usable at best as a descriptive secondary on a narrowed class.
+
+## 2026-08-19 — ⚠️ CORRECTION: "precursor" is RiPP-specific, NOT a general BGC component
+
+[INCORRECT] - Level 3 (precursor + enzyme + transporter) ... the minimal functional complement
+[CORRECTION - 2026-08-19]: **That is the RiPP complement, not the BGC complement.** I generalised a
+class-specific fact into a project-wide target. **NRPS and PKS clusters have no precursor peptide
+at all** — megasynthases assemble the product from amino-acyl/malonyl building blocks. Terpenes,
+alkaloids, saccharides likewise have no precursor peptide. The concept is definitional *only* for
+RiPPs, where the product **is** the post-translationally modified precursor.
+
+⇒ Any "functional complement" definition must be **per class**. A project-wide Level-3 metric built
+on precursors would be meaningless for 21 of our 22 classes.
+⇒ Practical consequence: the Level-3 framing needs re-scoping to something class-general
+(e.g. "antiSMASH calls it a cluster of the right class", which already works) or explicitly
+scoped to RiPP.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
