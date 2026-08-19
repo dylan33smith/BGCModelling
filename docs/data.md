@@ -209,9 +209,9 @@ A0). A size-matched STRICT control is required before the comparison is clean �
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase3_RIPP_wide/` | 08-18 | **W-1, the WIDE adapter.** Trained on `splits_class_wide/RIPP` (3,723 whole records ≤L, 3 ep / 675 steps, `loss_ce` 1.309→0.844). `adapter_run/`; `wide_8k.jsonl` (150 de novo @8 kb, **uninformative — underpowered**); `W1_seeded_[a-d].jsonl` → `W1_seeded.jsonl` (188 seeded @L=8 nt, 2.2 kb). | ✅ |
-| `phase3_RIPP_strictmatched/` | 08-18 | **W-2, the size+cluster-matched STRICT control.** Trained on `splits_class_strictmatched/RIPP` — the **same 3,723 rows** as W-1 with strict spans, so only span width differs. Exists to stop a WIDE-vs-S2-1 difference being explained by the 7,250→3,723 size drop. | 🔄 training |
-| `phase3_RIPP_widecmp/` | 08-18 | Scored outputs and the final three-arm analysis for [P4-WIDE-SEEDED] (§8.6/§8.7). Generations live in each adapter's own run dir. | 🔄 |
+| `phase3_RIPP_wide/` | 08-18 | **W-1, the WIDE adapter — REFUTED, significantly worse.** Trained on `splits_class_wide/RIPP` (3,723 whole records ≤L, 3 ep / 675 steps, `loss_ce` 1.309→0.844). `adapter_run/`; `wide_8k.jsonl` (150 de novo @8 kb, **uninformative — underpowered**); `W1_seeded_[a-d].jsonl` → `W1_seeded.jsonl` (188 seeded @L=8 nt, 2.2 kb). | ✅ |
+| `phase3_RIPP_strictmatched/` | 08-18 | **W-2, the size+cluster-matched STRICT control.** Trained on `splits_class_strictmatched/RIPP` — the **same 3,723 rows** as W-1 with strict spans, so only span width differs. `adapter_run/`; `W2_seeded.jsonl` (188 @2.2 kb), `W2_seeded8k.jsonl` (188 @8 kb). **Corrected rate 0.043 / 0.085 — beat W-1 at Holm p=4.1e-04 / 3.2e-05.** | ✅ |
+| `phase3_RIPP_widecmp/` | 08-19 | **[P4-WIDE-SEEDED] analysis — COMPLETE (`PIPELINE_OK`).** 11 × `<arm>_w<window>_RIPP.json` (full reporting set), `antismash_widecmp.tsv` (615 calls), `corrected_rates.json`, `as_<arm>_{pos,neg}.jsonl` stratified inputs, `logs/`. Generations live in each adapter's run dir. | ✅ |
 
 ### Phase 3 — Stage 2 confirmatory arms
 

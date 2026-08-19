@@ -76,11 +76,18 @@ to be comparable across them.
    without provenance is not a result.
 6. **State the ceiling (real cores) and floor (base / non-BGC)** as their own columns, so every rate
    is read against both without the reader hunting for them.
-7. **Follow the table with a PER-METRIC reading, then a SYNTHESIS.** One line per row: what it
-   measures, which direction is good, and how to read *this* table's value against its reference.
-   Then: what the rows say together, what the table does not show, and which comparison is
-   load-bearing. A table without both is data, not a result.
-8. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
+7. **EVERY table is followed by THREE things, in this order, as BULLET LISTS — never prose:**
+   **(a) COLUMNS** — one bullet per column header: what that arm *is* and how it differs from the
+   others. **(b) ROWS** — one bullet per metric: what it measures, which direction is good, how to
+   read *this* value against its reference. Every row, every time, including ones that did not
+   move. **(c) SYNTHESIS** — prose. Omitting (a) or (b) makes the table unreadable to anyone who
+   did not build it.
+8. **EVERY NUMBER IN PROSE MUST BE TRACEABLE TO A TABLE CELL.** If a figure is not in the table
+   directly above, name its source — which arm, which window, which table. Never put values scored
+   under different configs in one sentence without saying so; quoting an 8 kb-window `n_orfs`
+   beside a 2 kb-window table is exactly the confusion this prevents. Prefer adding the number to
+   the table over explaining it in text.
+9. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
    generation path and regime. Emit with `scripts/novelty_battery.py`; never hand-assemble.
 
 ## IMPORTANT: Filesystem Naming Convention

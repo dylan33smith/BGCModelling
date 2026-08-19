@@ -683,6 +683,97 @@
     <strong>67.7%</strong>. The cost is context: at our current 8,192-token window only 48.6% of
     wide records fit, against 89.6% of narrow ones. That trade is the next decision.</p>
 
+    <h2>Phase 4 — testing the obvious explanation, and refuting it</h2>
+
+    <p class="lede">Every Phase-3 arm produced generations carrying <strong>one</strong> biosynthetic
+    domain, essentially never two, against 29% of real cores carrying two or more. The obvious
+    explanation was the training data: our "cores" are trimmed to biosynthetic genes only, and
+    <strong>48.8% of them are a single gene</strong>. So we widened the training span to include
+    neighbouring <code>biosynthetic-additional</code> genes and retrained.</p>
+
+    <div class="callout verdict">
+      <p class="k">It made the model worse — and told us why</p>
+      <p>Against a control trained on <em>the same 3,723 clusters</em> with narrow spans, the wide
+      model's confirmed hit rate fell from <strong>0.043 to 0.027</strong> at 2.2 kb output and from
+      <strong>0.085 to 0.000</strong> at 8 kb (Holm-corrected p = 4.1&times;10<sup>-4</sup> and
+      3.2&times;10<sup>-5</sup>). The reduction in training-set size, tested separately, cost
+      nothing (p = 0.79).</p>
+    </div>
+
+    <h3>The arms</h3>
+    <p class="meta">provenance: 8-nt seed · held-out test seeds · n=188/arm · Evo2-1B · 2,000 nt
+    scoring window · rates antiSMASH-corrected by stratified sampling · pre-registered §8.6/§8.7</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Metric</th><th class="num">WIDE 2.2k</th><th class="num">STRICT-matched 2.2k</th><th class="num">WIDE 8k</th><th class="num">STRICT-matched 8k</th><th class="num">STRICT-full 8k</th><th class="num">real cores</th></tr></thead>
+        <tbody>
+          <tr><td class="rowlab">Pfam gate rate</td><td class="num">0.059</td><td class="num">0.191</td><td class="num">0.043</td><td class="num">0.191</td><td class="num">0.128</td><td class="num">0.515</td></tr>
+          <tr><td class="rowlab"><strong>antiSMASH-confirmed rate</strong></td><td class="num">0.027</td><td class="num">0.043</td><td class="num zero">0.000</td><td class="num">0.085</td><td class="num"><strong>0.116</strong></td><td class="num"><strong>0.760</strong></td></tr>
+          <tr><td class="rowlab">of Pfam hits, share confirmed</td><td class="num">0.455</td><td class="num">0.222</td><td class="num zero">0.000</td><td class="num">0.444</td><td class="num">0.500</td><td class="num">—</td></tr>
+          <tr><td class="rowlab">DNA novelty (max containment)</td><td class="num">0.004</td><td class="num">0.013</td><td class="num">0.001</td><td class="num">0.025</td><td class="num">0.014</td><td class="num">—</td></tr>
+          <tr><td class="rowlab">protein novelty (max identity)</td><td class="num">0.531</td><td class="num">0.627</td><td class="num">0.558</td><td class="num">0.660</td><td class="num">0.678</td><td class="num">0.641</td></tr>
+          <tr><td class="rowlab"><strong>records with &ge;2 distinct markers</strong></td><td class="num zero">0/188</td><td class="num zero">0/188</td><td class="num zero">0/188</td><td class="num zero">0/188</td><td class="num zero">0/188</td><td class="num"><strong>14/68</strong></td></tr>
+          <tr><td class="rowlab">domains per positive record</td><td class="num">1.00</td><td class="num">1.00</td><td class="num">1.00</td><td class="num">1.00</td><td class="num">1.00</td><td class="num">1.69</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="defs">
+      <p class="def"><span class="name">WIDE</span><span class="desc">Adapter trained on spans that
+      include neighbouring <code>biosynthetic-additional</code> genes — the intervention under test.</span></p>
+      <p class="def"><span class="name">STRICT-matched</span><span class="desc">The control that
+      matters: <em>the same 3,723 clusters</em>, narrow spans. Only span width differs, so a
+      difference cannot be blamed on which or how many clusters were used.</span></p>
+      <p class="def"><span class="name">STRICT-full</span><span class="desc">The established adapter
+      on all 7,250 clusters. Isolates the effect of the training-set size reduction.</span></p>
+      <p class="def"><span class="name">2.2k / 8k</span><span class="desc">How much sequence the model
+      was asked to generate. Both scored in the same 2,000 nt window, so output length is separated
+      from what the model learned.</span></p>
+      <p class="def"><span class="name">real cores</span><span class="desc">Held-out natural RIPP
+      clusters through the identical pipeline — the ceiling.</span></p>
+    </div>
+
+    <div class="defs">
+      <p class="def"><span class="name">Pfam gate rate</span><span class="desc">Our fast screen: does
+      the sequence contain a RIPP-associated protein domain. Higher is better. Inflates ~1.8&times;.</span></p>
+      <p class="def"><span class="name">antiSMASH-confirmed rate</span><span class="desc">The headline.
+      The field-standard detector's verdict, corrected for what the fast screen misses. Higher is
+      better; read against 0.760 for real clusters.</span></p>
+      <p class="def"><span class="name">share confirmed</span><span class="desc">Of the sequences our
+      screen flagged, how many were real. Reveals whether an arm's "hits" are genuine.</span></p>
+      <p class="def"><span class="name">DNA / protein novelty</span><span class="desc"><em>Lower</em>
+      is better; both fail at 0.95. Every arm is far clear, so nothing here is copied.</span></p>
+      <p class="def"><span class="name">&ge;2 distinct markers</span><span class="desc">The cluster
+      test — two different RIPP domains in one sequence. Higher is better. This is the number the
+      experiment was designed to move.</span></p>
+      <p class="def"><span class="name">domains per positive</span><span class="desc">Among sequences
+      that did score, how many domains they carry. Real clusters average 1.69.</span></p>
+    </div>
+
+    <h3>Why it failed, measured</h3>
+    <p class="prose">Widening the span did not add cluster context — it added <em>other genes</em>.
+    Comparing the same 250 clusters under both definitions, the fraction of each training record that
+    is biosynthetic-gene sequence falls from <strong>0.683 to 0.477</strong>: per 1,000 nucleotides
+    the model reads, biosynthetic content drops from 683 nt to 477 nt, a <strong>1.43&times;
+    dilution</strong>. Coding density barely moves (0.976 to 0.938), so this is not empty space
+    between genes — it is additional non-biosynthetic protein the model must also learn to write.</p>
+    <p class="prose">The wide model's behaviour matches that diagnosis exactly. At 8 kb it produced 8
+    sequences our screen flagged and <strong>antiSMASH confirmed none of them</strong> — under the
+    confirmation rates every other arm shows, that outcome has probability 0.004–0.009. Trained on
+    sparser biosynthetic content, it learned to emit <em>isolated</em> biosynthetic-looking genes
+    with no cluster around them. Our fast screen counts a lone domain as a hit; the real detector
+    requires co-location and rejected all of them.</p>
+
+    <div class="callout caveat">
+      <p class="k">The limitation that has survived every intervention</p>
+      <p>Across 940 generated sequences, five adapters and three scoring windows,
+      <strong>not one carried two distinct RIPP markers</strong>. Real clusters manage it 29% of the
+      time. The models write genes at close to natural density — but only ever one of them is
+      biosynthetic. Neither seeding, nor class-specific training, nor wider training spans, nor
+      longer generation has moved this.</p>
+    </div>
+
     <h2>Where this leaves the project</h2>
     <p class="meta">Written before Phase 3. Retained for the record; the Phase-3 section above
     supersedes its framing — de novo generation is no longer at zero.</p>

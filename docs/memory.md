@@ -888,4 +888,61 @@ seeded arm should be watched for.
 
 ---
 
+## 2026-08-19 — ★ [P4-WIDE-SEEDED] WIDE IS REFUTED on a powered test. And the cause is DILUTION.
+
+Pre-registered §8.6/§8.7. Overnight pipeline, `PIPELINE_OK`, 5 arms × n=188, 11 scorings, 615
+antiSMASH calls. **Headline rates are antiSMASH-corrected by stratified sampling** (all
+Pfam-positives + 100 sampled Pfam-negatives per arm).
+
+| metric | W-1 WIDE 2.2k | W-2 STRICT 2.2k | W-1 WIDE 8k | W-2 STRICT 8k | STRICT-full 8k | real cores |
+|---|---|---|---|---|---|---|
+| `best_bio_bits`>0 * (Pfam) | 11/188 = 0.059 | 36/188 = 0.191 | 8/188 = 0.043 | 36/188 = 0.191 | 24/188 = 0.128 | 0.515 |
+| **antiSMASH CORRECTED** * | 0.027 | 0.043 | **0.000** | 0.085 | **0.116** | **0.760** |
+| conf(Pfam-positive) | 0.455 | 0.222 | **0.000** | 0.444 | 0.500 | — |
+| `containment` * max | 0.004 | 0.013 | 0.001 | 0.025 | 0.014 | — |
+| `protein_aai` * max | 0.531 | 0.627 | 0.558 | 0.660 | 0.678 | 0.641 |
+| `JOINT_PASS` | 3 | 0 | 0 | 0 | 0 | — |
+| **`n_class_domains`≥2** | **0/188** | **0/188** | **0/188** | **0/188** | **0/188** | **14/68** |
+| `n_bio_domains` \| on-class | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.69 |
+
+**Contrasts, Holm-corrected (§9.1):** W-1 vs W-2 at 2.2 kb **p=4.1e-04**; at 8 kb **p=3.2e-05** —
+**WIDE significantly WORSE both times.** W-2 vs STRICT-full **p=0.79** — the 7,250→3,723 training-set
+drop costs nothing, so **span width is isolated as the cause**. Generation length 8 kb vs 2.2 kb
+**p=0.50**, n.s.
+
+**★ CAUSE: DILUTION — measured, and it refines the hypothesis.** Paired STRICT vs WIDE on the same
+250 clusters:
+
+| | STRICT | WIDE | ratio |
+|---|---|---|---|
+| median length | 1,146 nt | 4,052 nt | 3.53× |
+| mean ORFs | 1.52 | 3.76 | 2.48× |
+| **coding density** | **0.976** | **0.938** | **0.96×** |
+| **biosynthetic fraction of span** | **0.683** | **0.477** | **0.70×** |
+
+⇒ Per 1,000 training nt: **STRICT 683 nt biosynthetic, WIDE 477 nt — 1.43× less signal per token.**
+⚠️ **It is NOT intergenic space.** Coding density is essentially unchanged (0.976 → 0.938). The
+extra sequence is **other genes**, not gaps. WIDE did not add context around the biosynthetic
+machinery; it added *non-biosynthetic protein* the model must also learn to write.
+
+**★ THE ANOMALY IS INTERPRETABLE.** W-1 at 8 kb: 8 Pfam-positives, **0/8 antiSMASH-confirmed**.
+Under every confirmation rate the other arms show (0.444–0.500), P(0 of 8) = **0.004–0.009** — small
+n, but a real signal. Reading: **the WIDE adapter emits isolated biosynthetic-looking genes without
+cluster context.** Our Pfam gate scores a lone domain as a hit; antiSMASH requires co-location and
+rejects all of them. That is precisely what dilution predicts — trained on sparse biosynthetic
+content, it learned to produce sparse biosynthetic content.
+
+**The co-primary never moved: `n_class_domains ≥ 2` is 0/188 in ALL FIVE ARMS** — 940 sequences,
+five adapters, three windows, not one generation with two distinct RIPP markers. Real cores 14/68.
+WIDE was the intervention aimed at this number and it went 2/188 → 0/188.
+
+**Novelty clean everywhere** — max containment ≤0.025, max AAI ≤0.678, both far under 0.95.
+
+⇒ **[P4-WIDE] CLOSES NEGATIVE, powered.** But it closes *with a mechanism*, which is the useful
+part: more sequence per record ≠ more biosynthetic signal per record. The next intervention should
+add span width **while holding biosynthetic density constant** — i.e. domain-weighted loss on WIDE
+spans. ⚠️ Phase-2's weighted arm never landed, so any such run needs a manipulation check first.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

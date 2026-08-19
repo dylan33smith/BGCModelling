@@ -612,6 +612,20 @@ that 3 kb captures most of a typical one.
 
 ## Agent / shell self-traps (when operating the repo)
 
+- **[2026-08-19] Quoting a number in prose that is not in the table above it.**
+  **[Symptom]** A synthesis paragraph read "W-1 writes 6.2 ORFs and STRICT-full 6.5, against real
+  cores' 7.8" while the table directly above showed `n_orfs` never exceeding 2.2. The reader could
+  not locate 6.2, 6.5 or 7.8 anywhere and had no way to check the claim.
+  **[Cause]** Those figures came from the **8,000 nt scoring window**; the table was the **2,000 nt**
+  window. Both are legitimate numbers for the same sequences under different configs, silently
+  mixed in one sentence. Same disease as the `best_bio_bits` Pfam-subset inversion, in prose form.
+  **[Proven fix]** `CLAUDE.md` rule 8: every number in prose must be traceable to a cell in the
+  table above, or name its source (arm, window, table). Prefer adding the number to the table.
+  Also rule 7: every table gets a per-COLUMN and per-ROW bullet list, not a prose summary — the
+  column descriptions were omitted entirely, which is what made the mismatch unspottable.
+  **[Severity]** No result was wrong; the reporting was unverifiable, which is nearly as bad.
+
+
 - **[2026-08-17] Fan-out has a sweet spot at N=3; N=5 is SLOWER in aggregate.**
   **[Symptom]** Stage 2 launched 5 concurrent generation workers (one per arm) and produced
   ~300 seq/h, against **432 seq/h measured at N=3** in Stage 1 — a ~1.4x regression despite 67%

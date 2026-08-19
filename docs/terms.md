@@ -297,6 +297,20 @@ Aliases:              names seen in old docs. Do not use them.
 
 ## T
 
+### `biosynthetic_density`  [dataset] [training]
+- **Is:** Fraction of a training record's nucleotides that lie inside an ORF carrying a biosynthetic
+  Pfam domain. *How much of what the model trains on is actually the thing we want it to learn.*
+- **Computed by:** pyrodigal ORF calls + `biosynthetic_subset.hmm`; summed biosynthetic-ORF span ÷
+  record length. Paired measurement across span definitions on the same clusters.
+- **CHANGES MEANING WITH:** the span definition (`STRICT_KINDS` vs `WIDE_KINDS` vs whole region) and
+  the Pfam subset.
+- **Valid vs:** the same clusters under a different span definition — it is a *paired* statistic.
+- **Status:** **DIAGNOSTIC, and the explanation for [P4-WIDE]'s failure.** STRICT **0.683**, WIDE
+  **0.477** (n=250 paired, 2026-08-19) — 1.43× less signal per token. Coding density is nearly
+  unchanged (0.976 → 0.938), so the loss is **non-biosynthetic genes, not intergenic space.**
+  ⇒ Any future widening of the training span must hold this constant, or compensate with a
+  domain-weighted loss.
+
 ### THE TWO-PASS DETECTION ARCHITECTURE  [evaluation] [method]
 - **Is:** Pfam gate first (cheap, Stage A), antiSMASH second (gold standard, Stage B). **Calibrated
   2026-08-18** on 218 Stage-2 sequences with both run:
