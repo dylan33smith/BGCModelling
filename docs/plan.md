@@ -175,38 +175,50 @@ invalidates the premise of the other two options.**
 4. **The model is not the limit.** The enzyme+transport complement spans a median **6,653 nt** and
    fits the 1B's ~7,900 usable budget in **55.5%** of real regions.
 
-### [P5-DETECT] ◀◀ DO THIS FIRST — use RODEO/antiSMASH, do NOT roll our own precursor panel
-**My keyword-built precursor panel was ~half enzyme** (PF14028/PF04738 lantibiotic *dehydratases*,
-PF03515 colicin) and overlapped `OBLIGATE_DOMAINS[RIPP]`, making "P+E" partly tautological. Every
-Level-3 P+E number from 2026-08-19 must be re-derived. See `memory.md`.
+### ⛔ SCRAPPED / KEPT — what survives the bad panel (decided 2026-08-19)
 
-**The field-standard answer, and we already own it:**
-1. **antiSMASH already runs RODEO** for RiPP precursor validation. We have run antiSMASH on 833
-   sequences and kept only `is_bgc`/`class_match`. **Parse the precursor calls out of the antiSMASH
-   output** — no new tool, no new panel. *(If the raw output dirs were not retained, re-run: 615
-   calls took 4 minutes.)*
-2. Use a **short-ORF caller** — `Prodigal-short`/`Prodigal-shorter` (down to ~5 aa) — not a `min_aa`
-   tweak on stock Prodigal, which the literature says is not optimised for short ORFs.
-3. Pfam alone is explicitly insufficient; pair it with **RiPP-specific HMMs** (NCBI RiPP HMMs), or
-   use **NeuRiPP** as a second opinion.
-4. **Re-validate the TRANS panel per-family** the same way — it is 302 keyword-matched families and
-   has had no per-family check.
+| artifact | verdict |
+|---|---|
+| **precursor panel** (81 keyword families) | ⛔ **SCRAPPED.** ~half enzyme; overlaps `OBLIGATE_DOMAINS[RIPP]` via PF14028. Quarantined to `DEPRECATED_component_panels.json`. |
+| **real-core precursor ceiling (21/120)** | ⛔ **SCRAPPED** — inflated by enzyme families. |
+| **P+E and P+E+T counts** | ⛔ **SCRAPPED** — partly tautological (one PF14028 hit lit both columns). |
+| transport / regulator / protease panels | ⚠️ **PROVISIONAL** — same keyword method, never validated per family. Do not quote. |
+| **`ENZ` = `OBLIGATE_DOMAINS[RIPP]`** | ✅ **KEPT** — data-derived from our corpus, unchanged. |
+| **`ripp_components.jsonl`** | ✅ **KEPT** — raw antiSMASH `gene_kind` + coordinates. Our own annotation, not a guess. The most valuable thing built. |
+| **complement-span measurements** | ✅ **KEPT** — computed from `gene_kind` coordinates, independent of the panels. |
+| **"precursor is `gene_kind=none`, so STRICT excludes it"** | ✅ **KEPT** — from the gene_kind census, independent of the panels. |
+| **"generations produce ZERO precursors"** | ✅ **KEPT — and it is a floor claim.** Generations scored 0/120 against the *full* 81-family panel, and the genuine precursor families are a **subset** of it. Zero on a superset implies zero on the subset. Noise inflates a ceiling; it cannot manufacture a zero. |
 
-⚠️ **Scope discipline.** Do NOT build detectors, a new span, and a new training run at once. The
-detector is a prerequisite for the span (you cannot define a precursor-inclusive span without a
-trustworthy precursor call), and the span is a prerequisite for training. **One at a time, each
-validated against real cores AND the base-model floor before the next starts.**
+⇒ **The direction of the finding survives; the magnitudes do not.** We still believe the precursor
+is the missing component — we no longer believe any specific rate.
 
-### [P5-SPAN] AFTER [P5-DETECT] — a precursor-inclusive training span
-Define and build a **functional-complement span**: biosynthetic genes **+ short (20–80 aa)
-unannotated CDS within a proximity window + transport**, from `ripp_components.jsonl` (built
-2026-08-19, per-CDS `gene_kind` + coordinates for every RIPP region).
-- ⚠️ **Proximity filter is essential.** Short unannotated CDS are dominated by *hypothetical
-  protein* (4,606), transposases, ribosomal proteins; median distance to the nearest biosynthetic
-  gene is 6,654 nt with only **41.4% within 5 kb**. Take the nearest, not all.
-- Validate the span the same way the panel was validated: **the precursor detector must fire on the
-  new span at a rate near the WIDE reference (0.208)**. If it does not, the span is wrong.
-- Then retrain the class-specific adapter on it and re-run the established seeded protocol.
+### THE GATED SEQUENCE — one stage at a time, each validated before the next starts
+
+**STAGE 1 — [P5-DETECT]: a trustworthy precursor call.**
+- **Primary route: parse antiSMASH's own RiPP precursor calls.** antiSMASH runs **RODEO** for
+  precursor validation; we have run antiSMASH on 833 sequences and kept only `is_bgc`/`class_match`.
+  Re-run if the output dirs were not retained — 615 calls took 4 minutes.
+- Add a **short-ORF caller** (`Prodigal-short`/`-shorter`, down to ~5 aa). Stock Prodigal is not
+  optimised for short ORFs and a `min_aa` tweak does not fix that.
+- Pair Pfam with **RiPP-specific HMMs**; consider **NeuRiPP** as a second opinion.
+- **EXIT GATE:** the detector must fire on **real cores** at a plausible rate **and stay near zero
+  on the base-model floor**, with **every contributing family inspected by hand** — the failure
+  mode was a family nobody looked at. Also re-validate the **transport** panel per family here.
+- ⛔ **Do not proceed to Stage 2 until this gate passes.**
+
+**STAGE 2 — [P5-SPAN]: a precursor-inclusive training span.**
+- Only definable *after* Stage 1: you cannot select precursor-containing spans without a
+  trustworthy precursor call. The proximity heuristic (short unannotated CDS near a biosynthetic
+  gene) is a **fallback**, not the plan — it is the same species of guess that just failed.
+- Build from `ripp_components.jsonl`; keep the span within the 1B's ~7,900 nt budget.
+- **EXIT GATE:** the Stage-1 detector must fire on the new span at a rate matching real regions.
+  If it does not, the span is wrong — fix it before training.
+
+**STAGE 3 — retrain and re-run the established protocol.**
+- Class-specific adapter on the Stage-2 span, then the frozen seeded protocol (L\*=8 nt,
+  `--no-boundary-orf`, n=188, test seeds).
+- **Endpoint: P+E** (see below). Pre-register before generating.
+- ⛔ Only after Stages 1 and 2 have passed their gates.
 
 ### [P5-ENDPOINT] Fix the endpoint before running the arm
 ⚠️ **A P+E+T endpoint at an 8 kb window has a ~2.5% ceiling even on REAL data** (3/120) — too low to

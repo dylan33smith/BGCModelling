@@ -110,6 +110,14 @@ unverifiable from the record, and both classes were already disqualified on dive
 near-dup loss), so **they were deleted 2026-08-14** rather than given a fabricated provenance entry.
 ⚠️ The builder overwrites `manifest.json` wholesale — rebuilding one class drops every other entry.
 
+### ⛔ `DEPRECATED_component_panels.json` — SCRAPPED 2026-08-19, do not use
+Was `component_panels.json`. Precursor/transport/regulator/protease families selected by **regex
+keyword match over Pfam-A `NAME`+`DESC` text** — never validated per family. The **precursor panel
+is ~half enzyme** (PF14028 + PF04738 lantibiotic *dehydratases*, PF03515 colicin toxin) and
+**overlaps `OBLIGATE_DOMAINS[RIPP]` via PF14028**, which made the "P+E" metric partly tautological.
+Renamed rather than deleted so the provenance of the retracted numbers stays traceable.
+**Replacement: antiSMASH/RODEO precursor calls — see `plan.md` [P5-DETECT].**
+
 ### `ripp_components.jsonl` — per-CDS component annotation, built 2026-08-19
 `/data2/ds85/bgcmodel_data/ripp_components.jsonl`. One row per RIPP region: `accession`,
 `genome_accession`, `compound_class`, region coordinates, `n_cds`, and **`genes`** — every CDS in

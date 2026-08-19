@@ -402,6 +402,30 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Eval suite
 
+- **[2026-08-19] A detector built by keyword-matching Pfam DESCRIPTIONS matched the ENZYME, not the
+  substrate.**
+  **[Symptom]** A "RiPP precursor" panel validated convincingly as a whole (real 25/120 vs base
+  1/120, 25×) while being **~half enzyme**. Of six families that fired: PF14028 + PF04738 are
+  lantibiotic **dehydratases**, PF03515 is a colicin **toxin**; only PF10439/PF09683/PF28317 are
+  genuine precursors.
+  **[Cause]** The panel was built by regex over Pfam-A `NAME`+`DESC` for terms like `lantibiotic`.
+  That matches the *enzyme that modifies* the precursor as readily as the precursor. **PF14028 was
+  simultaneously in `OBLIGATE_DOMAINS[RIPP]`**, so PREC and ENZ were not disjoint and "P+E" was
+  partly one hit counted twice.
+  **[Why whole-panel validation missed it]** Validating a panel *in aggregate* against a floor with
+  neither component cannot detect that half the panel measures the wrong thing. **Aggregate
+  discrimination is not per-family correctness.**
+  **[Proven fix]** (a) Inspect **every contributing family by hand** before trusting a panel;
+  (b) **assert panels are disjoint** when their intersection would create a tautological combined
+  metric; (c) prefer the field-standard tool — **antiSMASH already runs RODEO** for RiPP precursor
+  calls — over a hand-rolled keyword panel. Literature: precursors are <150 aa and usually
+  unannotated; Pfam alone is explicitly insufficient; use short-ORF callers (Prodigal-short).
+  **[What survived]** Zero-claims survive contamination: generations scored 0/120 against the
+  **superset** panel, and the genuine families are a subset, so "generations produce no precursors"
+  still holds. Noise inflates a ceiling; it cannot manufacture a zero. Ceilings and combined metrics
+  did **not** survive.
+
+
 - **[2026-08-18] ⛔ The class probe CANNOT score Phase-3 generations — it is a 7B probe.**
   **[Symptom]** Planned to test the class probe for within-positives discrimination on the 68
   antiSMASH-labelled on-class records. It cannot run at all.
