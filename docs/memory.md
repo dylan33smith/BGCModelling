@@ -1083,4 +1083,42 @@ leads or ties on transporter and regulator content. **WIDE remains worse on ever
 
 ---
 
+## 2026-08-19 — ORF definition audit, and the raw data DOES carry component annotation
+
+**Q: are we counting start codons, or real start→stop genes?** `find_orfs` uses **Prodigal
+(pyrodigal)**, which calls **complete genes with real starts and stops** — not bare start codons,
+and not six-frame fragments (the six-frame scanner is RETIRED and gated behind `BGC_EVAL_STRICT`).
+**But `ORF.partial` is recorded and NEVER FILTERED**, so genes truncated by the scoring-window edge
+are counted as ORFs.
+
+Measured on the 20–80 aa "precursor-sized" ORFs, 2,000 nt window, n=120/arm:
+
+| arm | short ORFs | COMPLETE | partial | % complete | records with a COMPLETE short ORF |
+|---|---|---|---|---|---|
+| real cores | 17 | 7 | 10 | 41.2% | 7/120 |
+| **base 1B (FLOOR)** | 105 | **53** | 52 | 50.5% | **45/120** |
+| S2-1 seeded | 36 | 10 | 26 | 27.8% | 6/120 |
+| STRICT-full 8k | 48 | 20 | 28 | 41.7% | 12/120 |
+
+⇒ **28–50% of "short ORFs" are window-edge truncation artefacts.** Filtering them changes the
+counts but **not the conclusion**: the base-model floor still leads at **45/120** against real cores'
+**7/120**. **Short-ORF presence remains a worthless standalone signal** — it must be read jointly
+with an enzyme, and what is actually needed is a **precursor detector** (leader/core structure),
+not a length filter.
+⇒ **Action:** report `n_short_orfs` as complete-only; add `partial` filtering wherever ORF counts
+feed a metric.
+
+**Q: is transport/regulatory information in the raw antiSMASH data?** **YES.** Sampled 43 regions
+(14 RiPP-like) from `asdb5_gbks/asdb5_gbks.tar` (185 GB): every CDS carries a `gene_kind`
+qualifier — `biosynthetic` 166, `biosynthetic-additional` 492, **`regulatory` 124**,
+**`transport` 107**, `other` 52 (`<none>` dominates only because the count spans whole genome
+records, not region interiors).
+
+⇒ `build_core_records.py` **reads `gene_kind` per CDS** and then stores **only the derived spans** —
+the per-gene component annotation was computed and thrown away. Rebuilding a component-annotated
+dataset needs a streaming pass over the tar; the information itself is not lost and no re-annotation
+is required.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
