@@ -10,29 +10,28 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
-Phase 5 opening. Target **RIPP**, substrate **Evo2 1B** — and the substrate is now the blocker.
+Phase 5. Target **RIPP**, substrate **Evo2 1B**. **Level 2 achieved; Level 3 blocked by the training
+substrate, and the block is now precisely located.**
 
-**Achieved.** Level 1 (class-associated biosynthetic domain de novo): ✅ p=0.0054 vs 0/400 controls.
-Level 2 (**antiSMASH calls it a RIPP cluster**): ✅ best arm **STRICT-full seeded @8 kb, corrected
-0.116** against a **0.760** real-core ceiling and **0.000** base-model floor — about **15% of
-ceiling**, with novelty clean on both gates. Seeding at L\*=8 nt supplies the lift; the class comes
-entirely from the adapter (shuffled seed changes nothing, p=0.66; general adapter 0/188, p=2.5e-11).
+**Achieved.** Level 1 ✅ (p=0.0054 vs 0/400). **Level 2 ✅ — antiSMASH-confirmed 0.116** for the best
+arm (STRICT-full seeded @8 kb) against a **0.760** real-core ceiling and **0.000** base floor,
+novelty clean on both gates.
 
-**Closed negative, both powered:** leg 3 inference pruning (no instrument — ladder 0.575, class
-probe 0.337 for within-positives discrimination) and [P4-WIDE] span widening (Holm p=4.1e-04 /
-3.2e-05 worse than a size- and cluster-matched control; cause measured as 1.43× dilution of
-biosynthetic signal per token; the "hidden accessory machinery" hypothesis refuted 2/60 vs 8/60).
+**The block, measured 2026-08-19 with a validated detector (25× discrimination vs floor):**
+**precursor generation is 0/120 in every seeded arm** against a real ceiling of 21/120.
+**Transporters are generated** (17/120 vs real 42/120), enzymes are generated — only the precursor
+is absent. Cause: the RiPP precursor is `gene_kind="none"`, so `STRICT_KINDS={"biosynthetic"}`
+**excludes it from the training data by construction.**
 
-**The finding that redirects Phase 5.** Among single-marker generations, what separates
-antiSMASH-CONFIRMED from REJECTED is **not** domain content (3.57 vs 3.50 distinct Pfam domains)
-but **an extra short ORF of 20–80 aa — 0.43 vs 0.00.** That is the **RiPP precursor peptide**, the
-gene encoding the product, and every metric we had optimised was structurally blind to it.
+**Decision: fix the substrate, not the model and not (yet) the method.** Build a
+precursor-inclusive functional-complement span ([P5-SPAN]) — enzyme+transport spans a median
+6,653 nt and fits the 1B in 55.5% of regions, so **no model change is required**. Composition
+([P5-COMPOSE]) is deferred until we see whether one adapter on the right substrate suffices.
+⚠️ Also change the Level-3 endpoint to **P+E** — P+E+T has a 2.5% ceiling even on real data at 8 kb.
 
-**But Level 3 is not yet measurable.** The component panel (precursor + enzyme + transporter) scores
-**0/120 on real held-out cores**, because `STRICT_KINDS = {"biosynthetic"}` excludes transport and
-regulatory genes from the data *and* the reference. Transporters appear in 3/120 real cores.
-⇒ **Level 3 requires whole antiSMASH regions (median 21,262 nt), which exceed the 1B's 8,192-token
-hard cap.** The substrate decision ([P5-SUB]) is a prerequisite, not an alternative.
+**Asset built:** `/data2/ds85/bgcmodel_data/ripp_components.jsonl` — per-CDS `gene_kind` +
+coordinates for every RIPP region, streamed from the 185 GB antiSMASH tar. The annotation
+`build_core_records.py` computed and discarded; everything above depends on it.
 
 ---
 
@@ -159,61 +158,57 @@ Novelty guard:       containment reported alongside, always.
 
 ---
 
-## PHASE 5 ROADMAP — target is LEVEL 3 (minimal functional complement)
+## PHASE 5 — THE DECISION (2026-08-19, from [P5-DATA]/[P5-COMPONENT] results)
 
-**Where we are.** Level 1 (class-associated domain) ✅ p<1e-10. Level 2 (antiSMASH calls it a
-cluster of the right class) ✅ **0.116 vs 0.760 real-core ceiling — ~15% of ceiling.**
-Level 3 (precursor + enzyme + transporter) ❌ — and as of 2026-08-19, **not currently measurable:
-real held-out cores score 0/120 on it too**, because strict-core trimming excludes transport and
-regulatory genes from both the training data and the reference.
+**Question posed:** continue the current method, switch to composition, or change the model?
+**Answer: NONE OF THOSE FIRST — fix the training substrate. It is the binding constraint, and it
+invalidates the premise of the other two options.**
 
-**The critical path is therefore SUBSTRATE, not another training trick.**
+**Evidence.**
+1. **Precursor generation is 0/120 in every seeded arm** (real ceiling 21/120), with a detector
+   validated at 25× discrimination against the base-model floor.
+2. **The precursor is `gene_kind="none"`**, so `STRICT_KINDS={"biosynthetic"}` **excludes it by
+   construction.** Our training data contains almost no precursors. **A model cannot learn to
+   generate what it was never shown** — so neither more training, nor weighting, nor composition on
+   this substrate can fix it.
+3. **Transporters ARE generated** (best arm 17/120 vs real 42/120). Only the precursor is missing.
+4. **The model is not the limit.** The enzyme+transport complement spans a median **6,653 nt** and
+   fits the 1B's ~7,900 usable budget in **55.5%** of real regions.
 
-### [P5-SUB] ◀◀ FIRST — make Level 3 measurable at all
-Level 3 needs whole antiSMASH regions (median **21,262 nt**), not strict cores (median 1,854 nt).
-`evo2_1b_base` caps at **8,192 tokens**, so a full RiPP region does not fit. Two routes:
-- **(a) GenomeOcean-4B — 32,768 ctx**, leakage gate already passed, takes a real trainable class
-  token. A whole region fits. **This is the natural move and it doubles as the model comparison
-  the paper wants.**
-- **(b) Evo2 7B — 262k ctx.** Fits trivially; more expensive; the guided-decoding probe already
-  lives in this space.
-- ⚠️ Changes substrate — a deliberate Phase-5 scope decision (Constraint 3). Port **only the single
-  best protocol** (class-specific adapter + L\*=8 nt seeding), not the whole matrix.
-- **First step costs nothing:** build `splits_class_region/RIPP` from whole regions and report the
-  component panel on **real cores** at 8/16/32 kb. If real cores do not reach E+P+T even there, the
-  panel itself is wrong and must be fixed before any training.
+### [P5-SPAN] ◀◀ DO THIS FIRST — a precursor-inclusive training span
+Define and build a **functional-complement span**: biosynthetic genes **+ short (20–80 aa)
+unannotated CDS within a proximity window + transport**, from `ripp_components.jsonl` (built
+2026-08-19, per-CDS `gene_kind` + coordinates for every RIPP region).
+- ⚠️ **Proximity filter is essential.** Short unannotated CDS are dominated by *hypothetical
+  protein* (4,606), transposases, ribosomal proteins; median distance to the nearest biosynthetic
+  gene is 6,654 nt with only **41.4% within 5 kb**. Take the nearest, not all.
+- Validate the span the same way the panel was validated: **the precursor detector must fire on the
+  new span at a rate near the WIDE reference (0.208)**. If it does not, the span is wrong.
+- Then retrain the class-specific adapter on it and re-run the established seeded protocol.
 
-### [P5-COMPONENT] Fix the component instruments (cheap, do alongside)
-The panel exists but is not yet trustworthy:
-- `n_short_orfs` is **not a gate** — the base-model floor has 80/120 vs real cores' 17/120. Only
-  meaningful **jointly with an enzyme**.
-- Need a **real precursor detector**: RiPP-precursor HMMs, or parse antiSMASH's own precursor calls
-  out of runs already on disk. Leader/core structure, not just length.
-- Re-derive the transporter panel against **whole regions** — 3/120 in strict cores means we have
-  never actually measured transporter content.
+### [P5-ENDPOINT] Fix the endpoint before running the arm
+⚠️ **A P+E+T endpoint at an 8 kb window has a ~2.5% ceiling even on REAL data** (3/120) — too low to
+power anything. Use **P+E (precursor + enzyme)** as the Level-3 endpoint: real ceiling **11/120 =
+9.2%** at 8 kb, which is powerable at n≈200. Report E+T and P+E+T as secondaries.
 
-### [P5-COMPOSE] Component-wise adapters, generated in sequence
-User's proposal; still the most promising *training* idea, but **blocked behind [P5-SUB]**: you
-cannot train a transporter adapter on a substrate that excludes transporters. Revisit once regions
-are the substrate. Design notes (error compounding, long-seed reconstruction risk, monolithic
-control) are unchanged — see the entry below.
+### [P5-COMPOSE] Composition — RE-EVALUATE ONLY AFTER [P5-SPAN]
+The user's component-adapter chain is still the most promising *training* idea, but it was premised
+on components being unlearnable individually. **We now know only ONE component is missing.** If a
+precursor-inclusive span fixes it with a single adapter, composition is unnecessary complexity. If
+the precursor rate stays at zero *after* the substrate fix, composition becomes the right answer —
+and that is the test that decides it.
 
-### [P5-CEILING] Is the target achievable? (cheap, CPU-only, no training)
-Corrupt real regions progressively — mask k% of genes — and measure recovery. Gives an achievability
-ceiling for "produce the missing component" and says whether current numbers reflect a hard problem
-or a fixable one. **Run this early; it is the cheapest way to avoid a long dead end.**
+### [P5-SUB] Model change — DEFERRED, not required
+`evo2_1b_base` holds the enzyme+transport complement for 55.5% of regions. Whole antiSMASH regions
+(median 21,896 nt, 1.9% fit) remain impossible on the 1B, but they are not what Level 3 needs.
+Reserve GenomeOcean-4B / 7B for whole-region work and the paper's model comparison.
 
-### [P5-RL] Rejection sampling / DPO — deferred until Level 3 is measurable
-Reward must be **antiSMASH confirmation**, never the Pfam gate (inflates 1.8×; confirmed 0/8 in the
-WIDE arm), weighted by component completeness. ⛔ Never rank candidates by a continuous score —
-ladder metrics reach 0.575 and the class probe 0.337 for within-positives discrimination.
+### [P5-CEILING] Corrupt-and-recover — still worth running, now cheaper to interpret
+Use `ripp_components.jsonl`: mask the precursor CDS in a real region and ask whether the model
+restores it. Directly measures whether the missing component is *recoverable* or *unreachable*, and
+uses data already on disk.
 
-### [P5-WEIGHTED] ❌ DROPPED 2026-08-19 (user)
-Domain-weighted loss on WIDE spans addressed the measured dilution, but WIDE is closed on two
-independent tests and the binding constraint is a **missing component**, not signal density. Also
-refuted: WIDE was not secretly producing accessory machinery (2/60 vs 8/60). No upside to recover.
-
-## Backlog — Phase 3## Backlog — Phase 3
+## Backlog — Phase 3## Backlog — Phase 3## Backlog — Phase 3
 
 **The phase has three legs.** Leg 1 is done and negative-but-directional; legs 2 and 3 are untried.
 

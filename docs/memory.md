@@ -1121,4 +1121,112 @@ is required.
 
 ---
 
+## 2026-08-19 — [P5-DATA] + [P5-STEP2]: the 1B CAN host Level-3-minimal. No model change required.
+
+Streamed `asdb5_gbks.tar` (185 GB) keeping **per-CDS `gene_kind` + coordinates** for every RIPP
+region in our splits — the annotation `build_core_records.py` computes and discards. Output:
+`/data2/ds85/bgcmodel_data/ripp_components.jsonl`. Analysis below at n=4,969 regions (interim; the
+pass continues, numbers stable).
+
+**gene_kind census, all CDS inside RIPP regions:** none 66.4% · biosynthetic-additional 14.9% ·
+**biosynthetic 6.8%** · **transport 5.0%** · **regulatory 4.7%** · other 2.1% · resistance 0.03%.
+
+### THE DECIDING MEASUREMENT — span of each component set vs the 1B's usable ~7,900 nt
+
+| span definition | median nt | p75 | p90 | mean genes | **fits 1B (≤7,900)** |
+|---|---|---|---|---|---|
+| STRICT (biosynthetic only) | 2,172 | 5,755 | 15,050 | 1.89 | **81.0%** |
+| **COMPLEMENT (bio + transport)** | **6,653** | 14,095 | 27,489 | 3.28 | **55.5%** |
+| COMPLEMENT + regulatory | 9,779 | 18,738 | 35,042 | 4.58 | 41.8% |
+| WIDE (+ additional) | 12,271 | 21,623 | 37,759 | 6.03 | 32.3% |
+| FULL (all annotated) | 17,017 | 26,175 | 42,248 | 9.31 | 18.3% |
+| WHOLE REGION | 21,896 | 31,273 | 47,401 | 27.77 | **1.9%** |
+
+⇒ **DECISION: stay on `evo2_1b_base`.** The **enzyme+transport complement fits in 55.5%** of real
+RIPP regions — workable, and ~3,000+ training records at our scale. My earlier claim that Level 3
+"requires whole regions (21 kb) and therefore a bigger model" was **wrong**: it conflated the whole
+antiSMASH region with the *minimal functional complement*. Whole regions are indeed impossible on
+the 1B (1.9%), but they are not what Level 3 needs.
+⇒ GenomeOcean/7B ([P5-SUB]) is **deferred, not required** — reserve it for whole-region work and the
+paper's model comparison.
+
+### Level 3 must be CONDITIONED — 42% of real RIPP clusters have no transporter
+
+| component | regions having it |
+|---|---|
+| enzyme (biosynthetic) | 4,969/4,969 = 100% |
+| **transport** | **2,903/4,969 = 58.4%** |
+| regulatory | 2,945/4,969 = 59.3% |
+| enzyme + transport | **58.4%** |
+| all three | **1,889/4,969 = 38.0%** |
+
+⇒ A "produce enzyme+transporter" endpoint has a **natural ceiling of 0.584**, not 1.0, and
+"all three" only 0.380. Any Level-3 rate must be quoted against the *conditioned* ceiling.
+
+### ⚠️ The precursor is gene_kind="none" — which is why STRICT cores exclude it
+
+72.2% of regions carry ≥1 short (20–80 aa) CDS, and **9,313 of them are `gene_kind="none"`** vs 502
+`biosynthetic`. So the RiPP precursor is typically **unannotated**, and a biosynthetic-only span
+**excludes the gene encoding the product by construction.** That is the mechanism behind the
+2026-08-19 confirmed-vs-rejected finding.
+
+**BUT short+unannotated is NOT a clean precursor signal.** Products of those 9,313: *hypothetical
+protein* 4,606, exodeoxyribonuclease VII 225, HTH regulator 118, **PQQ precursor peptide 113**,
+transposase 92, DUF397 75, ribosomal L32 44, IS-family transposases. And median distance to the
+nearest biosynthetic gene is **6,654 nt** with only **41.4% within 5 kb** — most are scattered
+through the region, not adjacent to the core.
+⇒ **A length+position heuristic will not work. [P5-COMPONENT] must build a real precursor HMM
+detector** (leader/core structure), with proximity as a secondary filter.
+
+---
+
+## 2026-08-19 — [P5-COMPONENT] + [P5-STEP4]: THE PRECURSOR IS AT ZERO. Validated detector.
+
+**Built the panels empirically** from 27,481 Pfam-A descriptions rather than from memory: **81
+precursor** families (Antimicrobial18 lantibiotic, Bacteriocin_II/IIc double-glycine leader, PQQ
+precursor, SkfB…), **302 transport**, 750 regulator, 389 protease. Saved to
+`/data2/ds85/bgcmodel_data/component_panels.json`.
+
+**Validation, and the first attempt was wrong.** Scored on real STRICT cores the precursor panel
+fired **1/120** — apparently useless. Cause: **strict cores exclude precursors by construction**
+(the precursor is `gene_kind="none"`, outside the biosynthetic span). *A component detector cannot
+be validated on a substrate that excludes the component.* Re-validated on **WIDE** spans:
+
+| panel | real WIDE | base 1B (FP control) | verdict |
+|---|---|---|---|
+| **precursor** | **25/120 = 0.208** | **1/120 = 0.008** | **USABLE — 25× discrimination** |
+| transport | 52/120 = 0.433 | 1/120 = 0.008 | USABLE |
+
+### FINAL PANEL — length-matched, complete ORFs only, `min_aa=20`
+
+| arm | window | n | PREC | ENZ | TRANS | P+E | E+T | **P+E+T** |
+|---|---|---|---|---|---|---|---|---|
+| **REAL WIDE (CEILING)** | 8,000 | 120 | **21** | 46 | 42 | **11** | 14 | **3** |
+| REAL WIDE | 2,000 | 120 | 2 | 15 | 5 | 0 | 1 | 0 |
+| base 1B (FLOOR) | 2,000 | 120 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **STRICT-full 8k (BEST ARM)** | 8,000 | 120 | **0** | 3 | **17** | 0 | 0 | **0** |
+| W-2 STRICT 8k | 8,000 | 120 | 0 | 0 | 11 | 0 | 0 | 0 |
+| W-1 WIDE 8k | 8,000 | 120 | 0 | 3 | 24 | 0 | 3 | 0 |
+| S2-1 seeded 2.2k | 2,000 | 120 | 0 | 1 | 2 | 0 | 0 | 0 |
+| A0 de novo 8k | 8,000 | 120 | **2** | 4 | 2 | 0 | 0 | 0 |
+
+⚠️ ENZ counts here are far below the earlier component panel (STRICT-full 3 vs 17) because this scan
+**filters `partial` ORFs** and uses an 8,000 nt window. Compare only *within* this table.
+
+**★ FINDING 1 — precursor generation is at ZERO.** Every seeded arm reads **0/120** against a real
+ceiling of 21/120. The one exception is A0 de novo at 2/120. **The missing component is confirmed
+with a validated detector, not inferred.**
+**★ FINDING 2 — transporters ARE being generated.** Best arm 17/120, W-1 WIDE 24/120, against real
+42/120. So the models produce ~40–57% of the real transporter rate. **Transport is not the problem.**
+**★ FINDING 3 — the full complement is rare even in REAL data at this window: 3/120 = 2.5%.** Taking
+the first 8,000 nt of a real WIDE span shows precursor+enzyme+transport only 2.5% of the time,
+because the complement's p75 span is 14,095 nt. **A P+E+T endpoint measured at 8 kb has a ~2.5%
+ceiling — too low to power any experiment.**
+
+⇒ **Level 3 is blocked by the SUBSTRATE, not the model.** Training data built from
+`STRICT_KINDS={"biosynthetic"}` **cannot teach precursor generation** because it contains no
+precursors. No amount of training, weighting or composition on that substrate will fix it.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

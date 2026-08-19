@@ -110,6 +110,22 @@ unverifiable from the record, and both classes were already disqualified on dive
 near-dup loss), so **they were deleted 2026-08-14** rather than given a fabricated provenance entry.
 ⚠️ The builder overwrites `manifest.json` wholesale — rebuilding one class drops every other entry.
 
+### `ripp_components.jsonl` — per-CDS component annotation, built 2026-08-19
+`/data2/ds85/bgcmodel_data/ripp_components.jsonl`. One row per RIPP region: `accession`,
+`genome_accession`, `compound_class`, region coordinates, `n_cds`, and **`genes`** — every CDS in
+the region with `start`, `end`, `strand`, **`kind`** (antiSMASH `gene_kind`), `aa_len`, `product`.
+
+Streamed once from `asdb5_gbks/asdb5_gbks.tar` (185 GB) with a genome allowlist of the 7,845 RIPP
+genomes. **This is the annotation `build_core_records.py` computes per CDS and then discards** —
+every component-level metric depends on it.
+
+**gene_kind census inside RIPP regions:** none 66.4% · biosynthetic-additional 14.9% ·
+biosynthetic 6.8% · transport 5.0% · regulatory 4.7% · other 2.1% · resistance 0.03%.
+
+⚠️ **Rows are NOT unique by accession.** `GCF_x.regionN` repeats across contigs of the same
+assembly because `region_number` restarts per contig — the same collision recorded in `bugs.md`.
+**Dedupe on `(accession, region_start, region_end)` before any per-region statistic.**
+
 ### `splits_class_strictmatched/RIPP/` — size- and cluster-matched control, built 2026-08-18
 **3,723 train / 258 val**, strict spans, restricted to **exactly the rows** the WIDE split kept
 (same accessions, mirroring WIDE's last-wins collision rule). Test and eval_prompts copied unchanged.
