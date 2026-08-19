@@ -986,4 +986,52 @@ quote **antiSMASH-confirmed rate against the real-core ceiling** as the cluster 
 
 ---
 
+## 2026-08-19 — ★★★ THE DISCRIMINATOR IS THE PRECURSOR PEPTIDE, NOT MORE ENZYMES
+
+Ran the analysis the whole project should have run months ago: among generations that pass our Pfam
+gate with **exactly one** RIPP marker, what distinguishes the ones antiSMASH **confirms** from the
+ones it **rejects**? Pooled from STRICT-full 8 kb and W-2 8 kb: **28 confirmed, 32 rejected.**
+
+| | CONFIRMED (n=28) | REJECTED (n=32) |
+|---|---|---|
+| mean ORFs | **2.43** | 1.38 |
+| **mean short ORFs (20–80 aa)** | **0.43** | **0.00** |
+| mean distinct Pfam domains | 3.57 | 3.50 |
+
+**★ It is not domain content — that is identical (3.57 vs 3.50).** What separates them is
+**an extra gene, and specifically a SHORT one in the 20–80 aa range. Rejected records have ZERO.**
+
+That size range is the **RiPP precursor peptide** — the gene that actually *encodes the product*.
+antiSMASH's RiPP rules look for precursor evidence; our Pfam scan cannot, because **none of the 8
+`OBLIGATE_DOMAINS[RIPP]` markers is a precursor** (all are modifying enzymes or binding proteins)
+and **`find_orfs` defaults to `min_aa=50`** while Prodigal's own floor is ~30 aa.
+
+⇒ **The model's real deficit is not "too few enzymes". It is "no precursor".** Every metric we have
+optimised — `best_bio_bits`, `n_class_domains`, `n_bio_domains` — measures the machinery and is
+structurally blind to the substrate it acts on. This reframes Phase 5 entirely.
+
+⇒ Marker enrichment is a weak secondary signal: PF05114 appears in 28/28 confirmed vs 24/32
+rejected. Nothing else separates at n=60.
+
+## 2026-08-19 — Hypothesis REFUTED: WIDE is not secretly producing "additional" machinery
+
+User's hypothesis: WIDE may be generating `biosynthetic-additional` content that our RIPP-specific
+markers cannot see, so its apparent failure is a metric artefact. **Tested and refuted.**
+
+Built the "additional vocabulary" empirically — Pfam domains present in the WIDE span but **absent**
+from the STRICT span of the **same** real cluster (60 paired records, full Pfam-A). Top members:
+PF09836, PF00106 (short-chain dehydrogenase), PF00561 (α/β hydrolase), PF00753 (metallo-β-lactamase),
+PF01370 (epimerase) — i.e. genuine tailoring/accessory enzymes. Took the top 40 as the vocabulary.
+
+| arm | generations carrying ≥1 additional-vocabulary domain |
+|---|---|
+| **W-1 WIDE 8 kb** | **2/60** |
+| **W-2 STRICT 8 kb** | **8/60** |
+
+⇒ The WIDE model produces **less** accessory machinery than the strict control, not more. It is not
+succeeding invisibly; it is simply worse, consistent with the measured 1.43× dilution of
+biosynthetic signal per token. **[P4-WIDE] stays closed negative.**
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

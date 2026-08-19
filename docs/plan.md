@@ -165,7 +165,11 @@ Novelty guard:       containment reported alongside, always.
 Every one of these follows from a *measured* cause, not a guess. `n_class_domains ≥ 2` = 0/188 in
 all five arms is the target; the STRICT-full 8 kb arm (corrected **0.116**) is the baseline to beat.
 
-### [P5-WEIGHTED] WIDE spans + domain-weighted loss ◀ RECOMMENDED FIRST
+### [P5-WEIGHTED] WIDE spans + domain-weighted loss — DEMOTED
+Still the right response to the measured dilution, but **no longer first**: the precursor finding
+says the missing thing is a *component*, not signal density. Also note the user's hypothesis that
+WIDE was secretly producing accessory machinery was **tested and refuted** (2/60 vs 8/60 carrying
+the additional-domain vocabulary), so WIDE has no hidden upside to recover.
 **Rationale (measured):** WIDE failed because biosynthetic density fell 0.683 → 0.477. Domain
 weighting up-weights loss on biosynthetic spans, so the model can see wider context *without* the
 signal being diluted. This is the only intervention that directly addresses the measured cause.
@@ -179,7 +183,47 @@ signal being diluted. This is the only intervention that directly addresses the 
 - **Arms:** WIDE+weighted vs WIDE unweighted (already have) vs STRICT-matched (already have). Only
   one new training run.
 
-### [P5-PRECURSOR] Teach the thing the metric cannot currently see
+### [P5-PRECURSOR] ◀◀ NOW THE TOP PRIORITY — MEASURED, not speculative
+**Evidence (2026-08-19).** Among single-marker generations, what separates antiSMASH-CONFIRMED from
+REJECTED is **not** domain content (3.57 vs 3.50 distinct Pfam domains — identical). It is
+**an extra gene, specifically a SHORT one of 20–80 aa: 0.43 in confirmed vs 0.00 in rejected.**
+That is the **RiPP precursor peptide — the gene encoding the actual product.**
+
+**Our instruments are structurally blind to it:**
+- none of the 8 `OBLIGATE_DOMAINS[RIPP]` markers is a precursor (all modifying enzymes/binders);
+- `find_orfs` defaults to **`min_aa=50`**, and Prodigal's own floor is ~30 aa.
+
+**Actions, in order:**
+1. **Re-score every existing arm with `min_aa=20`** and report `n_short_orfs` (20–80 aa) as a new
+   metric. Costs nothing — no generation, no training. It may show the models are already producing
+   precursor-sized ORFs we have been discarding.
+2. **Add precursor detection**: a RiPP-precursor HMM set, or parse antiSMASH's own precursor calls
+   out of the runs we have already done.
+3. Only then consider training changes.
+⚠️ Do not change the pre-registered PRIMARY mid-phase (Constraint 4). Add these as reported metrics.
+
+### [P5-COMPOSE] Component-wise adapters, generated in sequence ◀ follows directly from the above
+**User's proposal, and the precursor finding supports it.** A RiPP is not one thing — it is
+precursor + modifying enzyme(s) + protease/transporter. Train a small adapter per component and
+generate compositionally, each step seeded on the previous output:
+`precursor → (precursor as seed) enzyme → (precursor+enzyme as seed) transporter`.
+
+**Why it fits what we now know:**
+- The binding constraint is a **missing component**, not weak content — so target components.
+- We already know **seeding works and is class-specific** (0.176 vs 0.000 for the general adapter,
+  p=2.5e-11), and that the model *continues* what it is given. Compositional seeding is that
+  mechanism used deliberately.
+- Component splits are buildable from `gene_kind` + our own ORF calls; no new data collection.
+
+**Risks to design against:**
+- ⚠️ **Error compounding** — a bad precursor poisons every later step. Measure each stage against
+  its own control, not only the end product.
+- ⚠️ **Seed length**: L\*=8 nt was chosen because longer seeds cause reconstruction (12/12 source-
+  domain match at 500 nt). Compositional seeding *deliberately* uses long seeds, so the novelty
+  gates must be read per stage, and `--no-boundary-orf` cannot protect a deliberate hand-off.
+- Needs a joint-vs-monolithic control: does composition beat one adapter generating the whole thing?
+
+
 **Rationale:** none of the 8 RIPP markers is a **precursor peptide** — they are all modifying
 enzymes. And Prodigal calls **0 ORFs under 30 aa**, so typical short RiPP precursors are invisible
 to our caller *and* absent from our marker set. We may be asking for clusters while measuring only
