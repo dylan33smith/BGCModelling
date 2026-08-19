@@ -205,6 +205,14 @@ See the naming convention in `CLAUDE.md`.
 ⚠️ **This arm confounds span width with dataset size** (3,723 wide vs 7,250 strict records used by
 A0). A size-matched STRICT control is required before the comparison is clean — see `plan.md`.
 
+### Phase 4 — WIDE vs STRICT span-width comparison
+
+| Run dir | Date | Contents | Status |
+|---|---|---|---|
+| `phase3_RIPP_wide/` | 08-18 | **W-1, the WIDE adapter.** Trained on `splits_class_wide/RIPP` (3,723 whole records ≤L, 3 ep / 675 steps, `loss_ce` 1.309→0.844). `adapter_run/`; `wide_8k.jsonl` (150 de novo @8 kb, **uninformative — underpowered**); `W1_seeded_[a-d].jsonl` → `W1_seeded.jsonl` (188 seeded @L=8 nt, 2.2 kb). | ✅ |
+| `phase3_RIPP_strictmatched/` | 08-18 | **W-2, the size+cluster-matched STRICT control.** Trained on `splits_class_strictmatched/RIPP` — the **same 3,723 rows** as W-1 with strict spans, so only span width differs. Exists to stop a WIDE-vs-S2-1 difference being explained by the 7,250→3,723 size drop. | 🔄 training |
+| `phase3_RIPP_widecmp/` | 08-18 | Scored outputs and the final three-arm analysis for [P4-WIDE-SEEDED] (§8.6/§8.7). Generations live in each adapter's own run dir. | 🔄 |
+
 ### Phase 3 — Stage 2 confirmatory arms
 
 | Run dir | Date | Contents | Status |

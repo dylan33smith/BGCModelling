@@ -297,6 +297,39 @@ Aliases:              names seen in old docs. Do not use them.
 
 ## T
 
+### THE TWO-PASS DETECTION ARCHITECTURE  [evaluation] [method]
+- **Is:** Pfam gate first (cheap, Stage A), antiSMASH second (gold standard, Stage B). **Calibrated
+  2026-08-18** on 218 Stage-2 sequences with both run:
+
+  | gate status | antiSMASH confirms | n |
+  |---|---|---|
+  | **Pfam POSITIVE** (`best_bio_bits > 0` @ RIPP) | **0.456** | 68 |
+  | **Pfam NEGATIVE** | **0.020** | 100 |
+  | real held-out cores | 0.760 | 50 |
+
+- **Verdict: the Pfam gate is a good first pass and a bad final answer.**
+  - **23× enrichment** — Pfam-positives are 23× more likely to be real clusters.
+  - **Sensitivity ≈ 83%** — it finds ~5 of every 6 real clusters. It **misses ~17%**, because 2.0%
+    of the much larger negative pool is still real.
+  - **Inflation ≈ 1.8×** — S2-1's `on_class` 0.176 corresponds to an estimated true antiSMASH rate
+    of **≈0.097** (15.0 real among Pfam-positives + 3.1 missed among negatives, over 188).
+- **CHANGES MEANING WITH:** the class marker set and the antiSMASH version/DB. Re-calibrate per
+  class — these numbers are RIPP-specific.
+- **Valid vs:** ⚠️ **never mix a Pfam rate with an antiSMASH rate in one comparison** (Standing
+  Constraint 7). Report them as separate rows.
+- **HOW TO GET AN UNBIASED RATE:** running antiSMASH only on Pfam-positives **systematically
+  under-counts by ~17%**. For a headline rate use **stratified sampling** — antiSMASH on *all*
+  Pfam-positives plus a random sample of Pfam-negatives, then
+  `rate = [P·conf(pos) + N·conf(neg)] / (P+N)`. That is how the 0.097 above was obtained. For
+  *selection* (which sequences to carry forward) Pfam-first alone is fine and saves ~95% of the
+  compute.
+- **Status:** **STANDARD for Phase 3 onward.** No alternative detector exists — see below.
+- **⛔ WHY THERE IS NO SUBSTITUTE FOR antiSMASH.** Two independent instrument families were tested
+  for *within-positives* discrimination and both failed: **ladder metrics** best AUROC 0.575
+  (`bio_span_frac` inverted at 0.173) and the **class probe** 0.337 (anti-correlated, saturated at
+  P(RIPP) ≈ 0.997 despite 0.933 balanced accuracy). Nothing we own separates a real cluster from a
+  Pfam-passing near-miss. antiSMASH is the only arbiter we have.
+
 ### THE TWO MEASUREMENT STAGES  [evaluation] [method]
 - **Is:** Every Phase-3 arm is measured **twice, on two different denominators**, because a metric
   that is meaningful over one is meaningless over the other. Conflating them produced a retracted

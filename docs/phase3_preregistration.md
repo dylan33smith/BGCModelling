@@ -300,6 +300,27 @@ Stage B separately (§ THE TWO MEASUREMENT STAGES) and Holm-correct across the c
 
 **Read once at n=188.** Do not extend after seeing results (§10).
 
+### 8.7 AMENDMENT 2026-08-18 — 8 kb generation added to §8.6, BEFORE those sequences exist
+
+§8.6 specified 2,200-nt generation. **That may structurally cap the co-primary endpoint.** The
+window sweep showed real cores carry **1.69** biosynthetic domains at 2 kb and **2.67** at 8 kb, so
+multi-domain content largely lives beyond 2 kb. An arm whose entire hypothesis is multi-gene
+structure cannot demonstrate it in 2.2 kb of output.
+
+⇒ **Every §8.6 arm is additionally generated at 8,000 nt and scored at 2 kb / 4 kb / 8 kb.**
+- The **2 kb score remains the PRIMARY** and stays comparable to S2-1's 0.176 (§8.5 unchanged).
+- 4 kb and 8 kb are **declared secondaries**, each with its own real-core ceiling
+  (0.515 / 0.559 / 0.618) — never cross-compared.
+- The 2.2-kb arms already generated are **retained and reported**, not discarded.
+- A third arm is added: **STRICT-full (the S2-1 adapter) regenerated at 8 kb**, so all three
+  adapters are read at matched generation length and training-span width is not confounded with
+  output length.
+
+**Headline rates are antiSMASH-corrected** (§ THE TWO-PASS DETECTION ARCHITECTURE): antiSMASH on
+**all** Pfam-positives **plus a random sample of Pfam-negatives** per arm, then
+`rate = [P·conf(pos) + N·conf(neg)] / (P+N)`. Pfam-only rates inflate ~1.8× and are reported as
+their own row, never as the headline.
+
 ## 9. Decision rules — fixed in advance
 
 - **An arm SUCCEEDS** iff its `on_class_rate` exceeds the A0 floor by Fisher's exact p < 0.05 **and**
