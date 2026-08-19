@@ -1410,4 +1410,42 @@ for the specific subclasses, and we never produce one.
 
 ---
 
+## 2026-08-19 — ⚠️ CORRECTION: the "1.43× dilution" was partly an artefact of my own measure
+
+User challenged whether WIDE actually failed or whether "BIO fraction" merely reflects counting one
+tag. **The challenge is partly correct.**
+
+`BIO-only fraction` counts bases inside genes tagged **`biosynthetic`** and divides by the span. As
+the span widens the numerator is **held fixed** while the denominator grows, so it falls
+**mechanically**. Recomputed with two better denominators (n=27,171 deduped regions):
+
+| span definition | median nt | **BIO-only** (my original) | **DEFINING-genes** | any-CDS |
+|---|---|---|---|---|
+| STRICT | 2,191 | **0.869** | **0.869** | 0.980 |
+| bio + transport | 6,578 | 0.551 | **0.687** | 0.950 |
+| **WIDE (bio + additional)** | 12,208 | **0.310** | **0.576** | 0.919 |
+| everything except `none` | 16,893 | 0.208 | 0.595 | 0.906 |
+
+- **DEFINING-genes** = share of the span inside a gene of the kind that *defines* that span.
+- **any-CDS** = share inside any annotated CDS — tests for genuine intergenic filler.
+
+⇒ **`any-CDS` stays at 0.92 for WIDE, so the wider span is NOT full of empty space.** And
+`DEFINING-genes` falls only 0.869 → 0.576, not 0.869 → 0.310. **Real dilution exists — roughly a
+third of a WIDE span is CDS that is neither biosynthetic nor biosynthetic-additional — but it is
+about half the magnitude I reported.**
+
+[INCORRECT] - ⇒ Per 1,000 training nt: **STRICT 683 nt biosynthetic, WIDE 477 nt — 1.43× less signal per token.**
+[CORRECTION - 2026-08-19]: That ratio was inflated by holding the numerator to the single
+`biosynthetic` tag while widening the denominator. On a self-consistent denominator the gap is
+0.869 → 0.576. **Dilution is real but milder, and is therefore a weaker explanation than stated.**
+
+**WHAT DOES NOT CHANGE: WIDE'S FAILURE IS AN EXPERIMENTAL RESULT, NOT AN INFERENCE.**
+W-1 vs W-2 used **the same 3,723 clusters, the same seeds, the same n** — only span width differed —
+and WIDE was worse at **Holm p = 4.1e-04** (2.2 kb) and **3.2e-05** (8 kb), with the training-set
+size drop separately shown to cost nothing (p=0.79). That stands independent of any explanation.
+⇒ **The finding survives; my mechanism for it is now uncertain.** Dilution, span length, or
+something else — we do not know which, and the docs should stop asserting dilution as the cause.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

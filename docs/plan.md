@@ -158,89 +158,55 @@ Novelty guard:       containment reported alongside, always.
 
 ---
 
-## PHASE 5 — THE DECISION (2026-08-19, from [P5-DATA]/[P5-COMPONENT] results)
+## WHERE WE ARE — and the next steps (2026-08-19)
 
-**Question posed:** continue the current method, switch to composition, or change the model?
-**Answer: NONE OF THOSE FIRST — fix the training substrate. It is the binding constraint, and it
-invalidates the premise of the other two options.**
+**The defensible claim, in plain language:**
+> *We generate short DNA sequences that antiSMASH annotates as **RiPP-like biosynthetic gene
+> clusters**, at ~15% of the rate for real held-out cores, with novelty verified at both DNA and
+> protein level, and with the class coming from the adapter rather than the seed.*
 
-**Evidence.**
-1. **Precursor generation is 0/120 in every seeded arm** (real ceiling 21/120), with a detector
-   validated at 25× discrimination against the base-model floor.
-2. **The precursor is `gene_kind="none"`**, so `STRICT_KINDS={"biosynthetic"}` **excludes it by
-   construction.** Our training data contains almost no precursors. **A model cannot learn to
-   generate what it was never shown** — so neither more training, nor weighting, nor composition on
-   this substrate can fix it.
-3. **Transporters ARE generated** (best arm 17/120 vs real 42/120). Only the precursor is missing.
-4. **The model is not the limit.** The enzyme+transport complement spans a median **6,653 nt** and
-   fits the 1B's ~7,900 usable budget in **55.5%** of real regions.
+⚠️ **NOT** "we generate full biosynthetic gene clusters." We train on the **biosynthetic core only**
+(median 2,191 nt of a ~21,900 nt region), so generations contain **no transport, regulatory or
+resistance genes** by construction — and the detections are **exclusively antiSMASH's generic
+`RiPP-like` catch-all**, never a specific subclass.
 
-### ⛔ SCRAPPED / KEPT — what survives the bad panel (decided 2026-08-19)
+### THE SUBCLASS-SPECIFICITY GAP — the honest limitation
+antiSMASH detects RiPPs with a **hierarchy of rules**: tight subclass rules (lanthipeptide-class-i…v,
+lassopeptide, thiopeptide, sactipeptide…) each requiring a **specific combination** of domains, and
+a loose generic **`RiPP-like`** rule that fires on weaker evidence when no subclass rule matches.
 
-| artifact | verdict |
+| | products called |
 |---|---|
-| **precursor panel** (81 keyword families) | ⛔ **SCRAPPED.** ~half enzyme; overlaps `OBLIGATE_DOMAINS[RIPP]` via PF14028. Quarantined to `DEPRECATED_component_panels.json`. |
-| **real-core precursor ceiling (21/120)** | ⛔ **SCRAPPED** — inflated by enzyme families. |
-| **P+E and P+E+T counts** | ⛔ **SCRAPPED** — partly tautological (one PF14028 hit lit both columns). |
-| transport / regulator / protease panels | ⚠️ **PROVISIONAL** — same keyword method, never validated per family. Do not quote. |
-| **`ENZ` = `OBLIGATE_DOMAINS[RIPP]`** | ✅ **KEPT** — data-derived from our corpus, unchanged. |
-| **`ripp_components.jsonl`** | ✅ **KEPT** — raw antiSMASH `gene_kind` + coordinates. Our own annotation, not a guess. The most valuable thing built. |
-| **complement-span measurements** | ✅ **KEPT** — computed from `gene_kind` coordinates, independent of the panels. |
-| **"precursor is `gene_kind=none`, so STRICT excludes it"** | ✅ **KEPT** — from the gene_kind census, independent of the panels. |
-| **"generations produce ZERO precursors"** | ✅ **KEPT — and it is a floor claim.** Generations scored 0/120 against the *full* 81-family panel, and the genuine precursor families are a **subset** of it. Zero on a superset implies zero on the subset. Noise inflates a ceiling; it cannot manufacture a zero. |
+| real cores (33 detected) | lassopeptide 7 · RiPP-like 4 · lanthipeptide-class-iv 4 · class-i 3 · class-iii 3 · redox-cofactor 2 |
+| **our best arm (12 detected)** | **RiPP-like 12 — nothing else** |
 
-⇒ **The direction of the finding survives; the magnitudes do not.** We still believe the precursor
-is the missing component — we no longer believe any specific rate.
+⇒ **~70% of real detections get a specific chemistry; 0% of ours do.** The model produces enough
+signal to trip the loose generic rule and never the tight combination a subclass requires. This is
+the same limitation `n_class_domains` was groping at, stated in the field's own terms — and it is
+the thing to report and to target.
 
-### THE GATED SEQUENCE — one stage at a time, each validated before the next starts
+### NEXT STEPS, in order
 
-**STAGE 1 — [P5-DETECT]: a trustworthy precursor call.**
-- **Primary route: parse antiSMASH's own RiPP precursor calls.** antiSMASH runs **RODEO** for
-  precursor validation; we have run antiSMASH on 833 sequences and kept only `is_bgc`/`class_match`.
-  Re-run if the output dirs were not retained — 615 calls took 4 minutes.
-- Add a **short-ORF caller** (`Prodigal-short`/`-shorter`, down to ~5 aa). Stock Prodigal is not
-  optimised for short ORFs and a `min_aa` tweak does not fix that.
-- Pair Pfam with **RiPP-specific HMMs**; consider **NeuRiPP** as a second opinion.
-- **EXIT GATE:** the detector must fire on **real cores** at a plausible rate **and stay near zero
-  on the base-model floor**, with **every contributing family inspected by hand** — the failure
-  mode was a family nobody looked at. Also re-validate the **transport** panel per family here.
-- ⛔ **Do not proceed to Stage 2 until this gate passes.**
+1. **[P5-REPORT] Re-score every arm in FULL antiSMASH mode and report product specificity.**
+   Detection is unaffected by `--minimal` (100% agreement, n=10), so nothing needs re-deriving — but
+   **product breakdown becomes a reported row** alongside the corrected rate. Also: stop using
+   `--minimal`, and **retain the output dirs** instead of a `TemporaryDirectory`.
+2. **[P5-BIOTRANS] One training arm: `bio + transport` spans.** The only expansion worth testing —
+   DEFINING-gene coverage 0.687, between STRICT's 0.869 (works) and WIDE's 0.576 (fails), median
+   6,578 nt with 55.9% fitting the 1B. Adds a functionally real component at the smallest cost.
+   ⛔ Do **not** try "everything except `none`" (0.595 defining, 16,893 nt, 19.5% fit) — no better
+   than WIDE on coverage and far worse on length.
+3. **[P5-SUBCLASS] Make subclass specificity the reported endpoint** — "fraction of detections
+   assigned a specific RiPP subclass". Real ~70%, ours 0%. It needs no new detector, uses antiSMASH
+   directly, and is the honest measure of the remaining gap.
+4. **[P5-FILTER] Post-generation filtering** — legitimate now *as a selection step only*
+   (antiSMASH pass/fail, the phage-paper funnel). ⛔ Not as ranking: nothing we own ranks within
+   positives (ladder 0.575, class probe 0.337).
+5. **Write up Level 2.** The result is complete and controlled; further metric work has hit
+   diminishing returns.
 
-**STAGE 2 — [P5-SPAN]: a precursor-inclusive training span.**
-- Only definable *after* Stage 1: you cannot select precursor-containing spans without a
-  trustworthy precursor call. The proximity heuristic (short unannotated CDS near a biosynthetic
-  gene) is a **fallback**, not the plan — it is the same species of guess that just failed.
-- Build from `ripp_components.jsonl`; keep the span within the 1B's ~7,900 nt budget.
-- **EXIT GATE:** the Stage-1 detector must fire on the new span at a rate matching real regions.
-  If it does not, the span is wrong — fix it before training.
-
-**STAGE 3 — retrain and re-run the established protocol.**
-- Class-specific adapter on the Stage-2 span, then the frozen seeded protocol (L\*=8 nt,
-  `--no-boundary-orf`, n=188, test seeds).
-- **Endpoint: P+E** (see below). Pre-register before generating.
-- ⛔ Only after Stages 1 and 2 have passed their gates.
-
-### [P5-ENDPOINT] Fix the endpoint before running the arm
-⚠️ **A P+E+T endpoint at an 8 kb window has a ~2.5% ceiling even on REAL data** (3/120) — too low to
-power anything. Use **P+E (precursor + enzyme)** as the Level-3 endpoint: real ceiling **11/120 =
-9.2%** at 8 kb, which is powerable at n≈200. Report E+T and P+E+T as secondaries.
-
-### [P5-COMPOSE] Composition — RE-EVALUATE ONLY AFTER [P5-SPAN]
-The user's component-adapter chain is still the most promising *training* idea, but it was premised
-on components being unlearnable individually. **We now know only ONE component is missing.** If a
-precursor-inclusive span fixes it with a single adapter, composition is unnecessary complexity. If
-the precursor rate stays at zero *after* the substrate fix, composition becomes the right answer —
-and that is the test that decides it.
-
-### [P5-SUB] Model change — DEFERRED, not required
-`evo2_1b_base` holds the enzyme+transport complement for 55.5% of regions. Whole antiSMASH regions
-(median 21,896 nt, 1.9% fit) remain impossible on the 1B, but they are not what Level 3 needs.
-Reserve GenomeOcean-4B / 7B for whole-region work and the paper's model comparison.
-
-### [P5-CEILING] Corrupt-and-recover — still worth running, now cheaper to interpret
-Use `ripp_components.jsonl`: mask the precursor CDS in a real region and ask whether the model
-restores it. Directly measures whether the missing component is *recoverable* or *unreachable*, and
-uses data already on disk.
+⛔ **DROPPED:** precursor-based endpoints (detector caps at 8–50%, and precursors are RiPP-specific
+rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE and wider spans.
 
 ## Backlog — Phase 3## Backlog — Phase 3## Backlog — Phase 3
 
