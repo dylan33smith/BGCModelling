@@ -229,6 +229,16 @@ See the naming convention in `CLAUDE.md`.
 ⚠️ **This arm confounds span width with dataset size** (3,723 wide vs 7,250 strict records used by
 A0). A size-matched STRICT control is required before the comparison is clean — see `plan.md`.
 
+### Phase 5 — component detection
+
+| Run dir | Date | Contents | Status |
+|---|---|---|---|
+| `phase5_detect/` | 08-19 | **[P5-DETECT] fidelity baseline.** 12 real RIPP wide spans run through **FULL-mode antiSMASH** (no `--minimal`, so the RiPP/RODEO modules actually execute) with output **retained** at `as_full/<id>/`. Precursor predictions live in `modules.<lanthipeptides\|lassopeptides\|sactipeptides\|thiopeptides>.motifs`. **Result: 12/12 clusters detected, but only 1/12 = 8% carry a precursor motif** — because 79.7% of our RIPP labels are subclasses with no precursor module. | ✅ |
+
+⚠️ **All prior antiSMASH results (833 sequences) used `--minimal`** — analysis modules disabled, so
+**RODEO never ran** — and output went to a `TemporaryDirectory` that is deleted after `is_bgc` and
+`class_match` are read. Those results are detection-only and cannot be mined for precursors.
+
 ### Phase 4 — WIDE vs STRICT span-width comparison
 
 | Run dir | Date | Contents | Status |

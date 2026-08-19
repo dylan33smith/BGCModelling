@@ -1279,4 +1279,60 @@ provisional until checked the same way.
 
 ---
 
+## 2026-08-19 — ★★★ FIDELITY BASELINE: precursor detection tops out at ~8% on OUR RIPP data
+
+User asked the right question: *did real sequences produce zero precursors under the same method, and
+how are we validating fidelity at all?* We had never established a sensitivity baseline. Measured now.
+
+**First, a discovery that invalidates an assumption.** Our antiSMASH calls run with **`--minimal`**
+(`evaluation.py:603`), which **disables every analysis module** — so **we have never run RODEO**, and
+antiSMASH output went to a `TemporaryDirectory` that is deleted after `is_bgc`/`class_match` are read.
+All 833 antiSMASH results to date are **detection-only**.
+
+**Ran FULL-mode antiSMASH** (no `--minimal`) on 12 real RIPP wide spans, output retained at
+`phase5_detect/as_full/`. RiPP modules ran: `lanthipeptides`, `lassopeptides`, `sactipeptides`,
+`thiopeptides`. Precursor predictions live in `modules.<mod>.motifs` and `new_cds_features`.
+
+| | value |
+|---|---|
+| regions analysed | 12 |
+| antiSMASH detected a cluster | **12/12** |
+| **regions with ≥1 precursor motif** | **1/12 = 8%** |
+
+**★ WHY, and it reframes the target.** Precursor prediction only exists for RiPP **subclasses with a
+dedicated module**. Our RIPP class is dominated by antiSMASH's **catch-all**:
+
+| product label | share |
+|---|---|
+| **RiPP-like** (catch-all, NO precursor module) | **35.5%** |
+| azole-containing-RiPP | 8.8% |
+| cyclic-lactone-autoinducer | 7.5% |
+| RRE-containing | 6.7% |
+| ranthipeptide | 6.2% |
+| lassopeptide | 5.8% |
+| lanthipeptide-class-i…v | 11.9% combined |
+
+**Only 20.3% of our RIPP labels have a dedicated antiSMASH precursor module. 79.7% do not.**
+
+⇒ **The precursor endpoint has a hard ceiling near 20% on this class as defined** — and empirically
+8% in a 12-region sample. **We would be asking the model to produce something we cannot detect in
+four out of five real clusters.** That is not a measurable endpoint.
+
+⇒ **This is the fidelity standard the project lacked.** Rule going forward: **before adopting any
+component metric, measure its sensitivity on REAL positives.** A detector that fires on 8% of real
+clusters cannot score a generation, no matter how clean its false-positive rate. The earlier
+keyword panel failed the same test in the opposite direction — high aggregate discrimination,
+wrong per-family content.
+
+⇒ **Three viable responses, in order of cost:**
+1. **Narrow the class** — restrict to RiPP subclasses that HAVE precursor modules (lanthipeptides,
+   lassopeptides, thiopeptides, sactipeptides ≈ 20% of current data, ~2,000 records). The endpoint
+   becomes measurable, the dataset shrinks, and the paper claim narrows to "lanthipeptide-class RiPPs".
+2. **Keep Level 2 as the headline** (antiSMASH cluster call, 0.116 vs 0.760) and report component
+   content descriptively without a precursor gate.
+3. Adopt an external precursor predictor (NeuRiPP/DeepRiPP) and **validate its sensitivity on our
+   real regions first** — same gate, no exceptions.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
