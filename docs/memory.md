@@ -1996,4 +1996,59 @@ there".
 
 ---
 
+## 2026-08-20 — ★★★ CONFIRMED FROM LOGITS: the "stray space" IS the EOS token. The model CAN stop.
+
+**Read directly off the logits** (`out.logits`, shape 24 x 4000 x 512), PKS adapter, 24 sequences,
+4,000 tokens. Every position whose decoded character is a space, split by whether the model still
+holds the nucleotide alphabet there:
+
+| | n | which of {EOS, PAD, space-byte} holds the mass |
+|---|---|---|
+| **A) COHERENT** — `P(ACGT) >= 0.01`, a real termination decision | **13** | **id 0 = EOS, 13/13 = 100%** |
+| B) DEGENERATE — `P(ACGT) < 0.01`, model has lost the alphabet | 49 | PAD 45 / space 4 — **all at ~uniform 1/512, this argmax is NOISE** |
+
+**At coherent stop points EOS carries 16x–159x uniform probability:**
+
+| | P(EOS) | x uniform | P(PAD) | P(space) | P(ACGT) |
+|---|---|---|---|---|---|
+| seq07 pos 143 | **0.3102** | **158.8x** | 0.0004 | 0.0004 | 0.4549 |
+| seq04 pos 3784 | 0.1468 | 75.2x | 0.0012 | 0.0012 | 0.2138 |
+| seq05 pos 1704 | 0.1045 | 53.5x | 0.0000 | 0.0000 | 0.8946 |
+| seq00 pos 2768 | 0.1022 | 52.3x | 0.0010 | 0.0010 | 0.3807 |
+| seq13 pos 462 | 0.0320 | 16.4x | 0.0018 | 0.0018 | 0.0699 |
+
+⇒ **THE MODEL HAS LEARNED TO TERMINATE.** `|END|` never worked — 0/150, 0/188, 0/200, 0/200 across
+every arm ever generated — but the model found the tokenizer's **real EOS (id 0)** on its own and
+emits it at up to 159x uniform right where a record should end.
+⇒ **We have been truncating on the model's stop signal and reporting `hit_eos = 0`**, because
+`hit_eos` tests for the 5-byte STRING `|END|` while ids 0/1/32 all detokenize to `' '`.
+⇒ **This RETRACTS my "constant per-token hazard, therefore not a learned terminator" reading**
+(2026-08-20, earlier entry). That was inferred from a decoded string which cannot distinguish EOS
+from a space, so it could never have settled the question either way.
+
+### The two failures are SEPARATE and need separate fixes
+
+1. **Termination (good, unused).** EOS is real, learned, and discarded. Fix: train **token id 0**
+   directly instead of the 5-byte `|END|` string (user's single-token proposal — the model is
+   already reaching for it), make `hit_eos` test the token id, and stop treating it as junk.
+2. **Degeneracy (bad, separate).** In **0.42% of all positions** the model collapses to a ~uniform
+   distribution over the whole 512 vocabulary — `P(ACGT) = 0.000`. That is what produces the 27.5%
+   degenerate records in PKS `A0`. ⚠️ **Constrained decoding does NOT fix this** — masking to
+   `{A,C,G,T,EOS}` at a uniform-distribution position just forces an arbitrary nucleotide instead of
+   arbitrary junk. It needs the `n_pass` / length-quality gate as well.
+
+**Overall alphabet leak, measured:** `P(non-ACGT)` mean **0.0179** (1.2% on a second sample), and
+**EOS carries 11.6x the mass of the literal space byte** — consistent with EOS, not a stray space,
+being what gets sampled.
+
+⚠️ **Method note — this probe failed three times before it worked, each time producing OUTPUT
+rather than an error:** wrong dict keys returned 0 for every class including RIPP where markers are
+known to exist; `out.generation` does not exist (the fields are `logits`/`logprobs_mean`/`sequences`);
+and stacking a 1-element logits list added a spurious axis that made `P(ACGT)=1.00000` and
+`P(EOS)=1/512` simultaneously — self-contradictory numbers that looked plausible in isolation.
+Shape assertions are now in the script. **Pooling the coherent and degenerate populations would also
+have reported "PAD 41, EOS 14" and buried a 13/13 result under noise.**
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

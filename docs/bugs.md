@@ -352,7 +352,7 @@ only LOSE hits, never gain them: the Phase-3 rates are **conservative**, and A0'
 lift would strengthen under the fix, not weaken. The affected Phase-6/7 sets were regenerated before
 any number was quoted; the old ones are `DEPRECATED_<arm>_truncatepath.jsonl`.
 
-### ⚠️ [CORRECTION 2026-08-20] THE STRAY BYTE IS ALMOST CERTAINLY THE EOS TOKEN
+### ✅ [CONFIRMED FROM LOGITS 2026-08-20] THE STRAY BYTE IS THE EOS TOKEN (13/13 at coherent positions)
 
 **`detokenize([0]) == detokenize([1]) == detokenize([32]) == ' '`.** Token **0 is the tokenizer's
 EOS**, token 1 is PAD, token 32 is the literal space byte — **all three render as the same character
@@ -369,6 +369,17 @@ truncating on its stop signal while reporting `hit_eos = 0`** — because `hit_e
 
 ⇒ **`|END|` is 5 tokens (124,69,78,68,124) and the tokenizer already has a 1-token EOS at id 0 that
 we have never trained.** See `plan.md` [X1].
+
+**CONFIRMED by reading the logits directly** (24 seqs x 4,000 tokens, PKS adapter). Splitting the
+space positions by whether the model still holds the nucleotide alphabet: **coherent positions
+(P(ACGT)>=0.01) are EOS 13/13 = 100%, at 16x–159x uniform probability**; degenerate positions
+(P(ACGT)<0.01) are a ~uniform distribution where the argmax is noise. Overall `P(non-ACGT)` = 0.018,
+and EOS carries **11.6x** the mass of the literal space byte.
+
+⇒ `hit_eos` must test **token id 0**, not the string `|END|`.
+⇒ Degeneracy is a SEPARATE failure (0.42% of positions lose the alphabet entirely) and constrained
+decoding will not fix it — masking to {A,C,G,T,EOS} at a uniform position forces an arbitrary
+nucleotide instead of arbitrary junk.
 
 ⇒ This SUPERSEDES the "constant per-token hazard, therefore not a learned terminator" reading
 recorded below — that inference was drawn from a decoded string that cannot tell EOS from a space.

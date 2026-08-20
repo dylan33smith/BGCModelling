@@ -344,7 +344,10 @@ rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE an
    30–100x the base model. Over 8,000 tokens that truncates 43–70% of records.
 2. **`|END|` is FIVE tokens** (`|`,`E`,`N`,`D`,`|` = 124,69,78,68,124) and has never once fired:
    `hit_eos` is 0/150, 0/188, 0/200, 0/200 across every arm ever generated.
-3. **The tokenizer ALREADY HAS a single-token EOS — id 0 — and we have never trained it.**
+3. ✅ **CONFIRMED 2026-08-20 FROM LOGITS: the stray byte IS the EOS token.** At coherent positions
+   it is **EOS 13/13 = 100%, at 16x–159x uniform**. **The model has learned to terminate and we have
+   been discarding the signal.** `hit_eos` must test **token id 0**, not the string.
+4. **The tokenizer ALREADY HAS a single-token EOS — id 0 — and we have never trained it.**
    ⚠️ And **ids 0 (EOS), 1 (PAD) and 32 (space) ALL detokenize to `' '`**, so once generation is
    decoded to a string these are indistinguishable. Our whole pipeline reads the string.
 
@@ -360,6 +363,11 @@ rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE an
   returned an uninterpretable null because the treatment never landed.
   ⚠️ Literature warns EOS becomes a **self-reinforcing attractor**: once emitted the model keeps
   emitting it, so a mis-placed early EOS collapses the record. Cap the upweight and measure.
+- **[X1d] DEGENERACY IS A SEPARATE FAILURE AND [X1a] WILL NOT FIX IT.** In **0.42% of positions**
+  the model collapses to a ~uniform distribution over all 512 tokens (`P(ACGT)=0.000`) — the cause of
+  the **27.5% degenerate records in PKS `A0`**. Masking logits at such a position just forces an
+  arbitrary nucleotide. Needs the `n_pass` / length-quality gate, and it is the one place a
+  *capability* fix (better model, more context) may be required rather than a decoding fix.
 - **[X1c] Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
   legitimate as selection, and the phage paper used a plain length filter rather than a stop token.
 
