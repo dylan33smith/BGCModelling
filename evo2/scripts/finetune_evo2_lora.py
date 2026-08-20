@@ -173,12 +173,7 @@ DEFAULTS = dict(
 # (audit M2). First-window validation makes the loss comparable to inference;
 # stratifying by full BGC length separates "whole short BGC" from "prefix of a
 # long BGC" so a length-correlated regression is visible.
-# ⚠️ Sub-16k boundaries added 2026-08-20. The old bounds started at 16,384, which was right for
-# Phase 1's 32k-context records but collapses to a SINGLE bucket for per-class phases, where every
-# record is <= 7,992 nt (the 1B's context minus the prefix). Phase 6/7 val loss was therefore
-# unstratified and could not show, for example, whether long T1PKS records were learned worse than
-# short T3PKS ones. Extra low-end buckets are harmless for Phase 1.
-VAL_LENGTH_BOUNDS = [1500, 3000, 6000, 16384, 32768, 65536, 131072]
+VAL_LENGTH_BOUNDS = [16384, 32768, 65536, 131072]
 
 # LoRA-specific defaults
 LORA_DEFAULTS = dict(
