@@ -78,8 +78,7 @@ def main():
     # ── Training dataset: EOS + continuation on ──────────────────────────────
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
-        ds = build_dataset(tmp, recs, max_seq_len, prefix_cap,
-                           append_eos=True, continuation_prefix=True)
+        ds = build_dataset(tmp, recs, max_seq_len, prefix_cap, continuation_prefix=True)
 
         # Index windows by record.
         by_rec = {}
@@ -122,7 +121,7 @@ def main():
                 #    'marker' is the pre-2026-08-20 5-byte string, kept to reproduce old runs.
                 if is_last:
                     n_eos += 1
-                    mode = getattr(ds, "eos_mode", "marker")
+                    mode = "token"
                     if mode in ("marker", "both"):
                         eos_len = len(F.EOS_MARKER.encode())
                         tail = ids[-eos_len:] if mode == "marker" else ids[-eos_len - 1:-1]
@@ -153,8 +152,7 @@ def main():
     # ── Validation dataset: first_window_only ────────────────────────────────
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
-        vds = build_dataset(tmp, recs, max_seq_len, prefix_cap,
-                            append_eos=True, continuation_prefix=True,
+        vds = build_dataset(tmp, recs, max_seq_len, prefix_cap, continuation_prefix=True,
                             first_window_only=True)
         assert len(vds.chunks) == 2, f"first_window_only -> one/record (2), got {len(vds.chunks)}"
         eos_count = 0
@@ -171,25 +169,31 @@ def main():
         print("PASS val: first-window-only keeps 1 window/record; EOS only on the "
               "short (single-window) record")
 
-    # ── EOS off: legacy behaviour unchanged ──────────────────────────────────
+    # ── EOS is now UNCONDITIONAL (2026-08-20): the real EOS id is always appended to the
+    #    window carrying a record's true end. There is no --eos-token/--eos-mode any more, so
+    #    the old "EOS off" case is gone; what remains is the continuation-prefix legacy check.
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
-        ds0 = build_dataset(tmp, recs, max_seq_len, prefix_cap,
-                            append_eos=False, continuation_prefix=False)
+        ds0 = build_dataset(tmp, recs, max_seq_len, prefix_cap, continuation_prefix=False)
         for ci in range(len(ds0.chunks)):
-            text = decode(ds0[ci]["input_ids"])
-            assert not text.endswith(F.EOS_MARKER), "EOS off: no window should have EOS"
+            ids_ = [int(x) for x in ds0[ci]["input_ids"]]
+            text = decode(ids_)
+            # The retired 5-byte STRING marker must never be written any more.
+            assert not text.endswith(F.EOS_MARKER), "the |END| string marker is RETIRED"
             assert text.startswith("|COMPOUND_CLASS:"), "continuation off: all class prefix"
-        assert ds0.eos_reserve == 0
-        print("PASS legacy: --no-eos-token/--no-continuation-prefix reproduce old behaviour")
+        # EOS is unconditional now: exactly one token reserved, and the final window carries it.
+        assert ds0.eos_reserve == 1, f"one token reserved for the EOS id, got {ds0.eos_reserve}"
+        last_ci = max(range(len(ds0.chunks)), key=lambda c: ds0.chunks[c][2])
+        assert [int(x) for x in ds0[last_ci]["input_ids"]][-1] == F.EOS_TOKEN_ID
+        print("PASS legacy: continuation-prefix off reproduces old behaviour; EOS id is "
+              "unconditional and the |END| string is retired")
 
     # ── B1 seam guard: a merging tokenizer must raise, not silently mis-mask ──
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         # 33-byte (odd) class prefix => 2-byte chunking merges across the seam.
         assert len(F.canonical_phase1_prefix(short).encode()) % 2 == 1
-        dsm = build_dataset(tmp, recs, max_seq_len, prefix_cap, tok=MergingTok(),
-                            append_eos=True, continuation_prefix=True)
+        dsm = build_dataset(tmp, recs, max_seq_len, prefix_cap, tok=MergingTok(), continuation_prefix=True)
         raised = False
         try:
             _ = dsm[0]

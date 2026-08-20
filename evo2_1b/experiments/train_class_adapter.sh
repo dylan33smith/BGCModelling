@@ -18,9 +18,11 @@
 #
 # 2. WHOLE-RECORD, NOT CHUNKED — and this is the point of picking a short class.
 #    `|END|` has NEVER worked: hit_eos is 0/204 across two Phase-2 runs. The trainer appends the
-#    marker to the FINAL WINDOW only (`--eos-token`, default on), so under chunking it lands at an
-#    arbitrary stride boundary uncorrelated with content, and the model cannot learn "the cluster is
-#    complete" from it. On the general corpus only 68.5% of records fit whole; **on RIPP ~89% do**.
+#    marker to the FINAL WINDOW only, so under chunking it lands at an arbitrary stride boundary
+#    uncorrelated with content, and the model cannot learn "the cluster is complete" from it.
+#    ⚠️ UPDATE 2026-08-20: the 5-byte "|END|" STRING is RETIRED. The tokenizer's REAL EOS (id 0) is
+#    now appended unconditionally after tokenisation -- no flag. It is the token Evo2 pretrained
+#    with, and masking it at generation causally restores full-length output (4,583 -> 8,000 nt). On the general corpus only 68.5% of records fit whole; **on RIPP ~89% do**.
 #    At L=8192 with no chunking, nearly every training example therefore ends with `|END|` at the
 #    TRUE cluster boundary — the first clean signal this marker has ever had.
 #    ⇒ If it works, generation length becomes an OUTPUT rather than a hyperparameter we impose, and
@@ -102,7 +104,6 @@ micromamba run -n bgcmodel deepspeed --num_gpus=1 --master_port 29520 \
   --long-seq-strategy truncate \
   --warmup-steps 50 --max-epochs 3 --max-steps "$STEPS" \
   --log-every 25 --val-every 250 --save-every "$SAVE" \
-  --eos-token \
   --wandb-mode offline \
   > "$ROOT/train.log" 2>&1
 

@@ -138,6 +138,7 @@ from bgc_pipeline.objective import custom_lm_loss  # noqa: E402
 # NOT loss-masked — to the *final* window of a BGC so the model learns where a
 # cluster ends and can terminate generation. "END" contains non-nucleotide chars,
 # so "|END|" can never occur inside an ACGTN sequence (unambiguous stop string).
+# ⛔ RETIRED 2026-08-20 — kept only so old runs stay legible. NOT written to training data any more.
 EOS_MARKER = "|END|"
 
 # ⚠️ THE REAL EOS IS A SINGLE TOKEN AND WE NEVER TRAINED IT (2026-08-20).
@@ -258,22 +259,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--annotations", type=Path, default=None,
                    help="`*.domain_spans.jsonl` sidecar (scripts/build_domain_spans.py). REQUIRED "
                         "when --domain-weight != 1.0 or --frame-lambda > 0.")
-    # EOS / continuation conditioning (audit M11 + long-sequence support).
-    eg = p.add_mutually_exclusive_group()
-    eg.add_argument("--eos-token", dest="eos_token", action="store_true",
-                    help="Append a supervised |END| token to the final window of "
-                         "each BGC so the model learns to terminate (default: on).")
-    eg.add_argument("--no-eos-token", dest="eos_token", action="store_false",
-                    help="Do not append an end-of-BGC token.")
-    p.set_defaults(eos_token=True)
-    eg.add_argument("--eos-mode", choices=("token", "marker", "both"), default="token",
-                    help="HOW the end-of-record signal is written. 'token' (DEFAULT since "
-                         "2026-08-20) appends the tokenizer's real single-token EOS (id 0) after "
-                         "tokenisation -- the token Evo2 pretrained with and the one the model "
-                         "already emits. 'marker' is the pre-2026-08-20 behaviour: the 5-byte "
-                         "STRING '|END|', which never once fired at generation. 'both' writes the "
-                         "marker then the token. Recorded in the run config -- it is part of what "
-                         "the model was trained to do.")
+    # Continuation conditioning (audit M11 + long-sequence support).
+    # NOTE: there is deliberately NO --eos-token / --eos-mode flag. The tokenizer's real EOS
+    # (id 0) is ALWAYS appended to the window carrying a record's true end -- see EOS_TOKEN_ID.
+    # It is not a choice: the 5-byte "|END|" string it replaced never once fired at generation,
+    # while id 0 is what Evo2 pretrained with and what the model demonstrably emits.
     cg = p.add_mutually_exclusive_group()
     cg.add_argument("--continuation-prefix", dest="continuation_prefix",
                     action="store_true",
@@ -808,7 +798,7 @@ def build_nt_chunk_spans(
     even if the tokenizer ever introduces a seam token (audit item H6).
     For Evo2's CharLevelTokenizer the empirical slack is 0.
 
-    ``eos_reserve`` reserves tokens for the ``EOS_MARKER`` appended to the final
+    ``eos_reserve`` reserves the one token for the EOS id appended to the final
     window (audit M11 / long-seq support), so ``prefix + sub + EOS`` still fits in
     ``max_seq_len``. Reserved for every window (only the last actually uses it),
     which is conservative but negligible (~5 tokens out of 32k).
@@ -943,8 +933,6 @@ class BGCTextDataset(Dataset):
         slack_tokens: int = 0,
         lengths_cache_dir: Path | None = None,
         first_window_only: bool = False,
-        append_eos: bool = False,
-        eos_mode: str = "token",
         continuation_prefix: bool = False,
         gene_aware_chunking: bool = False,
     ) -> None:
@@ -957,18 +945,12 @@ class BGCTextDataset(Dataset):
         self.slack_tokens = slack_tokens
         self.lengths_cache_dir = lengths_cache_dir
         self.first_window_only = first_window_only
-        self.append_eos = append_eos
-        self.eos_mode = eos_mode
         self.continuation_prefix = continuation_prefix
         self.gene_aware_chunking = gene_aware_chunking
-        # Tokens reserved for the EOS_MARKER on the final window (M11). Computed
+        # Token reserved for the EOS id on the final window (M11). Computed
         # from the tokenizer so the chunk budget below leaves room for it.
-        # Reserve exactly what will be appended: 5 tokens for the string marker, 1 for the real
-        # EOS id, 6 for both. Over-reserving silently shortens every training window.
-        _marker_toks = count_prefix_tokens(tokenizer, EOS_MARKER)
-        self.eos_reserve = 0 if not append_eos else (
-            1 if eos_mode == "token" else
-            _marker_toks if eos_mode == "marker" else _marker_toks + 1)
+        # Over-reserving would silently shorten every training window.
+        self.eos_reserve = 1          # exactly one token is appended: the real EOS id
 
         self.offsets: list[int] = []
         with jsonl_path.open("rb") as f:
@@ -1085,8 +1067,7 @@ class BGCTextDataset(Dataset):
             # it (and the tail), correctly signalling "not the real end".
             nt_start, nt_end = 0, len(seq)
             win_prefix = first_prefix
-            _want_marker = self.append_eos and self.eos_mode in ("marker", "both")
-            text = training_text + (EOS_MARKER if _want_marker else "")
+            text = training_text
         else:
             if not training_text.endswith(seq):
                 raise ValueError(
@@ -1101,11 +1082,9 @@ class BGCTextDataset(Dataset):
             else:
                 win_prefix = continuation_phase1_prefix(rec)
             sub = seq[nt_start:nt_end]
-            # EOS_MARKER is appended (supervised, after the prefix) only on the
+            # The EOS id is appended (supervised, after the prefix) only on the
             # window that contains the true end of the BGC (M11 / termination).
-            tail = EOS_MARKER if (self.append_eos and is_last
-                                  and self.eos_mode in ("marker", "both")) else ""
-            text = win_prefix + sub + tail
+            text = win_prefix + sub
 
         tokens = self.tokenizer.tokenize(text)
         ids = list(tokens) if isinstance(tokens, (list, tuple)) else [int(t) for t in tokens]
@@ -1118,9 +1097,7 @@ class BGCTextDataset(Dataset):
         # Appended AFTER the prefix, so it stays supervised by the masking below; and appended
         # only on the window carrying the record's true end, exactly like the string marker.
         _is_last_window = True if self.chunks is None else (nt_end >= len(seq))
-        _want_token = (self.append_eos and _is_last_window
-                       and self.eos_mode in ("token", "both"))
-        if _want_token:
+        if _is_last_window:
             ids.append(EOS_TOKEN_ID)
 
         # Count prefix tokens for label-masking. Relies on Evo2's
@@ -2144,8 +2121,6 @@ def main() -> None:
         "long_seq_strategy": args.long_seq_strategy,
         "chunk_overlap": args.chunk_overlap,
         "lengths_cache_dir": cache_dir if args.long_seq_strategy == "chunk" else None,
-        "append_eos": args.eos_token,
-        "eos_mode": args.eos_mode,
         "continuation_prefix": args.continuation_prefix,
         "gene_aware_chunking": args.gene_aware_chunking,
     }

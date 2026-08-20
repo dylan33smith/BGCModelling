@@ -382,19 +382,42 @@ stop), and **both scorings are reported as a pair** until generation is token-id
 - **[X1b] Train the EXISTING single-token EOS (id 0), not the 5-byte string** (user, 2026-08-20).
   ⚠️ **Do not ADD a token — id 0 is already there and the model already reaches for it.** One token
   is ~5x the per-record gradient of a 5-token marker and makes [X1a] trivial (mask to 5 ids).
-  ✅ **SHIPPED 2026-08-20** as `--eos-mode {token,marker,both}`, default **`token`**. Evo2's
-  tokenizer appends nothing, so the id is added after tokenisation; `eos_reserve` corrected per mode.
+  ✅ **SHIPPED 2026-08-20 — and with NO FLAG** (user): `--eos-token` and `--eos-mode` are both gone.
+  The real EOS (id 0) is appended **unconditionally** after tokenisation to the window carrying a
+  record's true end; the 5-byte `|END|` string is retired. `eos_reserve` is 1.
   ⛔ **UPWEIGHTING DROPPED** (user): the signal was never weak — masking EOS causally restores the
   median generation length from 4,583 to 8,000. We were discarding it. Fix the reader, not the writer.
   ⚠️ Upweighting it needs a **manipulation check** — Phase 2's weighted arm consumed a run and
   returned an uninterpretable null because the treatment never landed.
   ⚠️ Literature warns EOS becomes a **self-reinforcing attractor**: once emitted the model keeps
   emitting it, so a mis-placed early EOS collapses the record. Cap the upweight and measure.
+- **[X1h] DEGENERACY — what it is NOT, measured 2026-08-20.** Two plausible mechanisms tested and
+  **both rejected**: (1) *"the prior context was not BGC-like"* — the pre-collapse prefix is NOT worse
+  on-class (degenerate 6/55 = 0.109 vs clean 8/144 = 0.056, Fisher **p=0.22**, if anything better);
+  (2) *classic repetition self-reinforcement* — degenerate records show **no more within-alphabet
+  repetition than clean ones** (longest homopolymer median 6 vs 6; the BASE model is worse at median
+  9). ⇒ It is an **abrupt exit from the nucleotide manifold**, not a gradual decay, which is
+  *encouraging* for [X1a]: there is no repetition loop for constraining to fall into.
+  ⚠️ **But at those positions `P(ACGT) = 0.000`**, so renormalising over ACGT samples an essentially
+  arbitrary base. **Whether constrained decoding yields USABLE sequence there is untested and is the
+  measurement to make** — generate a constrained arm and score it, do not assume either way.
+- **[X1i] SNIP-AND-REPLACE (user, 2026-08-20)** — detect a degeneration/zero-length record, discard
+  it, and regenerate that slot. This is rejection sampling; it is legitimate as a **selection** step,
+  needs no model change, and composes with [X1a]. It is also what the phage paper did (overgenerate,
+  filter hard). ⚠️ Report the rejection rate as its own row — a filtered set with an unreported
+  discard rate hides the failure it was built to remove.
 - **[X1d] DEGENERACY IS A SEPARATE FAILURE AND [X1a] WILL NOT FIX IT.** In **0.42% of positions**
   the model collapses to a ~uniform distribution over all 512 tokens (`P(ACGT)=0.000`) — the cause of
   the **27.5% degenerate records in PKS `A0`**. Masking logits at such a position just forces an
   arbitrary nucleotide. Needs the `n_pass` / length-quality gate, and it is the one place a
   *capability* fix (better model, more context) may be required rather than a decoding fix.
+- **[X1g] ◀ SHARED PREREQUISITE: MAKE GENERATION TOKEN-ID AWARE.** [X1e] (`hit_eos` on id 0) and
+  [X1f] (early stopping) are the SAME build, and [X1a] constrained decoding needs the same hook.
+  vortex returns `logits`/`logprobs_mean`/`sequences` but **never the sampled ids**, and ids 0/1/32
+  all detokenize to `' '`, so the decoded string cannot distinguish EOS from junk. **One change
+  unlocks all three:** capture ids at sampling time, then (a) `hit_eos` tests id 0, (b) a per-row
+  done-mask stops each sequence at its own EOS, (c) the junk-vs-EOS distinction that makes the
+  mask/truncate choice unnecessary. **Do this before any further generation spend.**
 - **[X1f] FIX `stop_at_eos` — it is broken in vortex and costs ~75% of generation compute.**
   `generation.py:208` checks for EOS and only `print`s; there is no `break`. It also inspects batch
   row 0 only. PKS `A0` stops at a median ~1,750 nt of 8,000 requested. Needs a per-row done-mask.
