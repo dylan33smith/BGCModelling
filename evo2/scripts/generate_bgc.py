@@ -49,6 +49,9 @@ EOS_MARKER = "|END|"
 CLASS_PREFIX_FMT = "|COMPOUND_CLASS:{cls}|{tax}"
 CONT_PREFIX_FMT = "|CONTINUATION:{cls}|{tax}"
 _NUC_RE = re.compile(r"[ACGTN]*")
+# Stray non-nucleotide characters: mask to N (frame-preserving) rather than truncate.
+# See extract_sequence for the measurement that forced this. bugs.md 2026-08-20.
+JUNK_POLICY_DEFAULT = "mask"
 
 # Left-pad byte for BATCHED generation. vortex only batches prompts of EQUAL
 # length — otherwise it SILENTLY de-batches and loops one-at-a-time
@@ -73,22 +76,61 @@ def build_continuation_prefix(cls: str, tax: str) -> str:
     return CONT_PREFIX_FMT.format(cls=cls, tax=tax)
 
 
-def extract_sequence(generated: str) -> dict:
+def extract_sequence(generated: str, junk_policy: str = JUNK_POLICY_DEFAULT) -> dict:
     """Turn a raw generated string into a clean nucleotide sequence.
 
-    - trims at the first |END| (EOS the model was trained to emit),
-    - keeps the leading run of valid nucleotides ACGTN,
-    - reports whether EOS was hit and whether trailing non-nucleotide junk was cut.
+    Always trims at the first ``|END|`` (the EOS the model was trained to emit). What happens to a
+    stray NON-nucleotide character elsewhere is the `junk_policy`:
+
+    ``"mask"`` (default since 2026-08-20)
+        Replace each non-ACGTN character with ``N`` and KEEP GOING. Frame is preserved, and the
+        existing ``--max-n-frac`` filter still rejects genuinely degenerate output.
+
+    ``"truncate"`` (the pre-2026-08-20 behaviour, kept for reproducing older runs)
+        Keep only the LEADING run of ACGTN and discard everything after the first stray character.
+
+    ⚠️ WHY THE DEFAULT CHANGED. Measured on 32 raw PKS-adapter generations: **23/32 contained a
+    stray character**, almost always a single SPACE, and it landed at a codon boundary (``GGCTGA ``,
+    ``GATTAA `` — TGA/TAA are stop codons). Under ``truncate`` we kept a median of 1,817 nt and threw
+    away a median of **6,183 nt that was 99.9% ACGT — real sequence**. The effect is far stronger for
+    fine-tuned adapters than for the base model (PKS: 45.5% of adapter records fell below the scoring
+    window vs 2.0% of base-model records), so it biased precisely the treatment-vs-control comparison
+    the phase exists to make.
+
+    ⚠️ **THE CAUSE IS NOT IDENTIFIED.** What is established: fine-tuned adapters do it ~35x more than
+    the base model (PKS 69.5% of records vs 2.0%), and the character lands at a codon boundary far
+    more often than chance would suggest — ``GGCTGA ``, ``GATTAA ``, ``CGATGA `` (TGA/TAA are stop
+    codons). **Ruled out:** the batched left-pad, even though ``LEFT_PAD_CHAR`` is itself a space —
+    pad length does not predict truncation (Pearson r = +0.020 over 200 records, and no dose-response
+    across pad buckets). **Still open:** whether this is a partially-learned terminator (each training
+    record ends, so the adapter may have learned "stop here" and reached for the nearest
+    boundary-like byte it ever saw) or simply a low-probability byte surfacing under top-k sampling.
+    Against the "learned stop" reading: the model does not actually stop — the text after the
+    character is 99.9% valid DNA and continues for a median of 6.2 kb.
+
+    ⚠️ **DO NOT "STRIP" THE CHARACTER BY DELETING IT.** Deletion shifts the reading frame by one base
+    and destroys every downstream ORF, and ORFs are what the entire scoring stack is built on.
+    Masking to ``N`` keeps every base at its true coordinate.
     """
+    if junk_policy not in ("mask", "truncate"):
+        raise ValueError(f"junk_policy must be 'mask' or 'truncate', got {junk_policy!r}")
     hit_eos = EOS_MARKER in generated
     body = generated.split(EOS_MARKER, 1)[0] if hit_eos else generated
-    clean = _NUC_RE.match(body.upper()).group(0)
+    up = body.upper()
+    lead = _NUC_RE.match(up).group(0)
+    n_junk = sum(1 for c in up if c not in "ACGTN")
+    clean = lead if junk_policy == "truncate" else "".join(
+        c if c in "ACGTN" else "N" for c in up)
     return {
         "sequence": clean,
         "hit_eos": hit_eos,
         "len": len(clean),
         "n_count": clean.count("N"),
-        "trailing_junk_trimmed": len(clean) < len(body),
+        "junk_policy": junk_policy,
+        "n_junk_chars": n_junk,
+        "leading_run_len": len(lead),
+        "discarded_by_truncate": len(body) - len(lead),
+        "trailing_junk_trimmed": junk_policy == "truncate" and len(lead) < len(body),
     }
 
 
@@ -153,6 +195,8 @@ def assemble_record(cls: str, tax: str, sequence: str, hit_eos: bool,
         "n_pass": nfrac <= args.max_n_frac,
         "decoding": {"temperature": args.temperature, "top_k": args.top_k,
                      "top_p": args.top_p, "max_new_tokens": args.max_new_tokens},
+        "junk_policy": getattr(args, "junk_policy", JUNK_POLICY_DEFAULT),
+        "base_model": getattr(args, "base_model", None),
     }
 
 
@@ -186,7 +230,7 @@ def generate_one(wrapper: Any, cls: str, tax: str, args) -> dict:
         temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
         cached_generation=True, verbose=0,
     )
-    info = extract_sequence(_gen_sequences(out)[0])
+    info = extract_sequence(_gen_sequences(out)[0], args.junk_policy)
     full = info["sequence"]
     hit_eos = info["hit_eos"]
     windows = 1
@@ -201,7 +245,7 @@ def generate_one(wrapper: Any, cls: str, tax: str, args) -> dict:
             temperature=args.temperature, top_k=args.top_k, top_p=args.top_p,
             cached_generation=True, verbose=0,
         )
-        cont = extract_sequence(_gen_sequences(out)[0])
+        cont = extract_sequence(_gen_sequences(out)[0], args.junk_policy)
         if cont["len"] == 0:
             break
         full += cont["sequence"]
@@ -234,7 +278,7 @@ def generate_batch(wrapper: Any, prompts: list[dict], args) -> list[dict]:
             "prompts — batch alignment broken; refusing to mislabel records.")
     records = []
     for p, g in zip(prompts, gens):
-        info = extract_sequence(g)
+        info = extract_sequence(g, args.junk_policy)
         records.append(assemble_record(
             p["compound_class"], p["taxonomic_tag"],
             info["sequence"], info["hit_eos"], 1, args))
@@ -293,6 +337,12 @@ def main() -> None:
                     help="Max fraction of N for a sequence to be flagged n_pass=true.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--junk-policy", choices=("mask", "truncate"),
+                    default=JUNK_POLICY_DEFAULT,
+                    help="Stray non-ACGTN character handling. 'mask' (default) replaces it with N "
+                         "and continues, preserving frame; 'truncate' is the pre-2026-08-20 "
+                         "behaviour that discarded everything after it (and with it a median of "
+                         "6.2 kb of real sequence). Part of the scoring config -- record it.")
     ap.add_argument("--base-model", default=None,
                     help="Evo2 substrate, e.g. evo2_1b_base. REQUIRED unless EVO2_BASE_MODEL is "
                          "set in the environment -- this script does not guess (bugs.md P3-B7).")

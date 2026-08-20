@@ -34,15 +34,56 @@ def test_extract_sequence():
     # no EOS -> whole valid run kept; N counted
     r = G.extract_sequence("ACGTNNGT")
     assert r["sequence"] == "ACGTNNGT" and not r["hit_eos"] and r["n_count"] == 2
-    # junk after the nucleotide run (no EOS) -> trimmed at first invalid char
-    r = G.extract_sequence("ACGT|FOO")
+    # junk after the nucleotide run (no EOS), TRUNCATE policy -> cut at first invalid char.
+    # This is the pre-2026-08-20 behaviour, kept so old runs stay reproducible.
+    r = G.extract_sequence("ACGT|FOO", "truncate")
     assert r["sequence"] == "ACGT" and not r["hit_eos"] and r["trailing_junk_trimmed"]
+    assert r["discarded_by_junk_policy" if "discarded_by_junk_policy" in r
+            else "discarded_by_truncate"] == 4
     # EOS at very start -> empty sequence
     r = G.extract_sequence("|END|ACGT")
     assert r["sequence"] == "" and r["hit_eos"] and r["len"] == 0
     # lowercase handled
     assert G.extract_sequence("acgtACGT|END|")["sequence"] == "ACGTACGT"
     print("PASS: extract_sequence trims at EOS, keeps leading ACGTN run, flags junk")
+
+
+def test_extract_sequence_junk_policy():
+    """MASK is the default: a stray byte must NOT cost us the rest of the sequence.
+
+    Measured 2026-08-20: 23/32 raw PKS-adapter generations carried a stray character (usually a
+    single space at a codon boundary), and truncating at it discarded a median of 6.2 kb that was
+    99.9% ACGT. Worse, it hit fine-tuned adapters ~35x more than the base model, so it biased the
+    treatment-vs-control comparison itself. See bugs.md.
+    """
+    raw = "ACGTACGTGA TTGTCGAGTT"          # one stray space mid-sequence, valid DNA after it
+    t = G.extract_sequence(raw, "truncate")
+    m = G.extract_sequence(raw, "mask")
+    assert t["sequence"] == "ACGTACGTGA", t["sequence"]
+    assert m["sequence"] == "ACGTACGTGANTTGTCGAGTT", m["sequence"]
+
+    # THE POINT: masking preserves LENGTH, i.e. FRAME. Deleting the byte instead would shift every
+    # downstream codon by one and destroy the ORFs the whole scoring stack is built on.
+    assert len(m["sequence"]) == len(raw), "mask must be frame-preserving"
+    assert m["n_count"] == 1 and m["n_junk_chars"] == 1
+    assert m["len"] > t["len"] == m["leading_run_len"]
+
+    # mask must not resurrect anything after a real EOS -- |END| still wins.
+    e = G.extract_sequence("ACGT|END|ACGTACGT", "mask")
+    assert e["hit_eos"] and e["sequence"] == "ACGT"
+
+    # default policy is mask
+    assert G.extract_sequence(raw)["sequence"] == m["sequence"]
+    assert G.JUNK_POLICY_DEFAULT == "mask"
+
+    # an unknown policy is an error, not a silent fallback
+    try:
+        G.extract_sequence(raw, "strip")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("unknown junk_policy must raise")
+    print("PASS: junk_policy mask keeps downstream DNA and preserves frame; truncate reproduces old runs")
 
 
 def test_n_fraction():
@@ -77,6 +118,7 @@ def test_sample_prompts():
 def main():
     test_consistency_with_training()
     test_extract_sequence()
+    test_extract_sequence_junk_policy()
     test_n_fraction()
     test_fasta()
     test_sample_prompts()

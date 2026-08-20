@@ -231,6 +231,13 @@ A0). A size-matched STRICT control is required before the comparison is clean �
 
 ### Phase 6 / 7 — PKS and TERPENE (opened 2026-08-19)
 
+⛔ **`DEPRECATED_<arm>_truncatepath.jsonl` in `phase6_PKS/` and `phase7_TERPENE/` — DO NOT USE.**
+Six de novo arms (2026-08-20) generated before the `extract_sequence` truncation bug was found
+(`bugs.md`). They keep only the leading ACGTN run, so PKS `A0` discarded a median of 6.2 kb of
+99.9%-valid DNA per record and 45.5% of the arm fell below its scoring window against 2.0% of its
+own base control. Regenerated on `--junk-policy mask`; retained only as evidence for the bug entry.
+
+
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
 | `phase6_PKS/` | 08-19 | **[P6-A0] STRICT-span PKS adapter.** `train_class_adapter.sh` with `CLASS=PKS`, `DATA=splits_class/PKS`, L=8192, LoRA, bs=1 ga=16, 3 epochs, whole-record. ⚠️ **3,906/5,195 train records kept (75.2%)**, val 233/323 — the rest exceed the 1B's 8,192 and are DROPPED, not chunked. ⚠️ The filter is **confounded with product type**: it shifts the real-core mix from 50% to 64% T3PKS, and the median of the fitting subset is 1,170 nt vs 2,103 nt for the whole split. ⚠️ **The kept records are ~59% chalcone-synthase (T3PKS, single gene) and ~31% ketosynthase (T1PKS-type modular), n=150 sample — so this adapter is T3PKS-DOMINATED and must never be described as 'generates PKS clusters'** (prereg §2.2). ✅ **TRAINED 2026-08-19: 732 steps / 3 epochs, train loss 0.794→0.753, best val 0.8635, 1h44m.** `adapter_run/final_adapter`, `train.log`, `train.whole.jsonl`, `val.whole.jsonl`. Pre-registered in `docs/phase6_PKS_preregistration.md`. | ✅ trained |

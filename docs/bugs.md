@@ -314,6 +314,56 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Evo2 / vortex / generation
 
+### [Symptom] A fine-tuned adapter's generations are far shorter than the base model's, with `hit_eos` 0 → [Fix] `extract_sequence` truncated at a stray byte; mask it to N instead (2026-08-20)
+
+**Symptom.** The PKS adapter's de novo generations had a median length of 4,506 nt of a requested
+8,000, while its own base-model control sat at 8,000. `hit_eos` was **0/200 in both**, so nothing
+looked like a stop. 45.5% of the adapter arm fell below its 4,000 nt scoring window against 2.0% of
+the base control — an asymmetry on exactly the treatment-vs-control comparison the phase exists to
+make.
+
+**Cause.** `extract_sequence()` kept only the **leading run** of `ACGTN` (`_NUC_RE.match`) and
+discarded everything after the first stray character. Measured on 32 raw pre-extraction generations:
+**23/32 contained a stray byte** — 22 of them a single **space** — and truncating there kept a median
+of 1,817 nt while throwing away a median of **6,183 nt that was 99.9% ACGT.** It was real sequence,
+not junk. Only 2/23 tails were genuinely degenerate (N-runs and stray Unicode).
+
+**Proven fix.** `--junk-policy mask` (now the default): replace each non-ACGTN character with `N` and
+keep going. `--junk-policy truncate` reproduces the old behaviour for older runs. The resolved policy
+is stamped into every generated record.
+
+⚠️ **MASK, DO NOT DELETE.** Deleting the stray byte shifts the reading frame by one base and destroys
+every downstream ORF — and ORFs are what the entire scoring stack is built on. Masking to `N` keeps
+every base at its true coordinate, and the existing `--max-n-frac` filter still rejects the
+genuinely degenerate records.
+
+**Blast radius, measured across every generation set on disk (fraction below its own scoring window):**
+
+| set | adapter arms | matched base control |
+|---|---|---|
+| RIPP `A0_8k` / `S2-1` / `SF_8k` (w2000) | 0.133 / 0.117 / 0.149 | `ctrl_base` **0.007** |
+| PKS `A0` (w4000) | **0.455** | `A0-C1` **0.020** |
+| TERPENE `A0` (w2000) | 0.025 | `A0-C1` 0.020 |
+
+⇒ **Fine-tuned adapters trip it ~35x more than base models** (PKS 69.5% of records truncated vs
+2.0%), so it always loads onto the treatment arm.
+⇒ **Phase-3 RIPP results are NOT retracted.** Truncation removes sequence, so a truncated record can
+only LOSE hits, never gain them: the Phase-3 rates are **conservative**, and A0's p=0.0054 and S2-1's
+lift would strengthen under the fix, not weaken. The affected Phase-6/7 sets were regenerated before
+any number was quoted; the old ones are `DEPRECATED_<arm>_truncatepath.jsonl`.
+
+**Cause of the stray byte itself: NOT IDENTIFIED.** Established: adapters do it ~35x more than base,
+and it lands at a codon boundary far above chance (`GGCTGA `, `GATTAA `, `CGATGA ` — TGA/TAA are stop
+codons). ⛔ **Ruled out — the batched left-pad**, despite `LEFT_PAD_CHAR` being a space: pad length
+does not predict truncation (Pearson **r = +0.020** over 200 records, no dose-response across pad
+buckets). Still open: a partially-learned terminator versus a low-probability byte under top-k=4.
+Against "learned stop": the model does not actually stop — 99.9%-valid DNA continues for a median of
+6.2 kb past the character.
+
+**Detect on any generation set:**
+`python -c "import json,sys; L=[len(json.loads(l)['sequence']) for l in open(sys.argv[1])]; print(sum(1 for x in L if x<REQUESTED), '/', len(L), 'short of the request')" <gen.jsonl>`
+
+
 - **[2026-08-10] Training a prompt: AdamW's step is per-COORDINATE, so the update VECTOR is
   `lr*sqrt(D)`.** At D=4096 an lr of 0.05 moves the prefix by 3.2 — against a token-embedding
   norm of 1.45 that is **221% of the prefix's own length every step**. Measured: the prefix left
