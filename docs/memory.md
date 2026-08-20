@@ -1892,4 +1892,108 @@ generation `--junk-policy mask`, `--base-model evo2_1b_base` · ceilings
 
 ---
 
+## 2026-08-20 — ★★★ antiSMASH on P6/P7: THE MODEL ONLY EVER MAKES THE EASY MEMBER OF EACH CLASS
+
+Stratified antiSMASH (all Pfam-positives + 100 sampled Pfam-negatives per arm), FULL mode, each
+class at its registered window; TERPENE at `--minlength 200`.
+
+| | PKS `A0` | PKS controls | PKS real | TERPENE `A0` | TERPENE controls | TERPENE real |
+|---|---|---|---|---|---|---|
+| Pfam-positive | 14/200 | 0/200 both | — | 14/200 | 0/200 both | — |
+| `rp` confirm \| Pfam+ | **8/14 = 0.571** | — | — | **13/14 = 0.929** | — | — |
+| `rn` confirm \| Pfam− | 0/100 | 0/100 | — | 0/100 | 0/99, 0/100 | — |
+| **antiSMASH-CORRECTED** | **0.040** | **0.000** | **0.980** | **0.065** | **0.000** | **1.000** |
+
+⇒ Both classes confirm de novo against a floor of exactly zero. **PKS reaches 4.1% of its ceiling,
+TERPENE 6.5%.**
+⇒ **`rp` is strongly class-specific: 0.929 (TERPENE) · 0.571 (PKS) · 0.456 (RIPP).** The two-pass
+calibration must be re-derived per class exactly as `terms.md` requires — the Pfam gate is a far
+better predictor for TERPENE than for RIPP.
+
+### ★ THE FINDING — the same limitation in all three classes, in each class's own vocabulary
+
+| class | products the model made | products real cores make | harder type | Fisher p |
+|---|---|---|---|---|
+| **PKS** | **T3PKS 8 — nothing else** | T3PKS 26 · **T1PKS 20** · hglE-KS 3 · T2PKS 2 · PKS-like 3 · transAT-PKS 1 | **0/8 T1PKS** vs 20/49 | **0.041** |
+| **TERPENE** | **terpene-precursor 13 — nothing else** | terpene-precursor 28 · **terpene 22** | **0/13 cyclase** vs 22/50 | **0.0024** |
+| RIPP (2026-08-19) | `RiPP-like` 7 — nothing else | lassopeptide, lanthipeptide i/iii/iv/v, thioamitides… | 0/7 specific vs 30/33 | 6.4e-06 |
+
+⇒ **In every class the model produces ONLY the simplest member and never the harder one.** T3PKS is
+a single ~350-aa chalcone synthase; T1PKS is a modular megasynthase. `terpene-precursor` fires on
+precursor-synthesis genes; `terpene` requires a cyclase. `RiPP-like` is the generic catch-all.
+**Three independent classes, three different rule systems, the same ceiling on complexity.**
+
+⇒ This is a far stronger statement than the RIPP-only version. It is not an artefact of antiSMASH's
+RiPP hierarchy, because PKS and TERPENE have entirely different rule structures and show it too.
+⇒ **PKS producing 0/8 T1PKS is the training substrate reproducing itself** — [P6-A0] is 59.3% T3PKS
+by construction (§2.2). The model learned what it was shown. That is the cleanest evidence yet that
+**the limitation is in the DATA, not the method.**
+
+⚠️ **POWER: 8 and 13 detections are BELOW the pre-registered >=15-detection floor** (`terms.md`,
+`subclass_specificity`). The direction is significant in all three classes and consistent, but the
+magnitudes are not yet established. **Do not quote a rate; quote the direction.**
+⚠️ TERPENE's cyclase-vs-precursor split was registered as length-confounded (real cyclase cores
+median 2,009 nt vs precursor 928). Our generations are a full 4,000 nt windowed to 2,000, so length
+is **not** the limiting factor here — but the confound is not formally excluded either.
+
+**Provenance:** `phase6_PKS/as_A0_{pos,neg}.tsv`, `phase7_TERPENE/as_A0_{pos,neg}.tsv`, output dirs
+`as_out_<arm>_<tag>/` retained · real-core references `phase5_classprobe/as_real_PKS.tsv` and
+`as_real_TERPENE_ml200.tsv`.
+
+---
+
+## 2026-08-20 — The stray-byte truncation: NOT new, NOT the padding. A per-token sampling hazard.
+
+**Q (user): where does the space come from, and has it happened before?** Answered on measurement.
+
+**1. It is NOT new — it has been in every Phase-3 class-LoRA arm since August.** Truncation rate
+(records not reaching their own `decoding.max_new_tokens`), 27 generation sets:
+
+| arm type | truncation |
+|---|---|
+| RIPP **class LoRA** (`A0_8k` .433 · `wide_8k` .473 · `SF_8k` .319 · `A0_noseed` .240 · `S2-1` .122 · `s1_lora_*` .08–.18) | **8.0–47.3%** |
+| RIPP **base model** (`ctrl_base` .007 · `pilot_base` .020 · `s1_base_*` 0–.02 · `S2-3` .000) | **0.0–2.0%** |
+| RIPP **general adapter** (`ctrl_general` .033 · `pilot_general` .000 · `S2-2` .027) | 0.0–3.3% |
+
+⇒ **Fine-tuning a class adapter raises it 30–100x over the base model.** The general all-class
+adapter barely does. Phase-3 conclusions are unaffected — truncation only removes sequence, so those
+rates are conservative — but data was being discarded the whole time.
+
+**2. It is a CONSTANT PER-TOKEN HAZARD, not a learned terminator.** Solving
+`P(trunc) = 1 - (1-p)^L`:
+
+| set | L | truncated | implied `p` |
+|---|---|---|---|
+| RIPP `S2-1` | 2,200 | 0.122 | 5.9e-05 |
+| RIPP `A0_noseed` | 4,000 | 0.240 | 6.9e-05 |
+| RIPP `A0_8k` | 8,000 | 0.433 | 7.1e-05 |
+| PKS `A0` | 8,000 | 0.695 | 1.5e-04 |
+
+⇒ `p` is flat at **~7e-05 for RIPP across a 3.6x range of lengths**. A learned stop would cluster at
+a characteristic length and make `p` fall as L grows. It does not. PKS runs ~2x hotter.
+
+**3. ⛔ THE LEFT-PAD IS RULED OUT — twice, and the second test inverts it.**
+- Pad length does not predict truncation: Pearson **r = +0.020**, no dose-response across buckets.
+- **Same adapter, same 16 prompts, same seed, 4,000 tokens, only batching differing:** batched
+  (left-padded with spaces) **7/16 records with any stray byte, 368 bytes**; sequential (**no padding
+  at all**) **13/16 records, 1,184 bytes**. Removing the padding made it **worse**.
+
+⚠️ **And the code comment justifying the pad was wrong.** It claimed the pad uses "the tokenizer's
+pad byte (space ≈ pad_id 0)". Measured: space is **byte 32**; `pad_id` is **1**; `eos` is **0**. So
+batched generation left-pads with an ORDINARY CHARACTER the model cannot distinguish from content.
+That is worth fixing on its own merits even though it is not the cause here.
+
+**4. Also ruled out — the training data.** Zero non-ACGTN characters in 3,000 sampled `sequence`
+fields per class, and only 0.2–1.2% of prefixes contain a space (and the prefix is masked from the
+loss). The model was essentially never trained to emit one.
+
+**⬜ STILL OPEN.** The remaining candidate is the **sampling tail under `top_k=4`**: when the model
+wants to end a record it may put mass on a non-nucleotide byte, which then enters the top-4 and gets
+sampled. **The decisive test is not another generation run — it is reading the logits directly:**
+feed a real core to the adapter and measure P(non-ACGTN) per position, exactly, for base vs adapter.
+That distinguishes "the model assigns real probability to junk" from "sampling occasionally lands
+there".
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

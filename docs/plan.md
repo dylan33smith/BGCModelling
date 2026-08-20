@@ -10,6 +10,15 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
+**★★ 2026-08-20 — THE LIMITATION IS THE SAME IN ALL THREE CLASSES, AND IT IS THE DATA.** antiSMASH
+confirms both new classes de novo (**PKS 0.040**, **TERPENE 0.065**, controls **0.000**, ceilings
+0.980 / 1.000). And in every class the model produces **only the simplest member and never the
+harder one**: PKS **T3PKS 8/8, T1PKS 0/8** (p=0.041) · TERPENE **precursor 13/13, cyclase 0/13**
+(p=0.0024) · RIPP `RiPP-like` 7/7, specific subclass 0/7 (p=6.4e-06). Three rule systems, one
+ceiling on complexity — so it is **not** an artefact of antiSMASH's RiPP hierarchy. PKS producing
+zero T1PKS is its 59.3%-T3PKS training substrate reproducing itself. ⚠️ 8 and 13 detections are
+below the pre-registered >=15 floor: **quote the direction, not the rate.**
+
 **★ 2026-08-20 — THE METHOD TRANSFERS.** A class-specific LoRA reaches significance **de novo** on
 **both** new classes (PKS and TERPENE, p=1.5e-07 each vs a pooled 0/400), with novelty gates clean
 and `JOINT_PASS` == `on_class`. RIPP's [P3-A0] is no longer a single-class result. **But both land at
@@ -207,6 +216,8 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P6-A0** | **PKS class LoRA, de novo** | `best_bio_bits`>0 @ PKS, w4000 | 200 | **14/200 = 0.070** vs 0/400 (ceiling 0.920) | ✅ **SIGNIFICANT p=1.5e-07** | 2026-08-20 |
 | **P7-A0** | **TERPENE class LoRA, de novo** | ″ @ TERPENE, w2000 | 200 | **14/200 = 0.070** vs 0/400 (ceiling 0.980) | ✅ **SIGNIFICANT p=1.5e-07** | 2026-08-20 |
 | P6/P7-C | base 1B + general adapter, both classes | ″ | 200 each | **0/200 in all four control arms** | floor | 2026-08-20 |
+| **P6-AS** | **antiSMASH on PKS A0** | corrected rate · product type | 14 pos + 100 neg | **0.040** vs 0.000 controls, ceiling 0.980; **T3PKS 8/8, T1PKS 0/8** | ✅ confirmed; ★ only the easy type | 2026-08-20 |
+| **P7-AS** | **antiSMASH on TERPENE A0** | ″ | 14 pos + 100 neg | **0.065** vs 0.000, ceiling 1.000; **precursor 13/13, cyclase 0/13** | ✅ confirmed; ★ only the easy type | 2026-08-20 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**
