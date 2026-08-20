@@ -224,16 +224,28 @@ See the naming convention in `CLAUDE.md`.
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase3_RIPP_wide/` | 08-18 | **[P4-WIDE] fine-tune on the WIDE_KINDS substrate.** Same recipe as A0 (`train_ripp.sh`, LoRA, L=8192, bs=1 ga=16, **3 epochs**) with `DATA=splits_class_wide/RIPP`. ⚠️ **3,723/7,808 train records kept (47.7%)** — the rest exceed the 1B's 8,192 native context and are DROPPED, not chunked, so `\|END\|` still lands at a true boundary. val 258/558. Epochs matched to A0 rather than steps, because the dataset is smaller. `adapter_run/`, `train.log`, `train.whole.jsonl`, `val.whole.jsonl`. | 🔄 training |
+| `phase3_RIPP_wide/` | 08-18 | **[P4-WIDE] fine-tune on the WIDE_KINDS substrate.** Same recipe as A0 (`train_class_adapter.sh`, renamed from `train_ripp.sh` 2026-08-19; LoRA, L=8192, bs=1 ga=16, **3 epochs**) with `DATA=splits_class_wide/RIPP`. ⚠️ **3,723/7,808 train records kept (47.7%)** — the rest exceed the 1B's 8,192 native context and are DROPPED, not chunked, so `\|END\|` still lands at a true boundary. val 258/558. Epochs matched to A0 rather than steps, because the dataset is smaller. `adapter_run/`, `train.log`, `train.whole.jsonl`, `val.whole.jsonl`. | 🔄 training |
 
 ⚠️ **This arm confounds span width with dataset size** (3,723 wide vs 7,250 strict records used by
 A0). A size-matched STRICT control is required before the comparison is clean — see `plan.md`.
+
+### Phase 6 / 7 — PKS and TERPENE (opened 2026-08-19)
+
+| Run dir | Date | Contents | Status |
+|---|---|---|---|
+| `phase6_PKS/` | 08-19 | **[P6-A0] STRICT-span PKS adapter.** `train_class_adapter.sh` with `CLASS=PKS`, `DATA=splits_class/PKS`, L=8192, LoRA, bs=1 ga=16, 3 epochs, whole-record. ⚠️ **3,906/5,195 train records kept (75.2%)**, val 233/323 — the rest exceed the 1B's 8,192 and are DROPPED, not chunked. ⚠️ The filter is **confounded with product type**: it shifts the real-core mix from 50% to 64% T3PKS, and the median of the fitting subset is 1,170 nt vs 2,103 nt for the whole split. `adapter_run/`, `train.log`, `train.whole.jsonl`, `val.whole.jsonl`. Pre-registered in `docs/phase6_PKS_preregistration.md`. | 🔄 training |
+| `phase7_TERPENE/` | 08-19 | **[P7-A0] STRICT-span TERPENE adapter.** Same recipe with `CLASS=TERPENE`, `DATA=splits_class/TERPENE`. ~94% of records fit the 1B. Queued behind `phase6_PKS` on the shared H100. Pre-registered in `docs/phase7_TERPENE_preregistration.md`. | ⬜ queued |
+
+⚠️ **Phase 6 and Phase 7 numbers are NOT comparable to each other or to Phase 3.** Three scoring
+axes differ by design: class marker set, window (PKS **4,000** · TERPENE **2,000** · RIPP 2,000) and
+antiSMASH `--minlength` (TERPENE **200**, everything else the 1,000 default). Cross-class reading is
+of *shape* — does an intervention move the same direction — never of magnitude.
 
 ### Phase 5 — component detection
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase5_classprobe/` | 08-19 | **[P5-CLASSPROBE] cross-class substrate comparison.** `real_RIPP_50.jsonl`, `real_PKS_50.jsonl`, `real_TERPENE_50.jsonl` — 50 held-out test cores per class, drawn `random.Random(0)`; `real_<CLASS>_50_w4000.json` — full reporting set at a **4,000 nt** window. Result: **PKS reaches `n_class_domains` >= 2 in 37/50 real cores (0.740) vs RIPP 0.200 and TERPENE 0.220** — PKS is the only built class whose training span carries cluster-grade domain content. Integrity guard clean (50/50 unique each). | ✅ |
+| `phase5_classprobe/` | 08-19 | **[P5-CLASSPROBE] cross-class substrate comparison.** `real_RIPP_50.jsonl`, `real_PKS_50.jsonl`, `real_TERPENE_50.jsonl` — 50 held-out test cores per class, drawn `random.Random(0)`; `real_<CLASS>_50_w4000.json` — full reporting set at a **4,000 nt** window. Result: **PKS reaches `n_class_domains` >= 2 in 37/50 real cores (0.740) vs RIPP 0.200 and TERPENE 0.220** — PKS is the only built class whose training span carries cluster-grade domain content. Integrity guard clean (50/50 unique each). **Extended 08-19:** `real_<CLASS>_fit50.jsonl` + `real_<CLASS>_fit50_w<window>.json` — the **fits-the-1B (<=7,992 nt) ceilings**, which are the correct references for Phase 6/7 because that is the population each adapter trains on. `as_real_PKS/` + `as_real_PKS.tsv` — full-mode antiSMASH, **49/50 = 0.980** detected, product mix T3PKS 26 · T1PKS 20 · PKS-like 3 · T2PKS 2 · transAT-PKS 1. `as_real_TERPENE/` (default minlength, **23/50 could not run**) and `as_real_TERPENE_ml200/` + `.tsv` (**50/50 ran, 50/50 detected**, `terpene-precursor` 28 · `terpene` 22). | ✅ |
 | `phase5_detect/` | 08-19 | **[P5-DETECT] full-mode antiSMASH.** `as_full/` — 24 real RIPP wide spans (12 mixed subclass, 12 module-covered) establishing precursor sensitivity **8% vs 50%**. `ab/` — the `--minimal` vs full A/B on identical sequences (**100% agreement on `is_bgc`**, so no prior number is retracted). `full_arms/` — 180 sequences across 5 arms in full mode, which produced the **subclass-specificity** finding (real ~70% specific, our best arm **0%**). Output dirs **retained**, unlike the `TemporaryDirectory` used by `evaluation.py:check_antismash`. | ✅ |
 
 ⚠️ **All prior antiSMASH results (833 sequences) used `--minimal`** — analysis modules disabled, so

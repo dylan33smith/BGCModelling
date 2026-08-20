@@ -10,6 +10,41 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
+**2026-08-19: the board now carries THREE targets.** Phase 6 (**PKS**) and Phase 7 (**TERPENE**)
+opened as their own phases, each with its own pre-registration. **RIPP work is PARKED IN THE WINGS,
+not dropped** (user, 2026-08-19) — see *Parked: RIPP* below for exactly what is held and why.
+
+| phase | target | state |
+|---|---|---|
+| **6** | **PKS** | 🔄 **[P6-A0] strict adapter TRAINING** (`phase6_PKS/`, 3,906 records, 75.2% of split). Pre-reg `docs/phase6_PKS_preregistration.md`. |
+| **7** | **TERPENE** | ⬜ **[P7-A0] strict adapter QUEUED** behind PKS on the shared H100 (`phase7_TERPENE/`). Pre-reg `docs/phase7_TERPENE_preregistration.md`. |
+| 5 | RIPP | ⏸️ **PARKED** — Level 2 achieved and defensible; open items listed below. |
+
+⚠️ **No cross-phase number comparisons.** Three scoring axes differ by design — class marker set,
+window (PKS **4,000** · TERPENE **2,000** · RIPP 2,000) and antiSMASH `--minlength` (TERPENE **200**,
+else the 1,000 default). Cross-class reading is of **shape** — does an intervention move the same
+direction — never of magnitude.
+
+---
+
+## Parked: RIPP — held, not dropped (2026-08-19, user)
+
+| item | why it is parked, and what unparks it |
+|---|---|
+| **[P5-REGEN]** regenerate the five duplicated Phase-4/5 arms | ~611 generations + antiSMASH, overnight. Buys back the 8 kb WIDE contrast and a real `JOINT_PASS`; changes **no claim anyone will build on**. Unpark if the WIDE question is reopened or a write-up needs the 8 kb contrast at full power. |
+| **[P5-BIOTRANS]** `bio + transport` training arm | ⚠️ **explicitly NOT dead** (user). Needs a re-stream of the 185 GB tar (`asdb5_core_records.jsonl` holds only strict and wide sequences). DEFINING-gene coverage 0.687, between STRICT 0.869 (works) and WIDE 0.576 (fails); 55.5% fits the 1B and only 58.4% of real RIPP regions have a transporter at all, so its ceiling is **0.584, not 1.0**. |
+| **[P5-FILTER]** post-generation filtering | Selection only, never ranking — nothing we own ranks within positives. |
+| **Write up Level 2** | Ready. The RIPP result is complete and controlled. |
+
+**The RIPP claim as it stands, unchanged by the pivot:**
+> *We generate short DNA that antiSMASH annotates as **RiPP-like biosynthetic gene clusters**, at
+> ~15% of the real-core rate, novelty-verified at DNA and protein level, class supplied by the
+> adapter rather than the seed.* Not "full BGCs" — training is on the biosynthetic **core**.
+
+---
+
+## Phase 5 (RIPP) — retained detail
+
 Phase 5. Target **RIPP**, substrate **Evo2 1B**. **Level 2 is achieved and defensible. The precursor
 line is dropped. The remaining gap is now stated in antiSMASH's own terms.**
 

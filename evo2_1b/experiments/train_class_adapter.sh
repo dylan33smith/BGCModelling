@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# PHASE 3 — train the RIPP-only adapter on the 1B. Run from the repo root.
+# Train a CLASS-ONLY LoRA adapter on the 1B. Run from the repo root.
+#
+# Renamed from train_ripp.sh 2026-08-19 when PKS and TERPENE opened as their own phases: the
+# recipe was always class-parameterized, but every log line said "[$CLASS]", so a PKS run wrote a
+# log that greps as RIPP. Historical provenance for phase3_RIPP and phase3_RIPP_wide refers to
+# this file under its old name.
+#
+#   CLASS=PKS     ROOT=/data2/ds85/bgcmodel_runs/phase6_PKS      bash evo2_1b/experiments/train_class_adapter.sh
+#   CLASS=TERPENE ROOT=/data2/ds85/bgcmodel_runs/phase7_TERPENE  bash evo2_1b/experiments/train_class_adapter.sh
 #
 # WHAT MAKES THIS DIFFERENT FROM EVERY EARLIER RUN, and why each choice is what it is.
 #
@@ -17,7 +25,7 @@
 #    TRUE cluster boundary — the first clean signal this marker has ever had.
 #    ⇒ If it works, generation length becomes an OUTPUT rather than a hyperparameter we impose, and
 #      "does the model know when a cluster is finished" becomes measurable.
-#    ⇒ The ~11% of records that do not fit are DROPPED, not chunked. That is a real cost (it biases
+#    ⇒ The records that do not fit are DROPPED, not chunked. That is a real cost (it biases
 #      training toward shorter RIPPs) and it is recorded here rather than hidden: mixing chunked and
 #      whole records would reintroduce the arbitrary-boundary problem for exactly the records whose
 #      endings we most want the model to learn.
@@ -54,7 +62,7 @@ STEPS=${STEPS:-2000}
 SAVE=${SAVE:-500}
 L=${L:-8192}
 
-[[ -s "$DATA/train.jsonl" ]] || { echo "[ripp] ABORT: no $DATA/train.jsonl — run scripts/build_single_class_splits.py"; exit 1; }
+[[ -s "$DATA/train.jsonl" ]] || { echo "[$CLASS] ABORT: no $DATA/train.jsonl — run scripts/build_single_class_splits.py"; exit 1; }
 mkdir -p "$ROOT"
 
 # WHOLE-RECORD MEANS WHOLE-RECORD: filter, do not truncate.
@@ -62,10 +70,10 @@ mkdir -p "$ROOT"
 # teaching the model to end a cluster in the middle of one. For a run whose entire purpose is to
 # give |END| a clean signal, that is worse than dropping the record. So the over-long records are
 # removed here, the count is reported, and truncate then never fires.
-micromamba run -n bgcmodel python - "$DATA" "$ROOT" "$L" <<'PYEOF'
+micromamba run -n bgcmodel python - "$DATA" "$ROOT" "$L" "$CLASS" <<'PYEOF'
 import json, sys
 from pathlib import Path
-data, root, L = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3])
+data, root, L, cls = Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 budget = L - 200          # generous allowance for the prefix + the |END| marker
 for split in ("train", "val"):
     keep, drop = [], 0
@@ -78,13 +86,13 @@ for split in ("train", "val"):
     out = root / f"{split}.whole.jsonl"
     out.write_text("".join(keep))
     n = len(keep) + drop
-    print(f"[ripp]   {split}: kept {len(keep):,}/{n:,} whole ({len(keep)/n*100:.1f}%), "
+    print(f"[{cls}]   {split}: kept {len(keep):,}/{n:,} whole ({len(keep)/n*100:.1f}%), "
           f"dropped {drop:,} over {budget:,} nt")
 PYEOF
 
-echo "[ripp] $(date) training $CLASS-only adapter"
-echo "[ripp]   train $(wc -l < "$DATA/train.jsonl") records, val $(wc -l < "$DATA/val.jsonl")"
-echo "[ripp]   whole-record (NO chunking) at L=$L so |END| lands at the true cluster boundary"
+echo "[$CLASS] $(date) training $CLASS-only adapter"
+echo "[$CLASS]   train $(wc -l < "$DATA/train.jsonl") records, val $(wc -l < "$DATA/val.jsonl")"
+echo "[$CLASS]   whole-record (NO chunking) at L=$L so |END| lands at the true cluster boundary"
 
 micromamba run -n bgcmodel deepspeed --num_gpus=1 --master_port 29520 \
   evo2/scripts/finetune_evo2_lora.py \
@@ -98,5 +106,5 @@ micromamba run -n bgcmodel deepspeed --num_gpus=1 --master_port 29520 \
   --wandb-mode offline \
   > "$ROOT/train.log" 2>&1
 
-echo "[ripp] $(date) DONE — adapter at $ROOT/adapter_run/final_adapter"
-echo "[ripp] NEXT: evo2_1b/experiments/phase3_pilot.py has set n; run the pre-registered arms."
+echo "[$CLASS] $(date) DONE — adapter at $ROOT/adapter_run/final_adapter"
+echo "[$CLASS] NEXT: pre-register the arms for this phase BEFORE generating (Standing Constraint 4)."
