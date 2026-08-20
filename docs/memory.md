@@ -1627,4 +1627,101 @@ NRPS/PKS".
 
 ---
 
+## 2026-08-19 — Phases 6 (PKS) and 7 (TERPENE) OPEN. Two class-specific eval facts found up front.
+
+**User decision:** open PKS and TERPENE as their own phases, strict arm first in each; **park RIPP
+in the wings — including `bio + transport`, which is explicitly NOT dead, and the regeneration of
+the five duplicated arms.** Both strict adapters launched (`phase6_PKS` training, `phase7_TERPENE`
+queued behind it on the shared H100). Pre-registrations written before any arm generates, one file
+per phase.
+
+**`train_ripp.sh` -> `train_class_adapter.sh`.** The recipe was always class-parameterized, but every
+log line read `[ripp]`, so a PKS run wrote a log that greps as RIPP — the naming-convention failure
+mode, caught before it produced an unattributable artifact.
+
+**Windows are per class and do NOT transfer** (Standing Constraint 9): PKS **4,000 nt** (held-out
+median core 3,707, so RIPP's 2,000 truncates most of one), TERPENE **2,000 nt**, RIPP 2,000. Plus
+antiSMASH `--minlength` differs. **No cross-phase number comparison is valid**; cross-class reading
+is of *shape* — does an intervention move the same direction — never of magnitude.
+
+### ★ FACT 1 — PKS IS BIMODAL, and the 1B's context limit selects between the two modes
+
+Full-mode antiSMASH, 50 real held-out PKS cores (`phase5_classprobe/as_real_PKS.tsv`), 49/50 = 0.980
+detected:
+
+| product | n | median nt | Pfam `on_class` |
+|---|---|---|---|
+| **T3PKS** | 25 (50%) | **1,083** | 0.960 |
+| **T1PKS** | 20 (40%) | **7,665** | 0.750 |
+| other / none | 5 (10%) | 14,162 | — |
+
+**T3PKS is a single ~350-aa chalcone-synthase-type enzyme; T1PKS is a modular megasynthase.** Not
+degrees of one thing — different architectures sharing a class label. The `<= 7,992 nt` training
+filter shifts the mix **50% -> 64% T3PKS**, and the median of the fitting train subset is
+**1,170 nt** against 2,103 nt for the whole split.
+
+⇒ **Product-type stratification is mandatory in every Phase-6 table.** A model emitting only short
+T3PKS-like single genes would post a high detection rate while reproducing RIPP's "one gene is not a
+cluster" limitation in a new costume, and detection rate alone cannot see that.
+⇒ `PKS-like` is antiSMASH's generic catch-all here and is **rare in real cores (3/49)**, so
+`subclass_specificity` transfers to PKS with a ceiling of ~0.94 — higher than RIPP's 0.909.
+⇒ A **T1PKS-only arm** is the class-specific intervention worth pricing after [P6-A0], since that is
+the half where modular structure lives. Cost: T1PKS median 7,665 nt sits at the 7,992 budget, so the
+arm would be small and truncation-biased.
+
+### ★ FACT 2 — TERPENE HITS AN INSTRUMENT LIMIT: antiSMASH refuses records under 1,000 nt
+
+`ERROR: all input records smaller than minimum length (1000)`. TERPENE's median strict core is
+**960 nt**, so at the default **23/50 real cores never ran** and the tool returned nothing. Read
+naively that is a detection rate on a biased 54% subsample of the longest cores — the silent-
+degradation pattern `bugs.md` exists for.
+
+**`--minlength 200` fixes it and was validated before use:** A/B on the 27 records that ran under
+both settings gave **27/27 agreement on `is_bgc` and 27/27 on the product call**. It rescues all 23.
+Detection is then **50/50 = 1.000**. It is now part of the frozen Phase-7 scoring config.
+
+**`subclass_specificity` has NO analogue for TERPENE.** The entire product vocabulary over 50 real
+cores is `terpene-precursor` (28) and `terpene` (22), plus three off-class singletons — **no generic
+catch-all exists.** The tempting substitute (cyclase rule vs precursor-only) is **length-confounded**:
+median 2,009 nt vs 928 nt. Registered as a hypothesis to test under length matching, **not** as an
+endpoint — forcing a substitute is how RIPP acquired three failed proxies.
+
+### Fits-the-1B ceilings — the correct references, since that is what each adapter trains on
+
+| metric | RIPP (w2000) | PKS (w4000) | TERPENE (w2000) |
+|---|---|---|---|
+| `on_class` | 0.440 | **0.920** | **0.980** |
+| `n_class_domains` >= 2 | 8/50 = 0.160 | **42/50 = 0.840** | 8/50 = 0.160 |
+| `n_class_domains` \| on-class | 1.55 | **2.80** | 1.16 |
+| `n_bio_domains` \| on-class | 1.91 | **4.33** | 1.22 |
+| `n_orfs` | 1.80 | **1.22** | 1.30 |
+| `max_orf_aa` | — | **673** | 339 |
+| `bio_span_frac` \| on-class | — | **0.997** | 0.962 |
+
+⚠️ **`bio_span_frac` is VOID as a gate for PKS** — 0.997, saturated, because a megasynthase core is
+one long biosynthetic ORF. Any threshold derived on RIPP is meaningless here.
+⚠️ Restricting PKS to the fitting subset **raised** the ceiling (0.740 -> 0.840 on
+`n_class_domains >= 2`), against my prediction that dropping T1PKS would lower it. The filter
+removes the unscoreable giants (median 14,162 nt, one record at the 262,144 nt cap) more than it
+removes structure.
+⬜ **OPEN:** whether PKS's 2.80 markers per positive across only **1.22 ORFs** is genuine multi-gene
+content or several Pfam models hitting one protein (KS N- and C-terminal are separate Pfams on one
+domain). If the latter, PKS's headline advantage is partly a marker-set artifact. Measurement
+running; **[P6-A0] does not depend on it.**
+
+### Novelty gates need NO new machinery for these classes — measured, not assumed
+
+Max k=21 containment of real held-out cores vs their own train split: RIPP median 0.001 / max 0.357;
+PKS 0.006 / 0.043; TERPENE 0.011 / 0.140. **0/50 records reach 0.80 in any class.** TERPENE's
+distribution does sit ~10x RIPP's at the median — the predicted length effect is real — but an order
+of magnitude below the threshold. My claim that Phase 7 "requires" a length-matched containment null
+is withdrawn in `docs/phase7_TERPENE_preregistration.md` §5.1; what survives is that TERPENE
+containment must be read against the TERPENE real-core distribution, not RIPP's.
+
+**New tooling:** `scripts/antismash_full.py` — full mode always, output dirs retained, `--minlength`,
+refuses duplicated input, and **warns loudly when any sequence fails to run** so an instrument limit
+cannot become a rate.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

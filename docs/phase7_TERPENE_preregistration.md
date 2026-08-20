@@ -100,6 +100,35 @@ class-agnostic) plus the product breakdown of §5.
    8,000 nt means ~87% of the output lies beyond anything a real core contains. Report the scored
    2,000 nt window as primary and state the generated length with it.
 
+## 5.1 AMENDMENT 2026-08-19 (same day) — §5.4's "new machinery" claim is MEASURED AND LARGELY WITHDRAWN
+
+§5.4 above stands unedited and asserted that a length-matched containment null is "the one piece of
+new machinery Phase 7 requires". **That was reasoning, not measurement, and the measurement is
+weaker than the claim.** Max k=21 containment of **real held-out cores against their own train
+split**, each at its class's frozen window:
+
+| class | window | median nt | median | p90 | max | records >= 0.80 |
+|---|---|---|---|---|---|---|
+| RIPP | 2,000 | 2,000 | 0.001 | 0.019 | 0.357 | **0/50** |
+| PKS | 4,000 | 1,173 | 0.006 | 0.022 | 0.043 | **0/50** |
+| **TERPENE** | 2,000 | 975 | **0.011** | **0.034** | **0.140** | **0/50** |
+
+⇒ **The length effect is real but an order of magnitude too small to matter.** TERPENE's median
+containment is ~10x RIPP's, so the distribution does shift as predicted — but the **maximum over 50
+genuinely-novel held-out cores is 0.140**, against a 0.80 WARN and 0.95 FAIL threshold, and **no
+record comes close**. The existing thresholds have ample headroom at TERPENE lengths.
+
+⇒ **What survives:** a TERPENE containment must be read against **this measured real-core
+distribution** (median 0.011, p90 0.034, max 0.140), not against RIPP's. That is a reference-value
+requirement satisfied by the table above — **not** a new null-model build.
+
+⇒ **What does NOT survive:** "Phase 7 requires new novelty machinery." It does not. §5.3's point
+that memorisation is this class's headline risk is unaffected — that is about the *class's*
+conservation, which the gate is there to catch, and the gate is working.
+
+**Provenance:** `phase5_classprobe/real_<CLASS>_*_w<window>.json`, `nt_containment` block,
+n=50/class, cross-split near-duplicates already removed at mmseqs id>=0.8 cov>=0.5.
+
 ## 6. Arms — the strict arm first
 
 **[P7-A0] STRICT-span TERPENE adapter, de novo.** Same recipe as Phase-3 A0 and Phase-6 A0:
