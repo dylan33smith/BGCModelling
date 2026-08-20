@@ -233,6 +233,7 @@ A0). A size-matched STRICT control is required before the comparison is clean �
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
+| `phase5_classprobe/` | 08-19 | **[P5-CLASSPROBE] cross-class substrate comparison.** `real_RIPP_50.jsonl`, `real_PKS_50.jsonl`, `real_TERPENE_50.jsonl` — 50 held-out test cores per class, drawn `random.Random(0)`; `real_<CLASS>_50_w4000.json` — full reporting set at a **4,000 nt** window. Result: **PKS reaches `n_class_domains` >= 2 in 37/50 real cores (0.740) vs RIPP 0.200 and TERPENE 0.220** — PKS is the only built class whose training span carries cluster-grade domain content. Integrity guard clean (50/50 unique each). | ✅ |
 | `phase5_detect/` | 08-19 | **[P5-DETECT] full-mode antiSMASH.** `as_full/` — 24 real RIPP wide spans (12 mixed subclass, 12 module-covered) establishing precursor sensitivity **8% vs 50%**. `ab/` — the `--minimal` vs full A/B on identical sequences (**100% agreement on `is_bgc`**, so no prior number is retracted). `full_arms/` — 180 sequences across 5 arms in full mode, which produced the **subclass-specificity** finding (real ~70% specific, our best arm **0%**). Output dirs **retained**, unlike the `TemporaryDirectory` used by `evaluation.py:check_antismash`. | ✅ |
 
 ⚠️ **All prior antiSMASH results (833 sequences) used `--minimal`** — analysis modules disabled, so

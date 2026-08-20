@@ -1561,4 +1561,70 @@ recomputation aligned the antiSMASH TSV to `as_*.jsonl` by row order with a per-
 
 ---
 
+## 2026-08-19 — ★ [P5-CLASSPROBE] PKS is the class where cluster structure EXISTS in the training span
+
+**Question (user):** point the existing machinery at a different class and see how it behaves. Which
+class, and what would it settle? Measured rather than argued.
+
+**Two candidates exist and only two.** `splits_class/` holds **RIPP, PKS, TERPENE**. ECTOINE and
+MELANIN are disqualified on diversity (85%/95% held-out near-duplicates); HSERLACTONE and
+BUTYROLACTONE were deleted. All three built classes have `OBLIGATE_DOMAINS` marker sets.
+
+### Training substrate — span shape (train split, strict spans)
+
+| class | train | median nt | p75 | p90 | **fits 8,192** | mean genes | 1-gene | >=3 genes |
+|---|---|---|---|---|---|---|---|---|
+| RIPP | 8,129 | 1,931 | 3,240 | 8,516 | **0.894** | 1.86 | 48.8% | 21.8% |
+| **PKS** | 5,195 | 2,103 | 7,908 | 18,513 | **0.756** | 1.60 | 72.9% | 11.8% |
+| TERPENE | 11,297 | 960 | 1,635 | 4,708 | **0.944** | 1.40 | 78.9% | 10.5% |
+
+⇒ On *gene count* PKS and TERPENE look WORSE than RIPP. **That reading is wrong for PKS**, because a
+PKS core is often one megasynthase ORF carrying many modules. Gene count is the wrong instrument.
+
+### ★ THE DECIDING MEASUREMENT — real held-out cores, n=50/class, window 4,000 nt
+
+| metric | RIPP | **PKS** | TERPENE |
+|---|---|---|---|
+| `on_class` (Pfam ceiling) | 0.680 | **0.860** | **0.960** |
+| **`n_class_domains` >= 2** | **10/50 = 0.200** | **37/50 = 0.740** | 11/50 = 0.220 |
+| `n_class_domains` \| on-class | 1.47 | **2.58** | 1.40 |
+| `n_bio_domains` \| on-class | 1.76 | **4.05** | 1.52 |
+| `bio_span_frac` \| on-class | 0.828 | 0.982 | 0.930 |
+| `n_orfs` | 2.34 | **1.36** | 1.80 |
+| `max_orf_aa` | 456 | **744** | 341 |
+
+⇒ **PKS reaches >=2 distinct class markers in 74% of real cores, against 20% for RIPP and 22% for
+TERPENE — and it does so in FEWER ORFs with a LONGER max ORF.** That is the megasynthase signature:
+the modules are *intra-genic*, so a single gene already carries cluster-grade domain content.
+
+**★ WHY THIS MATTERS MORE THAN ANY OTHER ITEM ON THE BOARD.** `n_class_domains >= 2` was demoted to
+a diagnostic for RIPP (2026-08-19) **because the real-core ceiling was only ~16–20%** — a metric
+whose ceiling is 0.20 cannot grade a generator. **In PKS that ceiling is 0.740.** The endpoint that
+has read exactly 0/188 in every RIPP arm becomes measurable against a real reference for the first
+time. TERPENE would not deliver this: its structure is RIPP's, only shorter.
+
+**Second thing PKS unlocks:** `MODULE_PATTERNS` has a PKS entry (`PF00109`-`PF00698`-`PF00550`,
+KS-AT-ACP) and **no RIPP entry, correctly** — RiPP gene order is not collinear, so ordering is
+undefined for most RIPP records. Domain *ordering* is a validated rung the RIPP track could never
+use. Likewise [P3-B1d] domain-anchored seeding, parked in 2026-08-17 as "keeps its force for
+NRPS/PKS".
+
+### What must be RE-DERIVED, not inherited (Standing Constraint 9)
+- **Scoring window.** PKS median core is 3,707 nt in the held-out sample; the RIPP primary of 2,000
+  nt would truncate most of it. This measurement used **4,000 nt** and any PKS arm must pre-register
+  its own window rather than inherit RIPP's.
+- **L\*** (seed length). RIPP's L\*=8 came from RIPP start-codon entropy. PKS cores are long
+  multi-modular assembly lines; the entropy analysis must be redone.
+- **The two-pass Pfam -> antiSMASH calibration** (0.456 / 0.020 / 1.8x inflation) is stamped
+  RIPP-specific in `terms.md`.
+- ⚠️ **Context cost, declared up front: only 75.6% of PKS strict cores fit the 1B's 8,192.** Better
+  than WIDE's 48.6%, worse than RIPP's 89.4%. The dropped quartile is the largest assembly lines, so
+  a PKS arm is a **lower bound** on what the class can do, exactly as WIDE was.
+
+**Provenance:** `phase5_classprobe/real_<CLASS>_50_w4000.json` · `scripts/novelty_battery.py`
+`--window 4000` · seeds drawn `random.Random(0)` from each class's `test.jsonl` · substrate
+`evo2_1b_base` · integrity guard clean (50/50 unique in all three sets).
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

@@ -150,6 +150,7 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P5-SUBCLASS** | **product specificity, full antiSMASH** | `subclass_specificity` | 33 real / **7 gen** ⚠️ | real **0.909**; generated **0/7 — all `RiPP-like`** (Fisher p≈1e-5) | ★ **the remaining gap, in the field's own terms** | 2026-08-19 |
 | P5-AB | `--minimal` vs full mode, identical seqs | `is_bgc` | 10 | 8/10 vs 8/10 — **100% agreement** | ✅ no prior number retracted | 2026-08-19 |
 | ⚠️ **P5-DEDUP** | **fan-out shard-collision audit** | effective n of every generation set | 68 sets | **5 Phase-4/5 sets 4x-duplicated; all Phase-3 sets CLEAN** | ⛔ **WIDE refutation halved; guard added to the scorer** | 2026-08-19 |
+| **P5-CLASSPROBE** | **cross-class substrate comparison** | `n_class_domains` >= 2 on real cores, w4000 | 50/class | **PKS 0.740 · RIPP 0.200 · TERPENE 0.220** | ★ **PKS is the only class where cluster structure is IN the training span** | 2026-08-19 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**
