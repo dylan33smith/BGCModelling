@@ -394,12 +394,19 @@ string** — a region may carry several products, and counting strings is what p
 | base 1B (floor) | 0/39 | 0 | n/a — no detections |
 
 ⚠️ **Power, declared honestly:** the generated denominators are **3 and 4 unique detections**. Fisher
-on the pooled 0/7 vs 30/33 gives p≈1e-5, so the *direction* is established, but **any claim about a
-change in `subclass_specificity` needs a denominator of >=15 detections** before it is believed. That
-threshold is pre-registered here so a future arm cannot be read as "moved the metric" on n=4.
+on the pooled 0/7 vs 30/33 gives p≈1e-5, so the *direction* is established, but the magnitude is not.
 
-**Kill criterion for the metric itself:** if an arm reaches >=15 detections and `subclass_specificity`
-remains 0.000 while the detection rate rises, the honest reading is that the model produces
+**[AMENDED 2026-08-20 — the ">=15 detections" floor originally stated here is WITHDRAWN.]** The
+original text set a fixed denominator threshold. It was arbitrary: generation is the cheap step in
+this pipeline, so a threshold merely delays a decision that more sampling settles. **Replaced by:
+report the exact contrast, test and denominator, and require significance against the arm's own
+control. If a contrast is n.s., generate more rather than appeal to a threshold.** What the original
+was protecting against still stands and is restated: **a significant direction is not an estimated
+rate**, and no arm may be described as having "moved" this metric on the strength of a null.
+
+**Kill criterion for the metric itself:** if an arm reaches a denominator at which a real
+`subclass_specificity` above zero would be detectable, and it remains 0.000 while the detection rate
+rises, the honest reading is that the model produces
 RiPP-like signal without subclass chemistry, and the limitation is reported as permanent for this
 substrate rather than re-proxied a fourth time.
 

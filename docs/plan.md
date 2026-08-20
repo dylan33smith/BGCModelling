@@ -17,7 +17,9 @@ harder one**: PKS **T3PKS 8/8, T1PKS 0/8** (p=0.041) · TERPENE **precursor 13/1
 (p=0.0024) · RIPP `RiPP-like` 7/7, specific subclass 0/7 (p=6.4e-06). Three rule systems, one
 ceiling on complexity — so it is **not** an artefact of antiSMASH's RiPP hierarchy. PKS producing
 zero T1PKS is its 59.3%-T3PKS training substrate reproducing itself. ⚠️ 8 and 13 detections are
-below the pre-registered >=15 floor: **quote the direction, not the rate.**
+**quote the direction, not the rate** — the contrasts are significant, the magnitudes are not
+estimated. (The former ">=15-detection floor" is **withdrawn**, 2026-08-20: generation is the cheap
+step, so if a contrast is n.s. the answer is to generate more, not to appeal to a threshold.)
 
 **★ 2026-08-20 — THE METHOD TRANSFERS.** A class-specific LoRA reaches significance **de novo** on
 **both** new classes (PKS and TERPENE, p=1.5e-07 each vs a pooled 0/400), with novelty gates clean
@@ -99,8 +101,7 @@ source-domain match at 500 nt).
 **The remaining gap — `subclass_specificity`.** Of detections, real cores get a **specific** RiPP
 chemistry **0.909** of the time (30/33 detected sequences: lassopeptide, lanthipeptide class i–v,
 thioamitides, azole-containing-RiPP); **our arms 0.000** — all 7 unique detections were the generic
-`RiPP-like` (Fisher p≈1e-5; ⚠️ n=7, and §9.2 pre-registers a **>=15-detection floor** before any arm
-may be called as moving this metric). The model trips the loose generic rule and never the
+`RiPP-like` (Fisher p≈1e-5; ⚠️ n=7 — the direction is established, the rate is not). The model trips the loose generic rule and never the
 tight domain combination a subclass requires. This supersedes `n_class_domains ≥ 2`,
 `bio_span_frac` and the precursor panels, each of which failed validation.
 
@@ -309,9 +310,8 @@ the thing to report and to target.
      W1_seeded 47) plus antiSMASH on the new Pfam-positives and a negative sample — an overnight
      pipeline comparable to the original.
    - **Buys:** the 8 kb WIDE contrast back at full power, a real `JOINT_PASS` for those arms, and a
-     `subclass_specificity` denominator that clears the pre-registered **>=15-detection floor**
-     (§9.2). At the measured detection rates, n=188 per arm yields ~12–16 detections for SF and
-     ~16 for W2 — so **regenerating SF and W2 alone roughly reaches the floor**; W-1 does not.
+     a larger `subclass_specificity` denominator. At the measured detection rates, n=188 per arm
+     yields ~12–16 detections for SF and ~16 for W2.
    - ⚠️ **Vary `--seed` per shard** (`bugs.md`). `seed_generate.py` still has no `--shard i --of N`.
    - **Does not buy:** any change to the Level-2 claim, which never depended on these arms.
 1. ✅ **[P5-REPORT] DONE 2026-08-19** — all five arms scored in FULL antiSMASH mode
@@ -325,7 +325,7 @@ the thing to report and to target.
 3. ✅ **[P5-SUBCLASS] DONE 2026-08-19** — `subclass_specificity` adopted as a **declared secondary**
    (the primary endpoint is unchanged, Standing Constraint 4) and pre-registered in
    `docs/phase3_preregistration.md` **§9.2**, with its scoring config frozen, its real-core
-   reference (**0.909**) stated, and a **>=15-detection power floor** declared before any arm runs.
+   reference (**0.909**) stated. (Its power floor was withdrawn 2026-08-20 — §9.2 amendment.)
 4. **[P5-FILTER] Post-generation filtering** — legitimate now *as a selection step only*
    (antiSMASH pass/fail, the phage-paper funnel). ⛔ Not as ranking: nothing we own ranks within
    positives (ladder 0.575, class probe 0.337).
@@ -336,6 +336,12 @@ the thing to report and to target.
 rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE and wider spans.
 
 ## Backlog — cross-phase, opened 2026-08-20 (user)
+
+> **ORDER (user, 2026-08-20): [X3] GenomeOcean is the NEXT thing we try.** [X1] is a bug fix that
+> can land alongside it. **[X2a–d] are HELD** — do not start the subclass interventions until
+> GenomeOcean has reported, because [X3] may reattribute the whole [X2] finding from "the method"
+> to "Evo2-1B's 8,192 context", and every [X2] intervention is designed against the wrong cause if
+> it does.
 
 ### [X1] ⛔ THE MODEL EMITS NON-NUCLEOTIDE BYTES, AND OUR EOS IS 5 TOKENS WHEN IT COULD BE 1
 **Three separate defects that compound.**
@@ -351,14 +357,34 @@ rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE an
    ⚠️ And **ids 0 (EOS), 1 (PAD) and 32 (space) ALL detokenize to `' '`**, so once generation is
    decoded to a string these are indistinguishable. Our whole pipeline reads the string.
 
+**✅ PROVENANCE ANSWERED 2026-08-20: we never trained token 0 — EVO2 DID.** Localization test on
+12 real held-out cores: `P(EOS)` at the true end vs mid-core is **40.9x for the BASE model** and
+**2,100x for our adapter**. Evo2's pretraining established the token; **our fine-tuning sharpened it
+51x**, which is exactly why class adapters truncate 30–100x more than base.
+
+⚠️ **AND THIS MAKES `--junk-policy mask` WRONG FOR EOS.** `truncate` stopped where the model stopped;
+`mask` scores what the model wrote AFTER it said stop. **PKS `A0` has a stop event inside its scored
+window in 44.5% of records vs 2.5–5% of its controls** — treatment-loaded, opposite direction to the
+original bug. **TERPENE is balanced (5.0% vs 4.5%/5.5%) and unaffected.** Interim: `<arm>_stopateos.jsonl`
+reconstructs stop-at-EOS from the same generations (masking is frame-preserving, the first `N` is the
+stop), and **both scorings are reported as a pair** until generation is token-id aware.
+
 **Interventions, cheapest first:**
+- **[X1e] MAKE `hit_eos` TEST TOKEN ID 0 — the cheapest real fix on the board.** It has read 0 in
+  every arm ever generated while the model was stopping all along. Requires capturing ids at
+  generation time (vortex returns `logits`/`logprobs_mean`/`sequences`, not ids), which is also what
+  separates EOS from genuine junk and makes the mask-vs-truncate choice unnecessary.
 - **[X1a] CONSTRAINED DECODING — do this first, it is ~10 lines.** Mask the logits to
   `{A,C,G,T}` (+ the EOS id once trained) before sampling. NVIDIA's own Evo2 NIM docs state only
   the 4 base tokens are meaningful in output and the rest exist for technical reasons. This makes
   the stray byte **impossible by construction** rather than filtered after the fact.
   ⚠️ Keep an unconstrained arm as the diagnostic — constraining hides the behaviour we are studying.
-- **[X1b] Train a SINGLE-TOKEN EOS (id 0), not the 5-byte string** (user, 2026-08-20). One token is
-  ~5x the per-record gradient signal of a 5-token marker, and it makes [X1a] trivial (mask to 5 ids).
+- **[X1b] Train the EXISTING single-token EOS (id 0), not the 5-byte string** (user, 2026-08-20).
+  ⚠️ **Do not ADD a token — id 0 is already there and the model already reaches for it.** One token
+  is ~5x the per-record gradient of a 5-token marker and makes [X1a] trivial (mask to 5 ids).
+  ⚠️ **Upweighting may be unnecessary**: at generation-time stops the signal is already 16–159x
+  uniform. The defect was that we DISCARDED it. Fix the reader first, then measure whether the
+  writer needs help.
   ⚠️ Upweighting it needs a **manipulation check** — Phase 2's weighted arm consumed a run and
   returned an uninterpretable null because the treatment never landed.
   ⚠️ Literature warns EOS becomes a **self-reinforcing attractor**: once emitted the model keeps
@@ -388,10 +414,12 @@ every case the LONGER one, and the 1B's budget is 7,992 nt:
 ⇒ For PKS the model may simply **never have seen a complete T1PKS**. That is a substrate defect, not
 a capability limit, and it is testable.
 
-**Ordered interventions:**
-- **[X2a] Powered re-measurement FIRST.** All three findings rest on **7–13 detections, below the
-  pre-registered >=15 floor**. n=200 yields ~14 Pfam-positives; **n=600 per arm** would clear it.
-  Generation is the cheap part of this pipeline — do not build on an underpowered headline.
+**Ordered interventions — ⏸️ ALL HELD pending [X3] GenomeOcean (user, 2026-08-20):**
+- **[X2a] Bigger denominators — but NOT a blocker.** All three contrasts are already **significant
+  against their own controls** (p=0.041 / 0.0024 / 6.4e-06) on 7–13 detections, and generation is the
+  cheap step: n=600/arm would roughly triple them. Worth doing to turn a *direction* into an
+  *estimated rate*, not to rescue the finding. ⚠️ The ">=15-detection floor" is **withdrawn** (user,
+  2026-08-20) — arbitrary where sampling is cheap.
 - **[X2b] Seeded hard-subclass positive control.** Seed from a real T1PKS / cyclase exemplar at
   L\*=8. Phase 3 showed seeding lifts ~6x. **If seeded generation still yields 0 hard-subclass, the
   limitation is real; if it does not, it was the prior, not the capability.** This is the single

@@ -1929,9 +1929,13 @@ RiPP hierarchy, because PKS and TERPENE have entirely different rule structures 
 by construction (§2.2). The model learned what it was shown. That is the cleanest evidence yet that
 **the limitation is in the DATA, not the method.**
 
-⚠️ **POWER: 8 and 13 detections are BELOW the pre-registered >=15-detection floor** (`terms.md`,
-`subclass_specificity`). The direction is significant in all three classes and consistent, but the
-magnitudes are not yet established. **Do not quote a rate; quote the direction.**
+[INCORRECT] - ⚠️ **POWER: 8 and 13 detections are BELOW the pre-registered >=15-detection floor** (`terms.md`, `subclass_specificity`). The direction is significant in all three classes and consistent, but the magnitudes are not yet established. **Do not quote a rate; quote the direction.**
+[CORRECTION - 2026-08-20]: **the ">=15-detection floor" is WITHDRAWN** (user). It was an arbitrary
+threshold in a pipeline where generation is the cheap step — if a contrast is n.s. the answer is to
+generate more, not to appeal to a number. **What stands unchanged:** all three contrasts ARE
+significant against their own controls (p=0.041 / 0.0024 / 6.4e-06), so the finding is not
+underpowered; and **a significant direction is still not an estimated rate.** Quote the direction,
+the exact test, and the denominator.
 ⚠️ TERPENE's cyclase-vs-precursor split was registered as length-confounded (real cyclase cores
 median 2,009 nt vs precursor 928). Our generations are a full 4,000 nt windowed to 2,000, so length
 is **not** the limiting factor here — but the confound is not formally excluded either.
@@ -2048,6 +2052,68 @@ and stacking a 1-element logits list added a spurious axis that made `P(ACGT)=1.
 `P(EOS)=1/512` simultaneously — self-contradictory numbers that looked plausible in isolation.
 Shape assertions are now in the script. **Pooling the coherent and degenerate populations would also
 have reported "PAD 41, EOS 14" and buried a 13/13 result under noise.**
+
+---
+
+## 2026-08-20 — ★★★ THE EOS CAME FROM EVO2 PRETRAINING. Fine-tuning sharpened it 51x.
+
+**Q (user): how sure are we it is EOS, and where did it come from — have we been adding EOS to our
+training samples?** Answer: **no, we never have.** `--eos-token` appends the 5-byte STRING `|END|`
+(124,69,78,68,124). **Token id 0 has never appeared in any training target we have ever built.**
+
+**LOCALIZATION TEST — feed a REAL held-out PKS core and read the next-token distribution.** No
+sampling involved. If termination is learned, `P(id 0)` should spike at the core's true end and be
+flat mid-core. n=12 real cores, 900–3,000 nt:
+
+| model | P(EOS) at the TRUE END | mid-core control | **end/mid ratio** |
+|---|---|---|---|
+| **ADAPTER `phase6_PKS`** | 0.00997 (5.1x uniform), max 0.0615 | **0.00000** | **2,100x** |
+| **BASE `evo2_1b_base`** | 0.00623 (3.2x uniform), max 0.0488 | 0.00015 | **40.9x** |
+
+⇒ **THE BASE MODEL ALREADY HAS IT.** Token 0 is the tokenizer's designated `eos` and Evo2's own
+pretraining evidently used it as a sequence separator. **We did not teach this — Evo2 knew it.**
+⇒ **Our fine-tuning SHARPENED it 51x** (end/mid 40.9 -> 2,100), essentially by driving mid-core
+`P(EOS)` to zero. That is exactly why class adapters truncate 30–100x more than the base model.
+⇒ Combined with the generation-time evidence (**13/13 coherent stop positions are EOS at 16–159x
+uniform**), the identification is established. ⬜ The one thing still not directly OBSERVED is the
+sampled token id — vortex exposes `logits`/`logprobs_mean`/`sequences` but not ids, and 0/1/32 all
+detokenize to `' '`. A causal check (mask id 0 to -inf, see whether stop events vanish) would close
+it completely.
+
+### ⚠️ CONSEQUENCE: MY OWN `--junk-policy mask` FIX IS WRONG FOR EOS
+
+If the byte is EOS then the ORIGINAL `truncate` was accidentally right — it stopped where the model
+stopped. **`mask` keeps generating past the model's own stop and scores the continuation.** Measured
+share of records with a stop event INSIDE the scored window:
+
+| arm | stop event inside window | median position |
+|---|---|---|
+| **PKS `A0`** | **89/200 = 0.445** | 1,746 nt |
+| PKS `A0-C1` / `A0-C2` | 0.050 / 0.025 | — |
+| TERPENE `A0` | 0.050 | 919 nt |
+| TERPENE `A0-C1` / `A0-C2` | 0.045 / 0.055 | — |
+
+⇒ **PKS `A0` is contaminated: 44.5% of the treatment arm has post-EOS content in its 4,000 nt
+window vs 2.5–5% of its controls.** Same treatment-loaded asymmetry as the truncation bug, opposite
+direction. ⇒ **TERPENE is BALANCED (5.0% vs 4.5%/5.5%) and its numbers are unaffected.**
+
+**Neither policy is correct alone:** `truncate` is right for EOS and wrong for junk; `mask` is right
+for junk and wrong for EOS. The correct behaviour needs the token id at generation time. **Interim
+fix, no GPU needed:** masking is frame-preserving, so the first `N` marks the stop exactly —
+`<arm>_stopateos.jsonl` reconstructs stop-at-EOS from the same generations, and both scorings are
+reported as a pair.
+
+### What this changes about the planned fix
+
+- ✅ **The single-token-EOS idea is validated but cheaper than proposed** — do not ADD a token; **id 0
+  already exists and the model already reaches for it.** Train that instead of the 5-byte string.
+- ✅ **`hit_eos` must test TOKEN ID 0, not the string `|END|`.** It has read 0 in every arm ever
+  generated while the model was stopping all along.
+- ⚠️ **Upweighting may be unnecessary.** The signal is not weak (16–159x uniform at generation-time
+  stops); **we were discarding it.** The first fix costs nothing on the model side.
+- ⚠️ **Constrained decoding to `{A,C,G,T,id 0}` is the right call and does NOT fix degeneracy**
+  ([X1d]): at a position where `P(ACGT)=0.000` and the distribution is uniform, masking just forces
+  an arbitrary nucleotide. Still needs a quality gate.
 
 ---
 

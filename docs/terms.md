@@ -338,9 +338,14 @@ Aliases:              names seen in old docs. Do not use them.
   detected sequences carry a specific subclass); **our best arm 0.000** — every detection is
   `RiPP-like`. Supersedes `n_class_domains ≥ 2`, `bio_span_frac` and the precursor panels, all of
   which were indirect proxies for this and each failed validation.
-- ⚠️ **POWER FLOOR: >=15 detections.** The generated denominators are currently **3 and 4 unique**
-  detections (0/7 pooled vs 30/33 real, Fisher p≈1e-5 — direction established, magnitude not).
-  Pre-registered: no arm may be reported as having moved this metric on fewer than 15 detections.
+- ⚠️ **POWER: report the TEST, not a fixed denominator.** [WITHDRAWN 2026-08-20] An earlier version
+  of this entry set an arbitrary ">=15 detections" floor. That was the wrong instrument: generation
+  is the cheap step here, so the honest requirement is simply that **the contrast is significant
+  against its own control at whatever n was generated**, with the exact test and denominator quoted.
+  A significant 0/7-vs-30/33 (p≈1e-5) is a result; an underpowered null is not. **If a contrast is
+  n.s., generate more rather than arguing from a threshold.**
+- ⚠️ **A significant DIRECTION is not an estimated RATE.** At these denominators "the model never
+  makes the harder subclass" is established; "it makes it x% of the time" is not.
 
 ### THE TWO-PASS DETECTION ARCHITECTURE  [evaluation] [method]
 - **Is:** Pfam gate first (cheap, Stage A), antiSMASH second (gold standard, Stage B). **Calibrated
