@@ -10,14 +10,19 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
+**★ 2026-08-20 — THE METHOD TRANSFERS.** A class-specific LoRA reaches significance **de novo** on
+**both** new classes (PKS and TERPENE, p=1.5e-07 each vs a pooled 0/400), with novelty gates clean
+and `JOINT_PASS` == `on_class`. RIPP's [P3-A0] is no longer a single-class result. **But both land at
+only ~7% of their own ceiling** — transfer of significance is not transfer of competence.
+
 **2026-08-19: the board now carries THREE targets.** Phase 6 (**PKS**) and Phase 7 (**TERPENE**)
 opened as their own phases, each with its own pre-registration. **RIPP work is PARKED IN THE WINGS,
 not dropped** (user, 2026-08-19) — see *Parked: RIPP* below for exactly what is held and why.
 
 | phase | target | state |
 |---|---|---|
-| **6** | **PKS** | ✅ **[P6-A0] adapter TRAINED** (732 steps = 3 epochs, best val 0.8635, 1h44m). 🔄 **de novo generation running**, n=200 × 3 arms. ⚠️ **T3PKS-dominated substrate** — see below. |
-| **7** | **TERPENE** | ✅ **[P7-A0] adapter TRAINED** (1,998 steps, best val 0.8417, 4h13m). 🔄 **de novo generation queued**, n=200 × 3 arms. |
+| **6** | **PKS** | ✅ **[P6-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.920). `max_orf_aa` 633 vs real 673. ⚠️ T3PKS-dominated substrate; ⚠️ 27.5% degenerate records. |
+| **7** | **TERPENE** | ✅ **[P7-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.980). ⚠️ `n_class_domains`>=2 is 0/200 — RIPP's single-marker limit reproduces. |
 | 5 | RIPP | ⏸️ **PARKED** — Level 2 achieved and defensible; open items listed below. |
 
 ⚠️ **[P6-A0] IS T3PKS-DOMINATED AND MUST BE DESCRIBED AS SUCH.** Of the 3,906 training records the
@@ -199,6 +204,9 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P5-CLASSPROBE** | **cross-class substrate comparison** | multi-domain / multi-gene content of real cores | 50/class | **catalytic units: PKS 0.300 · RIPP 0.080 · TERPENE 0.140.** ⚠️ **multi-GENE: 0.060 · 0.060 · 0.080 — level** | ★ **no class has multi-gene structure in the strict core; PKS's edge is INTRA-genic** | 2026-08-19 |
 | **P6-A0-train** | **PKS strict adapter** | training convergence | 3,906 rec | 732 steps = 3 ep, loss 0.794→0.753, **best val 0.8635** | ✅ trained; ⚠️ 59.3% T3PKS / 31.3% T1PKS-type | 2026-08-20 |
 | **P7-A0-train** | **TERPENE strict adapter** | ″ | 10,658 rec | 1,998 steps, loss 0.843→0.766, **best val 0.8417** | ✅ trained; ⚠️ **at the `--max-steps 2000` cap** | 2026-08-20 |
+| **P6-A0** | **PKS class LoRA, de novo** | `best_bio_bits`>0 @ PKS, w4000 | 200 | **14/200 = 0.070** vs 0/400 (ceiling 0.920) | ✅ **SIGNIFICANT p=1.5e-07** | 2026-08-20 |
+| **P7-A0** | **TERPENE class LoRA, de novo** | ″ @ TERPENE, w2000 | 200 | **14/200 = 0.070** vs 0/400 (ceiling 0.980) | ✅ **SIGNIFICANT p=1.5e-07** | 2026-08-20 |
+| P6/P7-C | base 1B + general adapter, both classes | ″ | 200 each | **0/200 in all four control arms** | floor | 2026-08-20 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**

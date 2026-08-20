@@ -1810,4 +1810,86 @@ window does not match the registered one**, prints a `⛔ VOID FOR <CLASS>` bann
 
 ---
 
+## 2026-08-20 — ★★★ [P6-A0] AND [P7-A0]: THE METHOD TRANSFERS. Both classes significant de novo.
+
+**The Phase-3 result is not RiPP biology.** A class-specific LoRA puts class-appropriate
+biosynthetic machinery into **de novo** output on two new classes, at **p = 1.5e-07** each against a
+pooled control of **0/400**, with both novelty gates clean.
+
+Pre-registered before generation (§6.1 of each prereg): 3 arms x n=200 on all 200 eval prompts, so
+arms are prompt-matched. Substrate `evo2_1b_base`, junk policy `mask`, integrity clean (200/200
+unique in all six arms).
+
+### PKS — window 4,000 nt, `OBLIGATE_DOMAINS[PKS]`
+
+| metric | A0 | A0-C1 base | A0-C2 general | real cores |
+|---|---|---|---|---|
+| **`best_bio_bits`>0 (PRIMARY)** | **14/200 = 0.070** | **0/200** | **0/200** | **46/50 = 0.920** |
+| `containment`* max | 0.004 | 0.002 | 0.005 | 0.043 |
+| `protein_aai`* max | 0.567 | 0.000 | 0.592 | 0.699 |
+| intra-set distinct* | 200/200 | 200/200 | 200/200 | 50/50 |
+| **`JOINT_PASS`*** | **14/200** | 0/200 | 0/200 | 46/50 |
+| `n_bio_domains` \| on-class | 2.36 | — | — | 4.33 |
+| `n_bio_orfs` \| on-class | 1.07 | — | — | 1.22 |
+| **`max_orf_aa`** | **633** | 164 | 478 | **673** |
+| `co_orient` | 0.836 | 0.792 | 0.786 | 1.000 |
+| `n_orfs` | 3.09 | 2.62 | 4.12 | 1.22 |
+| **`n_pass`** (<=1% N) | **145/200** | 191/200 | 200/200 | — |
+| ⛔ `n_class_domains` >=2 | 8/200 | 0/200 | 0/200 | VOID for PKS |
+| ⛔ `bio_span_frac` | 0.364 | — | — | VOID for PKS |
+
+**A0 vs pooled control 0/400: Fisher p = 1.529e-07.** vs base alone p=9.6e-05; vs general adapter
+p=9.6e-05 (identical — both controls are exactly zero).
+
+### TERPENE — window 2,000 nt, `OBLIGATE_DOMAINS[TERPENE]`
+
+| metric | A0 | A0-C1 base | A0-C2 general | real cores |
+|---|---|---|---|---|
+| **`best_bio_bits`>0 (PRIMARY)** | **14/200 = 0.070** | **0/200** | **0/200** | **49/50 = 0.980** |
+| `containment`* max | 0.014 | 0.002 | 0.005 | 0.140 |
+| `protein_aai`* max | 0.583 | 0.000 | 0.535 | 0.867 |
+| intra-set distinct* | 200/200 | 200/200 | 200/200 | 50/50 |
+| **`JOINT_PASS`*** | **14/200** | 0/200 | 0/200 | 49/50 |
+| `n_bio_domains` \| on-class | 1.00 | — | — | 1.22 |
+| `n_bio_orfs` \| on-class | 1.00 | — | — | 1.12 |
+| `n_class_domains` >=2 | **0/200** | 0/200 | 0/200 | 8/50 = 0.160 |
+| `bio_span_frac` \| on-class | 0.475 | — | — | 0.962 |
+| `max_orf_aa` | 386 | 136 | 342 | 339 |
+| `co_orient` | 0.876 | 0.805 | 0.853 | 0.990 |
+| `n_orfs` | 2.17 | 1.45 | 2.37 | 1.30 |
+| **`n_pass`** (<=1% N) | 194/200 | 191/200 | 200/200 | — |
+
+**A0 vs pooled control 0/400: Fisher p = 1.529e-07.**
+
+### What this establishes, and what it does not
+
+✅ **The method generalises.** Three classes, three independent adapters, same shape every time:
+adapter significantly above zero de novo, **both** controls at exactly 0/200, novelty gates clean.
+RIPP's [P3-A0] (4/150 = 0.027, p=0.0054) is no longer a single-class result.
+✅ **`JOINT_PASS` == `on_class` in both classes** — every on-class record also passed both novelty
+gates and intra-set distinctness. Nothing is being bought by copying.
+✅ **PKS writes near-real-length ORFs: `max_orf_aa` 633 vs a 673 real-core ceiling**, against 164 for
+the base model. `max_orf_aa` was promoted to a secondary for PKS precisely because a T1PKS needs one
+long correct reading frame; this is the row that moved.
+
+⚠️ **Both classes read 14/200 = 0.070. That is a COINCIDENCE, not a shared rate** — different marker
+sets, different windows, different ceilings. Cross-class magnitude comparison is invalid by
+construction (Standing Constraint 9); only the *shape* transfers.
+⚠️ **Against the ceiling both are ~7%** (0.070/0.920 and 0.070/0.980) — the same modest fraction
+Phase 3 reported for RIPP. Transfer of significance is not transfer of competence.
+⚠️ **PKS `A0` is the least stable arm on the board: 55/200 = 27.5% degenerate** (>1% N after masking)
+vs 9/200 base and 0/200 general. The old truncate path hid this entirely by cutting those records
+short and reporting them as clean. Rates above are over all 200, not over `n_pass`.
+⚠️ **TERPENE `n_class_domains` >= 2 is 0/200 against a real-core 8/50.** The single-marker limitation
+that dogged RIPP reproduces here exactly.
+⚠️ **[P6-A0] is T3PKS-dominated** (59.3% of training records) — see `phase6_PKS_preregistration.md`
+§2.2 for the required phrasing.
+
+**Provenance:** `phase6_PKS/A0*_w4000_PKS.json`, `phase7_TERPENE/A0*_w2000_TERPENE.json` ·
+generation `--junk-policy mask`, `--base-model evo2_1b_base` · ceilings
+`phase5_classprobe/real_<CLASS>_fit50_w<win>.json` · every scored file carries `class_policy` and
+`integrity` blocks.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

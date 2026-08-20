@@ -365,8 +365,13 @@ def main() -> int:
         print(f"  ⛔ Do not quote the metric(s) above for {args.cls}. "
               f"See config/class_eval_policy.yaml.")
     d2 = ladder["n_class_domains"]
+    # The real-core reference is PER CLASS -- a hardcoded RIPP number printed under a PKS report
+    # is exactly the cross-class contamination config/class_eval_policy.yaml exists to prevent.
+    _ref = {"RIPP": "8/50 = 0.160", "PKS": "42/50 = 0.840 by Pfam ACCESSION, but only 0.300 by "
+                                           "catalytic unit and 0.060 by distinct ORF -- VOID, see policy",
+            "TERPENE": "8/50 = 0.160"}.get(args.cls, "not measured for this class")
     print(f"  -> records with >=2 distinct {args.cls} markers: {d2['n_with_ge2']}/{jp['n']}"
-          f"   (real cores: 9/31 = 29%)")
+          f"   (real {args.cls} cores: {_ref})")
     print()
     if jp["on_class"] and jp["JOINT_PASS"] < jp["on_class"]:
         print(f"  ⚠️ {jp['on_class'] - jp['JOINT_PASS']} on-class record(s) fail a novelty or")
