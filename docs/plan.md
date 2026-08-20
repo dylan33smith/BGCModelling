@@ -13,6 +13,16 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 Phase 5. Target **RIPP**, substrate **Evo2 1B**. **Level 2 is achieved and defensible. The precursor
 line is dropped. The remaining gap is now stated in antiSMASH's own terms.**
 
+⚠️ **READ FIRST — 2026-08-19 data-integrity correction.** The fan-out that produced the **Phase-4/5**
+seeded arms wrote **four byte-identical copies** of the same units (`bugs.md`: `seed_generate.py`
+has no shard argument). Effective n was **47–141, not 188**. Rates are essentially unchanged;
+**n, CIs and p-values were not.** Consequences: the WIDE refutation now holds at **one window
+(Holm p=0.021), not two** (8 kb fell to p=0.15, n.s.); `JOINT_PASS` = 0 on those arms was an
+artefact and is **UNMEASURED**; the subclass gap rests on **7 unique generated detections, not 28**.
+**Every Phase-3 set was audited and is CLEAN** — A0, the controls, the seed sweep and all of
+Stage 2 are unaffected, so the Level-2 claim below stands. `scripts/novelty_battery.py` now refuses
+to score a duplicated set.
+
 **The claim, in plain language:**
 > *We generate short DNA sequences that antiSMASH annotates as **RiPP-like biosynthetic gene
 > clusters**, at ~15% of the rate for real held-out cores, with novelty verified at DNA and protein
@@ -27,18 +37,22 @@ clean on both gates · L\*=8 nt is where the model generates rather than reconst
 source-domain match at 500 nt).
 
 **The remaining gap — `subclass_specificity`.** Of detections, real cores get a **specific** RiPP
-chemistry ~**70%** of the time (lassopeptide, lanthipeptide class i/iii/iv); **our best arm 0%** —
-all 12 detections were the generic `RiPP-like`. The model trips the loose generic rule and never the
+chemistry **0.909** of the time (30/33 detected sequences: lassopeptide, lanthipeptide class i–v,
+thioamitides, azole-containing-RiPP); **our arms 0.000** — all 7 unique detections were the generic
+`RiPP-like` (Fisher p≈1e-5; ⚠️ n=7, and §9.2 pre-registers a **>=15-detection floor** before any arm
+may be called as moving this metric). The model trips the loose generic rule and never the
 tight domain combination a subclass requires. This supersedes `n_class_domains ≥ 2`,
 `bio_span_frac` and the precursor panels, each of which failed validation.
 
-**Closed negative, both powered:** leg 3 inference pruning (no instrument — ladder 0.575, class
-probe 0.337 for within-positives discrimination) and [P4-WIDE] span widening (Holm p=4.1e-04 /
-3.2e-05 vs a size- and cluster-matched control; **mechanism uncertain** — the dilution explanation
-was retracted as partly circular).
+**Closed negative:** leg 3 inference pruning (powered — no instrument: ladder 0.575, class probe
+0.337 for within-positives discrimination) and [P4-WIDE] span widening (**Holm p=0.021 at 2.2 kb on
+unique records; the 8 kb contrast is n.s. after deduplication**, and the dilution mechanism was
+retracted as partly circular — so WIDE closes on one window with an unknown cause).
 
-**Next:** report product specificity in full antiSMASH mode, run the single `bio + transport` arm,
-adopt `subclass_specificity` as the reported endpoint, and write up Level 2. See below.
+**Next:** ✅ product specificity reported in full antiSMASH mode and ✅ `subclass_specificity`
+pre-registered as a declared secondary (§9.2). **The open decision is whether to spend GPU
+regenerating the five duplicated Phase-4/5 arms to restore n=188** (~611 generations + antiSMASH,
+overnight) or to leave them at effective n with the correction documented. See NEXT STEPS.
 
 ---
 
@@ -129,12 +143,13 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P3-WIN** | **window sweep, A0 de novo, fixed set** | `n_class_domains` | 85 | **1.00 at 2k/4k/8k** (real 1.60→1.69, bio 1.69→**2.67**) | ★ gap is NOT a window artefact | 2026-08-18 |
 | **P3-PROBE** | **class probe within-positives** | probe P(RIPP) vs antiSMASH | 68 | **AUROC 0.337** (anti-correlated; saturated at ~0.997) | ⛔ **leg 3 has no instrument** | 2026-08-18 |
 | P4-WIDE-dn | WIDE adapter, **de novo** 8 kb | `best_bio_bits` @ RIPP | 79 | 0/79 · 0/79 · 1/79 (n.s. vs A0) | ⚠️ **UNINFORMATIVE — not powered** | 2026-08-18 |
-| **P4-W1** | **WIDE adapter, seeded L=8** | antiSMASH-corrected | 188 | **0.027** (2.2k) · **0.000** (8k) | ⛔ **WORSE than matched control** | 2026-08-19 |
-| **P4-W2** | **STRICT size+cluster matched** | ″ | 188 | **0.043** (2.2k) · **0.085** (8k) | control — isolates span width | 2026-08-19 |
-| P4-SF | STRICT-full regenerated @8 kb | ″ | 188 | **0.116** | best arm; gen length n.s. (p=0.50) | 2026-08-19 |
+| **P4-W1** | **WIDE adapter, seeded L=8** | antiSMASH-corrected | **141 / 47** ⚠️ | **0.028** (2.2k) · **0.000** (8k) | ⛔ **WORSE at 2.2k (Holm p=0.021); 8k now n.s.** | 2026-08-19 |
+| **P4-W2** | **STRICT size+cluster matched** | ″ | **47** ⚠️ | **0.043** (2.2k) · **0.085** (8k) | control — isolates span width | 2026-08-19 |
+| P4-SF | STRICT-full regenerated @8 kb | ″ | **47** ⚠️ | **0.128** | best arm; gen length n.s. | 2026-08-19 |
 | ~~P4-DILUTE~~ | ~~biosynthetic fraction of training span~~ | paired, n=250 | 250 | ~~STRICT 0.683 vs WIDE 0.477~~ | ⛔ **RETRACTED — measure was circular**; honest gap 0.869→0.576 | 2026-08-19 |
-| **P5-SUBCLASS** | **product specificity, full antiSMASH** | `subclass_specificity` | 33 real / 12 gen | real **~70% specific**; best arm **0/12 — all `RiPP-like`** | ★ **the remaining gap, in the field's own terms** | 2026-08-19 |
+| **P5-SUBCLASS** | **product specificity, full antiSMASH** | `subclass_specificity` | 33 real / **7 gen** ⚠️ | real **0.909**; generated **0/7 — all `RiPP-like`** (Fisher p≈1e-5) | ★ **the remaining gap, in the field's own terms** | 2026-08-19 |
 | P5-AB | `--minimal` vs full mode, identical seqs | `is_bgc` | 10 | 8/10 vs 8/10 — **100% agreement** | ✅ no prior number retracted | 2026-08-19 |
+| ⚠️ **P5-DEDUP** | **fan-out shard-collision audit** | effective n of every generation set | 68 sets | **5 Phase-4/5 sets 4x-duplicated; all Phase-3 sets CLEAN** | ⛔ **WIDE refutation halved; guard added to the scorer** | 2026-08-19 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**
@@ -220,18 +235,29 @@ the thing to report and to target.
 
 ### NEXT STEPS, in order
 
-1. **[P5-REPORT] Re-score every arm in FULL antiSMASH mode and report product specificity.**
-   Detection is unaffected by `--minimal` (100% agreement, n=10), so nothing needs re-deriving — but
-   **product breakdown becomes a reported row** alongside the corrected rate. Also: stop using
-   `--minimal`, and **retain the output dirs** instead of a `TemporaryDirectory`.
+0. ⚠️ **[P5-REGEN] DECIDE: regenerate the five duplicated Phase-4/5 arms, or report at effective n.**
+   The blocking question, because everything downstream inherits it.
+   - **Cost:** ~611 additional unique generations (SF 141, W2_seeded 141, W2_8k 141, W1_8k 141,
+     W1_seeded 47) plus antiSMASH on the new Pfam-positives and a negative sample — an overnight
+     pipeline comparable to the original.
+   - **Buys:** the 8 kb WIDE contrast back at full power, a real `JOINT_PASS` for those arms, and a
+     `subclass_specificity` denominator that clears the pre-registered **>=15-detection floor**
+     (§9.2). At the measured detection rates, n=188 per arm yields ~12–16 detections for SF and
+     ~16 for W2 — so **regenerating SF and W2 alone roughly reaches the floor**; W-1 does not.
+   - ⚠️ **Vary `--seed` per shard** (`bugs.md`). `seed_generate.py` still has no `--shard i --of N`.
+   - **Does not buy:** any change to the Level-2 claim, which never depended on these arms.
+1. ✅ **[P5-REPORT] DONE 2026-08-19** — all five arms scored in FULL antiSMASH mode
+   (`phase5_detect/full_arms/`, output dirs retained), product specificity reported, and the whole
+   set recomputed on unique records. Detection is unaffected by `--minimal` (100% agreement, n=10).
 2. **[P5-BIOTRANS] One training arm: `bio + transport` spans.** The only expansion worth testing —
    DEFINING-gene coverage 0.687, between STRICT's 0.869 (works) and WIDE's 0.576 (fails), median
    6,578 nt with 55.9% fitting the 1B. Adds a functionally real component at the smallest cost.
    ⛔ Do **not** try "everything except `none`" (0.595 defining, 16,893 nt, 19.5% fit) — no better
    than WIDE on coverage and far worse on length.
-3. **[P5-SUBCLASS] Make subclass specificity the reported endpoint** — "fraction of detections
-   assigned a specific RiPP subclass". Real ~70%, ours 0%. It needs no new detector, uses antiSMASH
-   directly, and is the honest measure of the remaining gap.
+3. ✅ **[P5-SUBCLASS] DONE 2026-08-19** — `subclass_specificity` adopted as a **declared secondary**
+   (the primary endpoint is unchanged, Standing Constraint 4) and pre-registered in
+   `docs/phase3_preregistration.md` **§9.2**, with its scoring config frozen, its real-core
+   reference (**0.909**) stated, and a **>=15-detection power floor** declared before any arm runs.
 4. **[P5-FILTER] Post-generation filtering** — legitimate now *as a selection step only*
    (antiSMASH pass/fail, the phage-paper funnel). ⛔ Not as ranking: nothing we own ranks within
    positives (ladder 0.575, class probe 0.337).

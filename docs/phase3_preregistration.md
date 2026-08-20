@@ -356,6 +356,53 @@ their own row, never as the headline.
    **Every claim significant raw remains significant corrected.** No conclusion changes — but the
    omission was a real deviation from the pre-registered analysis plan and is recorded as one.
 
+## 9.2 AMENDMENT 2026-08-19 — `subclass_specificity` is adopted as a REPORTED SECONDARY, not a new primary
+
+**The primary endpoint does not change** (Standing Constraint 4; §2 stands unedited). `best_bio_bits
+> 0 @ OBLIGATE_DOMAINS[RIPP]`, 2,000 nt, remains the pre-registered primary for every Phase-3 arm,
+so every arm stays comparable to A0 and Stage 2. This amendment adds a **declared secondary** and
+records why, before the arm it will judge has been run.
+
+**What it is.** `subclass_specificity` (`terms.md`) = of the generations antiSMASH **detects**, the
+fraction assigned a **specific** RiPP subclass (lassopeptide, lanthipeptide class i–v, thiopeptide,
+sactipeptide, thioamitides, azole-containing-RiPP …) rather than the generic catch-all `RiPP-like`.
+Denominator = detected regions, so it is a **Stage-B** metric and needs a real-core reference in
+every table it appears in.
+
+**Why it is being added now.** Three metrics were used in turn as proxies for "is this a cluster,
+not a lone gene" — `n_class_domains >= 2`, `bio_span_frac`, and the precursor panels. **All three
+failed validation** (`memory.md` 2026-08-19): only ~16% of *real* cores reach `n_class_domains >= 2`
+in a 2 kb window, `bio_span_frac` inverts within positives, and the precursor detector tops out at
+8–50% sensitivity on our own real data. `subclass_specificity` measures the same underlying question
+using **antiSMASH's own rule hierarchy** — tight subclass rules each require a specific *combination*
+of domains, the loose `RiPP-like` rule fires when none match — so producing a subclass call is
+strictly harder than producing a detection, and it needs no detector we built ourselves.
+
+**Scoring config, frozen here.** Full-mode antiSMASH (⚠️ **never `--minimal`**, which disables the
+analysis modules), region `product` qualifiers, **counted per detected sequence, not per product
+string** — a region may carry several products, and counting strings is what produced the incorrect
+"~70%" real-core figure now corrected to **0.909**. Output directories retained, never a
+`TemporaryDirectory`. Deduplicate the generation set first (`bugs.md`, fan-out shard collision).
+
+**Reference values, measured 2026-08-19 and stated before any new arm runs:**
+
+| set | detected | specific | `subclass_specificity` |
+|---|---|---|---|
+| real held-out cores (ceiling) | 33/40 | 30 | **0.909** |
+| STRICT-full 8k, Pfam-positive (best arm) | 3/4 unique | 0 | **0.000** |
+| STRICT-matched, Pfam-positive | 4/4 unique | 0 | **0.000** |
+| base 1B (floor) | 0/39 | 0 | n/a — no detections |
+
+⚠️ **Power, declared honestly:** the generated denominators are **3 and 4 unique detections**. Fisher
+on the pooled 0/7 vs 30/33 gives p≈1e-5, so the *direction* is established, but **any claim about a
+change in `subclass_specificity` needs a denominator of >=15 detections** before it is believed. That
+threshold is pre-registered here so a future arm cannot be read as "moved the metric" on n=4.
+
+**Kill criterion for the metric itself:** if an arm reaches >=15 detections and `subclass_specificity`
+remains 0.000 while the detection rate rises, the honest reading is that the model produces
+RiPP-like signal without subclass chemistry, and the limitation is reported as permanent for this
+substrate rather than re-proxied a fourth time.
+
 ## 10. What would make this exploratory rather than confirmatory
 
 Any of: changing the primary endpoint; changing the scoring window; adding arms after seeing

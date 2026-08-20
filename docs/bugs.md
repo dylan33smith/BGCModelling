@@ -592,6 +592,38 @@ that 3 kb captures most of a typical one.
 
 ## Data pipeline
 
+### [Symptom] A generation set reports `n=188` but `n_distinct_clusters=47` → [Fix] the fan-out never split the units; every rate carries a 4x-inflated n (2026-08-19)
+
+**Symptom.** `frac_distinct` 0.25 and `frac_with_a_near_duplicate` 1.00 on an arm; the distinct
+count is exactly `n / n_workers`. Downstream, `JOINT_PASS` reads 0 for no visible reason.
+
+**Cause.** `evo2/scripts/seed_generate.py` takes **no shard/offset argument**. Seed selection is
+`random.Random(args.seed)` → `rng.shuffle(sel)`, and sampling is `torch.manual_seed(args.seed)`.
+Four workers with the same `--seed` pick the same seed records AND sample the same continuations,
+so the shards are byte-identical. `scripts/fanout.sh`'s atomic `mkdir` claims prevent two workers
+taking the same *unit file*, but nothing made the *units* disjoint — the same command ran 4x.
+
+**Proven fix.**
+- `scripts/novelty_battery.py` now runs `exact_duplicate_audit()` **before** scoring: under
+  `BGC_EVAL_STRICT` (default on) it raises and refuses to emit a scored file with a false n.
+  `effective_n` is stamped into the `scoring` block; an `integrity` block records the duplicate
+  count and largest group.
+- Until `seed_generate.py` grows a real `--shard i --of N`, **vary `--seed` per shard** — it drives
+  both seed selection and sampling, so distinct seeds give disjoint work.
+- Detect on any existing set with:
+  `python -c "import json,sys; s=[json.loads(l)['sequence'] for l in open(sys.argv[1])]; print(len(s), len(set(s)))" <gen.jsonl>`
+
+**Cost when it went unnoticed:** five Phase-4/5 arms scored at n=188 when the effective n was
+47–141. Point estimates survived (uniform duplication), but one of two headline p-values did not:
+the WIDE-vs-STRICT contrast at 8 kb fell from Holm p=3.2e-05 to **p=0.15, n.s.** See `memory.md`
+2026-08-19.
+
+⚠️ **The instrument was not blind — the reader was.** `novelty_battery.py` printed the collapsed
+`frac_distinct` and warned that on-class records were failing a gate. It was written up as
+"novelty clean everywhere". An integrity assertion must **fail the run**, never appear as a
+statistic beside the result it invalidates.
+
+
 - **[2026-08-18] `accession` IS NOT A UNIQUE KEY — 321 collisions in the RIPP train split.**
   **[Symptom]** Building a size-matched control by selecting strict rows whose accession appears in
   the WIDE split returned **3,877 rows for 3,723 accessions**. `splits_class/RIPP` holds

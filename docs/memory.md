@@ -896,16 +896,31 @@ Pfam-positives + 100 sampled Pfam-negatives per arm).
 
 | metric | W-1 WIDE 2.2k | W-2 STRICT 2.2k | W-1 WIDE 8k | W-2 STRICT 8k | STRICT-full 8k | real cores |
 |---|---|---|---|---|---|---|
-| `best_bio_bits`>0 * (Pfam) | 11/188 = 0.059 | 36/188 = 0.191 | 8/188 = 0.043 | 36/188 = 0.191 | 24/188 = 0.128 | 0.515 |
-| **antiSMASH CORRECTED** * | 0.027 | 0.043 | **0.000** | 0.085 | **0.116** | **0.760** |
+[INCORRECT] - | `best_bio_bits`>0 * (Pfam) | 11/188 = 0.059 | 36/188 = 0.191 | 8/188 = 0.043 | 36/188 = 0.191 | 24/188 = 0.128 | 0.515 |
+[CORRECTION - 2026-08-19]: **every denominator in this row is 4x inflated** — the fan-out wrote
+four byte-identical copies of the same units. On UNIQUE records: W-1 2.2k **7/141 = 0.050** ·
+W-2 2.2k **9/47 = 0.191** · W-1 8k **2/47 = 0.043** · W-2 8k **9/47 = 0.191** · SF 8k
+**6/47 = 0.128**. Rates are essentially unchanged (uniform duplication); **n is not**.
+[INCORRECT] - | **antiSMASH CORRECTED** * | 0.027 | 0.043 | **0.000** | 0.085 | **0.116** | **0.760** |
+[CORRECTION - 2026-08-19]: recomputed on unique records — 0.028 · 0.043 · 0.000 · 0.085 ·
+**0.128** · 0.760. Point estimates hold; the effective n behind them is **47–141, not 188**,
+and the confirmation rates `rp` rest on **2–9 unique** Pfam-positives per arm, not 8–36.
 | conf(Pfam-positive) | 0.455 | 0.222 | **0.000** | 0.444 | 0.500 | — |
 | `containment` * max | 0.004 | 0.013 | 0.001 | 0.025 | 0.014 | — |
 | `protein_aai` * max | 0.531 | 0.627 | 0.558 | 0.660 | 0.678 | 0.641 |
-| `JOINT_PASS` | 3 | 0 | 0 | 0 | 0 | — |
+[INCORRECT] - | `JOINT_PASS` | 3 | 0 | 0 | 0 | 0 | — |
+[CORRECTION - 2026-08-19]: the zeros are an **artefact of the duplication**, not a model
+property — `JOINT_PASS` requires intra-set distinctness, and every record in a 4x-duplicated
+set has an exact twin, so the gate could not be passed by construction. `JOINT_PASS` for
+these five arms is **UNMEASURED**, not zero.
 | **`n_class_domains`≥2** | **0/188** | **0/188** | **0/188** | **0/188** | **0/188** | **14/68** |
 | `n_bio_domains` \| on-class | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.69 |
 
-**Contrasts, Holm-corrected (§9.1):** W-1 vs W-2 at 2.2 kb **p=4.1e-04**; at 8 kb **p=3.2e-05** —
+[INCORRECT] - **Contrasts, Holm-corrected (§9.1):** W-1 vs W-2 at 2.2 kb **p=4.1e-04**; at 8 kb **p=3.2e-05** —
+[CORRECTION - 2026-08-19]: recomputed on unique records, same Fisher/Holm family of 4 —
+**2.2 kb p=0.0053, Holm p=0.021 (STILL SIGNIFICANT)**; **8 kb p=0.050, Holm p=0.15 (NOW n.s.)**.
+⇒ **WIDE is still refuted, but on ONE window, not two, and at p=0.02 rather than 4e-04.**
+W-2 vs STRICT-full (dataset size) stays n.s. (p=0.57). See the 2026-08-19 fan-out entry.
 **WIDE significantly WORSE both times.** W-2 vs STRICT-full **p=0.79** — the 7,250→3,723 training-set
 drop costs nothing, so **span width is isolated as the cause**. Generation length 8 kb vs 2.2 kb
 **p=0.50**, n.s.
@@ -936,7 +951,11 @@ content, it learned to produce sparse biosynthetic content.
 five adapters, three windows, not one generation with two distinct RIPP markers. Real cores 14/68.
 WIDE was the intervention aimed at this number and it went 2/188 → 0/188.
 
-**Novelty clean everywhere** — max containment ≤0.025, max AAI ≤0.678, both far under 0.95.
+[INCORRECT] - **Novelty clean everywhere** — max containment ≤0.025, max AAI ≤0.678, both far under 0.95.
+[CORRECTION - 2026-08-19]: the containment/AAI gates were clean, but the statement swept past
+the diversity gate the scorer had already flagged — `frac_distinct` 0.25 and
+`frac_with_a_near_duplicate` 1.00 on three of five arms. **That was the bug announcing itself
+and being read as a model finding.** Novelty vs training data: clean. Intra-set: unmeasurable.
 
 ⇒ **[P4-WIDE] CLOSES NEGATIVE, powered.** But it closes *with a mechanism*, which is the useful
 part: more sequence per record ≠ more biosynthetic signal per record. The next intervention should
@@ -1383,8 +1402,12 @@ analysis, CompaRiPPson — never the detection verdict.
 | arm | n | detected | rate | precursor motif |
 |---|---|---|---|---|
 | real cores | 40 | 33 | 0.825 | 0 |
-| SF Pfam-positive (best arm) | 16 | 12 | 0.750 | 0 |
-| W-2 Pfam-positive | 16 | 16 | 1.000 | 0 |
+[INCORRECT] - | SF Pfam-positive (best arm) | 16 | 12 | 0.750 | 0 |
+[CORRECTION - 2026-08-19]: duplicate copies. **6 unique sequences, 4 produced antiSMASH output,
+3 detected = 0.750.** The rate holds; the n behind it is **3 detections, not 12.**
+[INCORRECT] - | W-2 Pfam-positive | 16 | 16 | 1.000 | 0 |
+[CORRECTION - 2026-08-19]: duplicate copies. **9 unique sequences, 4 ran, 4 detected = 1.000.**
+The n behind it is **4 detections, not 16.** `real` (40) and `base` (40) were NOT duplicated.
 | SF Pfam-negative | 38 | 4 | 0.105 | 0 |
 | base 1B | 39 | 0 | **0.000** | 0 |
 
@@ -1393,8 +1416,12 @@ analysis, CompaRiPPson — never the detection verdict.
 | arm | antiSMASH products called |
 |---|---|
 | **real cores** | lassopeptide 7 · RiPP-like 4 · lanthipeptide-class-iv 4 · lanthipeptide-class-i 3 · lanthipeptide-class-iii 3 · redox-cofactor 2 |
-| **SF Pfam+ (best arm)** | **RiPP-like 12 — nothing else** |
-| **W-2 Pfam+** | **RiPP-like 16 — nothing else** |
+[INCORRECT] - | **SF Pfam+ (best arm)** | **RiPP-like 12 — nothing else** |
+[CORRECTION - 2026-08-19]: on unique sequences — **`RiPP-like` 3, nothing else.**
+[INCORRECT] - | **W-2 Pfam+** | **RiPP-like 16 — nothing else** |
+[CORRECTION - 2026-08-19]: on unique sequences — **`RiPP-like` 4, nothing else.** The direction
+survives (0/7 unique generated detections carry a subclass vs 30/33 real, Fisher p≈1e-5) but the
+honest n is **7, not 28**.
 
 ⇒ **Every generated detection is antiSMASH's generic catch-all.** Real clusters are assigned a
 *specific chemistry* — lassopeptide, lanthipeptide class I/III/IV. **Ours never are.** The model
@@ -1445,6 +1472,92 @@ and WIDE was worse at **Holm p = 4.1e-04** (2.2 kb) and **3.2e-05** (8 kb), with
 size drop separately shown to cost nothing (p=0.79). That stands independent of any explanation.
 ⇒ **The finding survives; my mechanism for it is now uncertain.** Dilution, span length, or
 something else — we do not know which, and the docs should stop asserting dilution as the cause.
+
+---
+
+
+## 2026-08-19 — ⛔ DATA-INTEGRITY BUG: the fan-out wrote FOUR IDENTICAL COPIES. Effective n was 47.
+
+**Found while assembling the [P5-REPORT] table.** Two arms reported `n_distinct_clusters` = **47 of
+188** — exactly 188/4. That is not a biological number.
+
+**Root cause.** `evo2/scripts/seed_generate.py` has **no shard/offset argument**. It draws seeds with
+`rng = random.Random(args.seed)` → `rng.shuffle(sel)`, then sets `torch.manual_seed(args.seed)` per
+generation. Four workers launched with the same `--seed` therefore select the **same** seed records
+and sample the **same** continuations — byte-identical output. The fan-out contract in `CLAUDE.md`
+("N *sequential* processes on **disjoint units**") was satisfied in form (4 shard files, 4 tmux
+sessions, 4 sentinels) and violated in substance: nothing made the units disjoint.
+
+**Blast radius — measured over every generation set on disk, not assumed:**
+
+| generation set | records | unique | verdict |
+|---|---|---|---|
+| `SF_seeded8k.jsonl` | 188 | **47** | 4x identical shards |
+| `W2_seeded.jsonl` | 188 | **47** | 4x identical shards |
+| `W2_seeded8k.jsonl` | 188 | **47** | 4x identical shards |
+| `W1_seeded8k.jsonl` | 188 | **47** | 4x identical shards |
+| `W1_seeded.jsonl` | 188 | **141** | shards b and d collided; a/c distinct |
+| `A0_8k`, `A0_noseed`, `ctrl_base`, `ctrl_general`, pilots | 150/150/150/150/50 | all | ✅ CLEAN |
+| `S2-1` … `S2-5` | 188 each | 186–188 | ✅ CLEAN |
+| seed sweep `s1_*` | 50 each | 49–50 | ✅ CLEAN |
+
+⇒ **PHASE 3 IS UNAFFECTED.** A0 significance (p=0.0054), S2-1 class-specificity (p=2.5e-11), the
+shuffle control (p=0.66), P3-AS antiSMASH (33 unique on-class), P3-AAI and the seed sweep all rest
+on clean, unduplicated sets. **The damage is confined to Phase 4/5** — the WIDE comparison, the
+"best arm" headline, and the subclass table.
+
+**What uniform duplication does and does not do.** A rate over 4 copies of 47 equals the rate over
+47, so **point estimates survive almost unchanged**. **n, confidence intervals and p-values do not.**
+
+**Recomputed on unique records** (`scripts/novelty_battery.py` now refuses to score a duplicated
+set; audit script + numbers below):
+
+| arm | Pfam, as published | Pfam, unique | antiSMASH-corrected, unique | `rp` rests on |
+|---|---|---|---|---|
+| W-1 WIDE 2.2k | 11/188 = 0.059 | **7/141 = 0.050** | 0.028 | 7 unique |
+| W-2 STRICT 2.2k | 36/188 = 0.191 | **9/47 = 0.191** | 0.043 | 9 unique |
+| W-1 WIDE 8k | 8/188 = 0.043 | **2/47 = 0.043** | 0.000 | 2 unique |
+| W-2 STRICT 8k | 36/188 = 0.191 | **9/47 = 0.191** | 0.085 | 9 unique |
+| **SF STRICT-full 8k** | 24/188 = 0.128 | **6/47 = 0.128** | **0.128** | 6 unique |
+
+**★ THE CONSEQUENCE THAT MATTERS — the WIDE refutation is HALVED, not destroyed.**
+Fisher exact on Pfam counts, Holm over the same family of 4:
+
+| contrast | as published | **recomputed on unique** |
+|---|---|---|
+| W-1 vs W-2 @ 2.2 kb | Holm p=4.1e-04 | **Holm p=0.021 — still significant** |
+| W-1 vs W-2 @ 8 kb | Holm p=3.2e-05 | **Holm p=0.15 — NOW n.s.** |
+| W-2 vs SF (dataset size) | p=0.79 | p=0.57 — still n.s. |
+
+⇒ **WIDE is still refuted, on one window instead of two, at p=0.02 instead of 4e-04.** The
+direction never reverses in any cut. The `[P4-WIDE]` verdict stands; its *strength* was overstated.
+
+**★ AND THE SUBCLASS FINDING SHRINKS BUT SURVIVES, while the real-core ceiling moves UP.**
+Recounted per *detected sequence* on unique records: real cores **30/33 = 0.909** carry a specific
+subclass (the earlier "~70%" counted product *strings*, and regions carry several). Generated:
+**0/3 (SF) and 0/4 (W-2)**. Fisher 0/7 vs 30/33 → **p≈1e-5**. The gap is real and in fact wider than
+reported, but it now rests on **7 unique generated detections, not 28**.
+
+**`JOINT_PASS` = 0 on those arms was an ARTEFACT, not a result.** The gate requires intra-set
+distinctness, which a 4x-duplicated set cannot pass by construction. It is UNMEASURED there.
+
+**★ THE PROCESS FAILURE, which is the more useful lesson.** The scorer **already computed and
+printed** `frac_distinct` 0.25 and `frac_with_a_near_duplicate` 1.00, and already warned that
+on-class records were failing a gate. The number was carried into a results table as
+`JOINT_PASS` 0 and written up as *"novelty clean everywhere"*. **The instrument worked; the reading
+did not.** An exact-duplicate rate is a *pipeline* assertion and must fail the run, not appear as a
+diversity statistic competing for attention with a p-value.
+
+**Fixes applied.**
+1. `scripts/novelty_battery.py` — new `exact_duplicate_audit()`; under `BGC_EVAL_STRICT` (default
+   on) it **raises before scoring** and refuses to emit a file carrying a false n. `effective_n` is
+   now stamped into the `scoring` block and an `integrity` block of every scored file.
+2. `seed_generate.py` needs a shard argument before any future fan-out — recorded in `bugs.md`.
+   Until then, **vary `--seed` per shard**; it drives both seed selection and sampling.
+3. Affected generation sets flagged in `data.md` with their effective n.
+
+**Provenance:** audit over all 68 generation sets under `phase3_RIPP*/` and `phase5_detect/`;
+recomputation aligned the antiSMASH TSV to `as_*.jsonl` by row order with a per-row length assertion.
 
 ---
 

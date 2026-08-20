@@ -43,6 +43,12 @@ sys.path.insert(0, str(REPO / "evo2" / "scripts"))
 K = 21
 
 
+def strict_mode() -> bool:
+    """Same switch the eval suite uses (`BGC_EVAL_STRICT`, default on)."""
+    import os
+    return os.environ.get("BGC_EVAL_STRICT", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
 # ──────────────────────────── shared ────────────────────────────
 def kmers(seq: str, k: int = K) -> set[str]:
     return {seq[i:i + k] for i in range(len(seq) - k + 1)} if len(seq) >= k else set()
@@ -114,6 +120,31 @@ def protein_novelty(gen_seqs: list[str], db_fasta: Path, env: str = "bgcmodel",
             i = int(q.split("_")[1])
             best[i] = max(best[i], float(fid))
     return best
+
+
+# ─────────────────────── T3.0  PIPELINE INTEGRITY ───────────────────────
+def exact_duplicate_audit(seqs: list[str]) -> dict:
+    """EXACT byte-identical records within one generation set.
+
+    This is NOT mode collapse and must never be reported as such. A model sampling at
+    temperature 1.0 does not emit the same 8,000-nt sequence twice; byte-identical records
+    mean the generation set was ASSEMBLED wrong -- the 2026-08-19 fan-out wrote four copies
+    of the same 47 units because `seed_generate.py` takes no shard argument and every worker
+    ran with the same --seed. Effective n was 47 while every table said 188.
+
+    Rates survive uniform duplication; n, confidence intervals and p-values do not.
+    """
+    seen: dict[str, int] = {}
+    for s in seqs:
+        seen[s] = seen.get(s, 0) + 1
+    dup_groups = {k: v for k, v in seen.items() if v > 1}
+    return {
+        "n": len(seqs),
+        "n_unique": len(seen),
+        "n_exact_duplicate_records": len(seqs) - len(seen),
+        "largest_duplicate_group": max(dup_groups.values(), default=1),
+        "effective_n": len(seen),
+    }
 
 
 # ──────────────────────────── T3.3 ────────────────────────────
@@ -216,6 +247,19 @@ def main() -> int:
 
     db = build_protein_db(args.train, args.db_fasta)
     aai = protein_novelty(gens, db)
+    dupe = exact_duplicate_audit(gens)
+    if dupe["n_exact_duplicate_records"]:
+        msg = (f"[battery] EXACT-DUPLICATE RECORDS: {dupe['n_exact_duplicate_records']} of "
+               f"{dupe['n']} records are byte-identical copies; effective n is "
+               f"{dupe['effective_n']}, not {dupe['n']} (largest group "
+               f"{dupe['largest_duplicate_group']}x). This is a GENERATION-PIPELINE BUG, not "
+               f"mode collapse -- see bugs.md, fan-out shard collision. Every rate computed "
+               f"here carries the WRONG n.")
+        if strict_mode():
+            raise SystemExit(msg + "\n[battery] refusing to emit a scored file with a false n. "
+                             "Deduplicate the generation set, or set BGC_EVAL_STRICT=0 to "
+                             "score it anyway with effective_n recorded.")
+        print("  ⚠️ " + msg)
     div = intra_set_diversity(gens)
 
     # per-record distinctness for the joint test
@@ -306,11 +350,13 @@ def main() -> int:
                        "window_nt": args.window,
                        "gen_set": args.gen.name,
                        "train_set": str(args.train),
-                       "n": len(gens)},
+                       "n": len(gens),
+                       "effective_n": dupe["effective_n"]},
            "ladder": ladder,
            "on_class": on_class, "on_class_generic": on_class_generic,
            "nt_containment": nt_cont, "aai": aai,
-           "distinct": distinct, "diversity": div, "joint": jp}
+           "distinct": distinct, "diversity": div, "joint": jp,
+           "integrity": dupe}
     if args.out:
         out = args.out
         if args.cls.lower() not in out.stem.lower():

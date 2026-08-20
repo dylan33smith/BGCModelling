@@ -324,16 +324,23 @@ Aliases:              names seen in old docs. Do not use them.
   generic catch-all **`RiPP-like`**.
 - **Computed by:** full-mode antiSMASH (⚠️ **not `--minimal`**) → `region` feature `product`
   qualifiers. Denominator = detected regions, so it is a **Stage-B** metric.
+- ⚠️ **COUNT PER DETECTED SEQUENCE, NOT PER PRODUCT STRING.** A region can carry several products,
+  so counting strings inflates the denominator and deflates the rate. Counting strings is what
+  produced the withdrawn "~70%" real-core figure; per sequence it is **0.909** (30/33).
 - **Why it matters:** antiSMASH uses a rule hierarchy — tight subclass rules each require a specific
   **combination** of domains; the loose `RiPP-like` rule fires on weaker evidence when none match.
   Producing a subclass call is therefore strictly harder than producing a detection.
 - **CHANGES MEANING WITH:** antiSMASH version and rule set; `--minimal` (which still emits products,
   but the analysis modules that refine them do not run).
 - **Valid vs:** real cores through the identical path.
-- **Status:** **The honest measure of the remaining gap** (adopted 2026-08-19). Real cores **~70%**
-  specific (lassopeptide 7, lanthipeptide-class-iv 4, -i 3, -iii 3 of 33 detected); **our best arm
-  0%** — 12/12 detections were `RiPP-like`. Supersedes `n_class_domains ≥ 2`, `bio_span_frac` and the
-  precursor panels, all of which were indirect proxies for this and each failed validation.
+- **Status:** **The honest measure of the remaining gap** (adopted 2026-08-19; pre-registered as a
+  declared secondary, §9.2 — the primary endpoint is unchanged). Real cores **0.909** (30/33
+  detected sequences carry a specific subclass); **our best arm 0.000** — every detection is
+  `RiPP-like`. Supersedes `n_class_domains ≥ 2`, `bio_span_frac` and the precursor panels, all of
+  which were indirect proxies for this and each failed validation.
+- ⚠️ **POWER FLOOR: >=15 detections.** The generated denominators are currently **3 and 4 unique**
+  detections (0/7 pooled vs 30/33 real, Fisher p≈1e-5 — direction established, magnitude not).
+  Pre-registered: no arm may be reported as having moved this metric on fewer than 15 detections.
 
 ### THE TWO-PASS DETECTION ARCHITECTURE  [evaluation] [method]
 - **Is:** Pfam gate first (cheap, Stage A), antiSMASH second (gold standard, Stage B). **Calibrated
