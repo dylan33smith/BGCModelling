@@ -43,6 +43,24 @@ sys.path.insert(0, str(REPO / "evo2" / "scripts"))
 K = 21
 
 
+# ─────────────────────── PER-CLASS METRIC POLICY ───────────────────────
+def load_class_policy(cls: str) -> dict:
+    """Which metrics mean what FOR THIS CLASS (`config/class_eval_policy.yaml`).
+
+    The reporting set is class-agnostic; its interpretation is not. `bio_span_frac` reads 0.997
+    on real PKS cores (saturated -- a megasynthase core is one long biosynthetic ORF) and
+    `n_class_domains` inflates ~2.7x for PKS because several Pfam models cover one catalytic
+    domain. Both are meaningful for RIPP. Prose cannot stop a void number being quoted, so the
+    policy is machine-readable and travels inside every scored file.
+    """
+    import yaml
+    path = REPO / "config" / "class_eval_policy.yaml"
+    if not path.exists():
+        return {}
+    pol = yaml.safe_load(path.read_text()) or {}
+    return pol.get(cls, {})
+
+
 def strict_mode() -> bool:
     """Same switch the eval suite uses (`BGC_EVAL_STRICT`, default on)."""
     import os
@@ -247,6 +265,15 @@ def main() -> int:
 
     db = build_protein_db(args.train, args.db_fasta)
     aai = protein_novelty(gens, db)
+    policy = load_class_policy(args.cls)
+    void = {k: v.get("reason", "") for k, v in (policy.get("metrics") or {}).items()
+            if isinstance(v, dict) and v.get("status") == "void"}
+    if policy:
+        want_w = policy.get("window_nt")
+        if want_w and want_w != args.window:
+            print(f"  ⚠️ window {args.window} nt is NOT the registered window for {args.cls} "
+                  f"({want_w} nt, config/class_eval_policy.yaml). These numbers are not "
+                  f"comparable to that class's ceiling.")
     dupe = exact_duplicate_audit(gens)
     if dupe["n_exact_duplicate_records"]:
         msg = (f"[battery] EXACT-DUPLICATE RECORDS: {dupe['n_exact_duplicate_records']} of "
@@ -331,6 +358,12 @@ def main() -> int:
         onc = d.get("mean_among_on_class")
         onc = f"{onc:.3f}" if onc is not None else "n/a"
         print(f"  {k:<16}{allv:>16}{onc:>18}   {_what[k]}")
+    if void:
+        print()
+        for k, why in void.items():
+            print(f"  ⛔ VOID FOR {args.cls}: {k} — {' '.join(why.split())[:150]}")
+        print(f"  ⛔ Do not quote the metric(s) above for {args.cls}. "
+              f"See config/class_eval_policy.yaml.")
     d2 = ladder["n_class_domains"]
     print(f"  -> records with >=2 distinct {args.cls} markers: {d2['n_with_ge2']}/{jp['n']}"
           f"   (real cores: 9/31 = 29%)")
@@ -356,7 +389,10 @@ def main() -> int:
            "on_class": on_class, "on_class_generic": on_class_generic,
            "nt_containment": nt_cont, "aai": aai,
            "distinct": distinct, "diversity": div, "joint": jp,
-           "integrity": dupe}
+           "integrity": dupe,
+           "class_policy": {"loaded": bool(policy),
+                            "registered_window_nt": policy.get("window_nt"),
+                            "void_metrics": sorted(void)}}
     if args.out:
         out = args.out
         if args.cls.lower() not in out.stem.lower():

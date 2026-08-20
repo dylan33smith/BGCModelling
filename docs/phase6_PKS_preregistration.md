@@ -126,6 +126,43 @@ parked `bio + transport` line, not this phase.**
 **Provenance:** `phase5_classprobe/PKS_collapsed_markers.json`, per-record Pfam scan
 (`check_class_markers`, full Pfam-A) over `real_PKS_fit50.jsonl`, window 4,000, n=50.
 
+## 2.2 AMENDMENT 2026-08-20 — ⚠️ WHAT THE PHASE-6 ADAPTER IS ACTUALLY TRAINED ON: ~60% T3PKS
+
+§2 predicted the context filter would skew the training set toward T3PKS. **Measured directly on
+`phase6_PKS/train.whole.jsonl` — the 3,906 records the trainer kept — sample n=150, per-record Pfam
+scan, classified by catalytic unit:**
+
+| what the record carries | n | share |
+|---|---|---|
+| **CHS** — chalcone synthase (**T3PKS**, a single ~350-aa gene) | 89 | **0.593** |
+| **KS** — ketosynthase (**T1PKS-type modular**) | 47 | **0.313** |
+| both | 0 | 0.000 |
+| neither (no PKS marker at all) | 14 | 0.093 |
+
+Median record length in the sample: **1,167 nt**. Of the 47 KS records, **37 carry KS *plus* AT**
+(19 of those also DH), i.e. genuine multi-module content.
+
+⇒ **STATE THIS WITH EVERY PHASE-6 RESULT. The adapter is T3PKS-dominated.** It is *not* "essentially
+a T3PKS model" — nearly a third of its data is modular ketosynthase — but any unqualified claim about
+"PKS" from this run is disproportionately a claim about **type III PKS**, which is a single-gene
+aromatic-polyketide enzyme, not the modular assembly line the word "PKS" usually evokes to a reader.
+
+**The honest phrasing for any write-up:**
+> *"a PKS-class adapter trained predominantly (~60%) on type-III (chalcone-synthase) cores, with
+> ~31% type-I modular ketosynthase cores; records above 7,992 nt were dropped to fit the 1B's
+> context, which removes the longest modular assembly lines."*
+
+⛔ **Not** *"a model that generates polyketide synthase gene clusters."*
+
+⇒ This is also the strongest argument for the **T1PKS-only arm** (§1 discussion): it is the only way
+to make a claim about modular PKS from this substrate, and at ~31% of 3,906 it would have roughly
+1,200 records — small but not unworkable. The counter-argument stands: T1PKS median 7,665 nt sits at
+the 7,992 budget, so that arm is truncation-biased by construction and must be declared a lower
+bound.
+
+**Provenance:** `scripts` scratch classification over `phase6_PKS/train.whole.jsonl`, n=150 sampled
+`random.Random(0)`, `check_class_markers` against full Pfam-A, catalytic units per §2.1.
+
 ## 3. Primary endpoint — frozen
 
 **`best_bio_bits` > 0 @ `OBLIGATE_DOMAINS[PKS]` (8 accessions), scoring window 4,000 nt**, substrate

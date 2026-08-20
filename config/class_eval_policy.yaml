@@ -1,0 +1,109 @@
+# Per-class evaluation policy — which metrics mean what, for WHICH class.
+#
+# WHY THIS FILE EXISTS (2026-08-20)
+# --------------------------------
+# The reporting set in `terms.md` is class-agnostic, and that was fine while RIPP was the only
+# target. It is not fine now. Two metrics have already been measured VOID for a specific class
+# while remaining meaningful for the others:
+#
+#   * `bio_span_frac` reads 0.997 on real PKS cores -- saturated, because a megasynthase core is
+#     one long biosynthetic ORF. Any threshold derived on RIPP is meaningless there.
+#   * `n_class_domains` counts Pfam ACCESSIONS, and `OBLIGATE_DOMAINS[PKS]` holds several models
+#     per catalytic domain, so a single T3PKS gene scores 2. Inflates ~2.7x for PKS only.
+#
+# Prose cannot enforce that. A number written into a table gets quoted. So the policy lives here,
+# machine-readable, and `scripts/novelty_battery.py` stamps it into every scored file and flags
+# void metrics in the printed table.
+#
+# STATUS VALUES
+#   primary     the pre-registered endpoint for this class. Exactly one.
+#   secondary   reported always, decisive never.
+#   gate        a hard novelty gate; a rate without it is uninterpretable.
+#   diagnostic  reported, but explicitly not evidence of capability.
+#   void        MUST NOT be quoted for this class. `reason` is required and must name the
+#               measurement that established it.
+#
+# Adding a class: copy a block, then MEASURE each status against real held-out cores of that class
+# before writing it down. Do not inherit another class's policy -- that is Standing Constraint 9.
+
+RIPP:
+  window_nt: 2000
+  antismash_minlength: null          # antiSMASH default (1,000 nt)
+  reference: "phase5_classprobe/real_RIPP_ceiling50_w2000.json"
+  metrics:
+    best_bio_bits:        {status: primary,    note: "> 0 @ OBLIGATE_DOMAINS[RIPP], 8 accessions"}
+    containment:          {status: gate,       note: "WARN 0.80 / FAIL 0.95. Real cores: median 0.001, max 0.357"}
+    protein_aai:          {status: gate,       note: "FAIL 0.95. Read among on-class vs real cores 0.641"}
+    intra_set_distinct:   {status: gate,       note: "exact duplicates now refuse to score at all"}
+    JOINT_PASS:           {status: gate,       note: "all gates at once"}
+    subclass_specificity: {status: secondary,  note: "real cores 0.909 (30/33). >=15-detection floor, prereg 9.2"}
+    n_class_domains:      {status: diagnostic, note: "only ~16% of REAL cores reach >=2; ceiling too low to grade"}
+    n_bio_domains:        {status: secondary,  note: "real cores 1.91 among on-class"}
+    n_bio_orfs:           {status: secondary,  note: "multi-GENE content. Real cores 0.060 reach >=2"}
+    bio_span_frac:        {status: diagnostic, note: "inverts within positives (AUROC 0.173); not a gate"}
+    co_orient:            {status: secondary,  note: "real cores median 1.000"}
+    n_orfs:               {status: secondary,  note: ""}
+    max_orf_aa:           {status: diagnostic, note: "structural only, never quoted as capability"}
+
+PKS:
+  window_nt: 4000                    # held-out median core 3,707 nt; 2,000 would truncate most
+  antismash_minlength: null
+  reference: "phase5_classprobe/real_PKS_fit50_w4000.json"
+  metrics:
+    best_bio_bits:        {status: primary,    note: "> 0 @ OBLIGATE_DOMAINS[PKS], 8 accessions"}
+    containment:          {status: gate,       note: "real cores: median 0.006, max 0.043"}
+    protein_aai:          {status: gate,       note: ""}
+    intra_set_distinct:   {status: gate,       note: ""}
+    JOINT_PASS:           {status: gate,       note: ""}
+    module_order:         {status: secondary,  note: "MODULE_PATTERNS[PKS] = KS-AT-ACP. THE structural endpoint for this class -- PKS structure is intra-genic, which is what ordering measures. No RIPP analogue."}
+    product_type:         {status: secondary,  note: "MANDATORY breakdown T1PKS / T3PKS / PKS-like / other. Real cores: T3PKS 26, T1PKS 20, PKS-like 3, T2PKS 2, transAT-PKS 1. Detection rate alone cannot tell 'made a cluster' from 'made a short T3PKS gene'."}
+    subclass_specificity: {status: secondary,  note: "PKS-like is the catch-all and is rare in real cores (3/49), so ceiling ~0.94"}
+    n_class_domains:
+      status: void
+      reason: >-
+        Counts Pfam ACCESSIONS, and OBLIGATE_DOMAINS[PKS] contains PF00195+PF08392 (the N/C halves
+        of one chalcone synthase) and PF00109+PF02801+PF16197 (one ketosynthase). A single T3PKS
+        gene scores 2 unaided. Real cores: 0.800 by accession vs 0.300 by catalytic unit. Measured
+        2026-08-19, phase5_classprobe/PKS_collapsed_markers.json. Report n_catalytic_units and
+        n_bio_orfs instead.
+    n_catalytic_units:    {status: secondary,  note: "n_class_domains with N/C model pairs collapsed. Real cores 0.300 reach >=2. THIS is the PKS multi-domain number."}
+    n_bio_orfs:           {status: secondary,  note: "multi-GENE content. Real cores 0.060 reach >=2 -- level with RIPP, NOT better"}
+    n_bio_domains:        {status: secondary,  note: "real cores 4.33 among on-class, vs RIPP 1.91"}
+    bio_span_frac:
+      status: void
+      reason: >-
+        Reads 0.997 on real PKS cores that fit the 1B -- saturated, because a megasynthase core is
+        one long biosynthetic ORF. There is no headroom to measure anything, and any threshold
+        derived on RIPP is void here. Measured 2026-08-19,
+        phase5_classprobe/real_PKS_fit50_w4000.json.
+    co_orient:            {status: diagnostic, note: "near-1.0 trivially when the core is one ORF"}
+    n_orfs:               {status: secondary,  note: "real cores 1.22 -- LOW is normal here, unlike RIPP"}
+    max_orf_aa:           {status: secondary,  note: "real cores 673 aa. PROMOTED from diagnostic: a T1PKS needs one long correct reading frame, so truncation/frameshift is a real PKS failure mode with no RIPP analogue."}
+
+TERPENE:
+  window_nt: 2000
+  antismash_minlength: 200           # antiSMASH REFUSES records <1,000 nt; median core is 960
+  reference: "phase5_classprobe/real_TERPENE_fit50_w2000.json"
+  metrics:
+    best_bio_bits:        {status: primary,    note: "> 0 @ OBLIGATE_DOMAINS[TERPENE], 7 accessions"}
+    containment:          {status: gate,       note: "read against TERPENE cores (median 0.011, p90 0.034, max 0.140), NOT RIPP's"}
+    protein_aai:          {status: gate,       note: ""}
+    intra_set_distinct:   {status: gate,       note: ""}
+    JOINT_PASS:           {status: gate,       note: ""}
+    product_type:         {status: secondary,  note: "terpene 22 / terpene-precursor 28 in real cores"}
+    subclass_specificity:
+      status: void
+      reason: >-
+        No generic catch-all exists for this class. The entire product vocabulary over 50 real
+        cores is `terpene` and `terpene-precursor` plus three off-class singletons -- there is no
+        `terpene-like` corresponding to `RiPP-like` or `PKS-like`, so the ratio the metric is
+        defined on does not exist. The candidate substitute (cyclase rule vs precursor-only) is
+        length-confounded, median 2,009 vs 928 nt. Measured 2026-08-19,
+        phase5_classprobe/as_real_TERPENE_ml200.tsv.
+    n_class_domains:      {status: diagnostic, note: "real cores 0.140 reach >=2; accession and catalytic-unit counts are identical for this marker set (no N/C pairs)"}
+    n_bio_orfs:           {status: secondary,  note: "real cores 0.080 reach >=2"}
+    n_bio_domains:        {status: secondary,  note: "real cores 1.22 among on-class"}
+    bio_span_frac:        {status: diagnostic, note: "0.962 on real cores -- high but not saturated"}
+    co_orient:            {status: secondary,  note: ""}
+    n_orfs:               {status: secondary,  note: "real cores 1.30"}
+    max_orf_aa:           {status: diagnostic, note: "real cores 339 aa"}

@@ -1752,4 +1752,62 @@ cannot become a rate.
 
 ---
 
+## 2026-08-20 — [P6-A0] and [P7-A0] TRAINED. Per-class eval policy added. PKS is T3PKS-dominated.
+
+**Both strict adapters completed on the shared H100, serialized.**
+
+| run | records kept | steps | train loss | best val | wall | sentinel |
+|---|---|---|---|---|---|---|
+| `phase6_PKS` | 3,906/5,195 (75.2%) | 732 = **3 epochs exactly** | 0.794 -> 0.753 | **0.8635** | 1h44m | 0 |
+| `phase7_TERPENE` | 10,658/11,297 (94.3%) | 1,998 | 0.843 -> 0.766 | **0.8417** | 4h13m | 0 |
+
+⚠️ **TERPENE landed at step 1,998 against `--max-steps 2000`.** 10,658/16 = 666 steps/epoch x 3 =
+1,999, so 3 epochs completed with **one step of headroom**. A slightly larger class would have been
+silently truncated mid-epoch and nothing would have said so. **Raise `STEPS` for any class bigger
+than TERPENE.**
+⚠️ Val losses are **not comparable across classes** — different data distributions. RIPP's 1.0102 is
+not a worse model than PKS's 0.8635; TERPENE cores are shorter and more conserved, which lowers
+cross-entropy for free.
+
+### ★ WHAT THE PKS ADAPTER IS ACTUALLY TRAINED ON — answer: ~60% type-III
+
+Per-record Pfam scan over `phase6_PKS/train.whole.jsonl` (the records the trainer kept), n=150:
+
+| carries | n | share |
+|---|---|---|
+| **CHS** — chalcone synthase (**T3PKS**, single ~350-aa gene) | 89 | **0.593** |
+| **KS** — ketosynthase (**T1PKS-type modular**) | 47 | **0.313** |
+| both | 0 | 0.000 |
+| neither | 14 | 0.093 |
+
+Median kept record **1,167 nt**. Of the 47 KS records, **37 carry KS + AT** (19 also DH) — real
+multi-module content.
+
+⇒ **The adapter is T3PKS-dominated but not exclusively so.** Any unqualified claim about "PKS" from
+this run is disproportionately about **type III** — a single-gene aromatic-polyketide enzyme, not the
+modular assembly line "PKS" evokes. Required phrasing is pinned in
+`docs/phase6_PKS_preregistration.md` §2.2; ⛔ never *"generates polyketide synthase gene clusters"*.
+⇒ Strongest argument yet for the **T1PKS-only arm**: ~31% of 3,906 is ~1,200 records, small but
+workable, and it is the only route to a defensible modular-PKS claim from this substrate.
+
+### `config/class_eval_policy.yaml` — the reporting set is class-agnostic, its INTERPRETATION is not
+
+Two metrics are now measured **void for one class while meaningful for the others**, and prose
+cannot stop a void number being quoted:
+
+| metric | RIPP | PKS | TERPENE |
+|---|---|---|---|
+| `bio_span_frac` | diagnostic | ⛔ **VOID** (0.997, saturated) | diagnostic (0.962) |
+| `n_class_domains` | diagnostic | ⛔ **VOID** (accession double-count) | diagnostic |
+| `subclass_specificity` | secondary (0.909) | secondary (~0.94 ceiling) | ⛔ **VOID** (no catch-all exists) |
+| `module_order` | n/a — RiPP order is not collinear | **secondary, THE structural endpoint** | n/a |
+| `max_orf_aa` | diagnostic | **promoted to secondary** (frameshift is a real T1PKS failure) | diagnostic |
+
+The file also pins each class's **window** (RIPP 2,000 · PKS 4,000 · TERPENE 2,000) and **antiSMASH
+`--minlength`** (TERPENE 200, else default). `scripts/novelty_battery.py` loads it, **warns when the
+window does not match the registered one**, prints a `⛔ VOID FOR <CLASS>` banner, and stamps
+`class_policy` into every scored file so the policy travels with the numbers.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->
