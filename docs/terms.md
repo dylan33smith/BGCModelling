@@ -318,6 +318,23 @@ Aliases:              names seen in old docs. Do not use them.
   failure is a direct experimental result (Holm p=4.1e-04 / 3.2e-05 vs a matched control); the
   dilution explanation is a hypothesis whose magnitude was overstated. See `memory.md` 2026-08-19.
 
+### `subclass_specificity`  [evaluation] [method]
+- **Is:** Of the generations antiSMASH **detects**, the fraction assigned a **specific RiPP subclass**
+  (lanthipeptide-class-i…v, lassopeptide, thiopeptide, sactipeptide, thioamitides…) rather than the
+  generic catch-all **`RiPP-like`**.
+- **Computed by:** full-mode antiSMASH (⚠️ **not `--minimal`**) → `region` feature `product`
+  qualifiers. Denominator = detected regions, so it is a **Stage-B** metric.
+- **Why it matters:** antiSMASH uses a rule hierarchy — tight subclass rules each require a specific
+  **combination** of domains; the loose `RiPP-like` rule fires on weaker evidence when none match.
+  Producing a subclass call is therefore strictly harder than producing a detection.
+- **CHANGES MEANING WITH:** antiSMASH version and rule set; `--minimal` (which still emits products,
+  but the analysis modules that refine them do not run).
+- **Valid vs:** real cores through the identical path.
+- **Status:** **The honest measure of the remaining gap** (adopted 2026-08-19). Real cores **~70%**
+  specific (lassopeptide 7, lanthipeptide-class-iv 4, -i 3, -iii 3 of 33 detected); **our best arm
+  0%** — 12/12 detections were `RiPP-like`. Supersedes `n_class_domains ≥ 2`, `bio_span_frac` and the
+  precursor panels, all of which were indirect proxies for this and each failed validation.
+
 ### THE TWO-PASS DETECTION ARCHITECTURE  [evaluation] [method]
 - **Is:** Pfam gate first (cheap, Stage A), antiSMASH second (gold standard, Stage B). **Calibrated
   2026-08-18** on 218 Stage-2 sequences with both run:

@@ -10,33 +10,47 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
-Phase 5. Target **RIPP**, substrate **Evo2 1B**. **Level 2 achieved; Level 3 blocked by the training
-substrate, and the block is now precisely located.**
+Phase 5. Target **RIPP**, substrate **Evo2 1B**. **Level 2 is achieved and defensible. The precursor
+line is dropped. The remaining gap is now stated in antiSMASH's own terms.**
 
-**Achieved.** Level 1 ✅ (p=0.0054 vs 0/400). **Level 2 ✅ — antiSMASH-confirmed 0.116** for the best
-arm (STRICT-full seeded @8 kb) against a **0.760** real-core ceiling and **0.000** base floor,
-novelty clean on both gates.
+**The claim, in plain language:**
+> *We generate short DNA sequences that antiSMASH annotates as **RiPP-like biosynthetic gene
+> clusters**, at ~15% of the rate for real held-out cores, with novelty verified at DNA and protein
+> level, and with the class supplied by the adapter rather than the seed.*
+⚠️ **Not "full BGCs"** — we train on the biosynthetic **core** (median 2,191 nt of a ~21,900 nt
+region), so generations contain no transport, regulatory or resistance genes by construction.
 
-**The block, measured 2026-08-19 with a validated detector (25× discrimination vs floor):**
-**precursor generation is 0/120 in every seeded arm** against a real ceiling of 21/120.
-**Transporters are generated** (17/120 vs real 42/120), enzymes are generated — only the precursor
-is absent. Cause: the RiPP precursor is `gene_kind="none"`, so `STRICT_KINDS={"biosynthetic"}`
-**excludes it from the training data by construction.**
+**Established.** de novo p=0.0054 vs 0/400 · seeding lifts ~6× to **antiSMASH-corrected 0.116**
+against a **0.760** real-core ceiling and **0.000** base floor · class-specific at **p=2.5e-11**
+(general adapter 0/188 on the same seeds) · seed *content* irrelevant (shuffle p=0.66) · novelty
+clean on both gates · L\*=8 nt is where the model generates rather than reconstructs (0/8 vs 12/12
+source-domain match at 500 nt).
 
-**Decision: fix the substrate, not the model and not (yet) the method.** Build a
-precursor-inclusive functional-complement span ([P5-SPAN]) — enzyme+transport spans a median
-6,653 nt and fits the 1B in 55.5% of regions, so **no model change is required**. Composition
-([P5-COMPOSE]) is deferred until we see whether one adapter on the right substrate suffices.
-⚠️ Also change the Level-3 endpoint to **P+E** — P+E+T has a 2.5% ceiling even on real data at 8 kb.
+**The remaining gap — `subclass_specificity`.** Of detections, real cores get a **specific** RiPP
+chemistry ~**70%** of the time (lassopeptide, lanthipeptide class i/iii/iv); **our best arm 0%** —
+all 12 detections were the generic `RiPP-like`. The model trips the loose generic rule and never the
+tight domain combination a subclass requires. This supersedes `n_class_domains ≥ 2`,
+`bio_span_frac` and the precursor panels, each of which failed validation.
 
-**Asset built:** `/data2/ds85/bgcmodel_data/ripp_components.jsonl` — per-CDS `gene_kind` +
-coordinates for every RIPP region, streamed from the 185 GB antiSMASH tar. The annotation
-`build_core_records.py` computed and discarded; everything above depends on it.
+**Closed negative, both powered:** leg 3 inference pruning (no instrument — ladder 0.575, class
+probe 0.337 for within-positives discrimination) and [P4-WIDE] span widening (Holm p=4.1e-04 /
+3.2e-05 vs a size- and cluster-matched control; **mechanism uncertain** — the dilution explanation
+was retracted as partly circular).
+
+**Next:** report product specificity in full antiSMASH mode, run the single `bio + transport` arm,
+adopt `subclass_specificity` as the reported endpoint, and write up Level 2. See below.
 
 ---
 
-## ⚠️ OPEN STRATEGIC QUESTION — decide before committing to Phase 4
+## ✅ RESOLVED STRATEGIC QUESTION (asked 2026-08-18, answered 2026-08-19)
 
+**Was: "the model was never shown clusters, so it cannot be failing to generate them."**
+**Answer: tested and REFUTED.** Widening the training span made the model **significantly worse**
+(WIDE vs a size- and cluster-matched control: Holm p=4.1e-04 at 2.2 kb, 3.2e-05 at 8 kb), and the
+training-set size drop cost nothing (p=0.79). Wider spans are closed. The reasoning below is kept
+for the record.
+
+*Original text:*
 **The model was never shown clusters, so it cannot be failing to generate them.**
 
 `n_class_domains >= 2` is **0 or near-0 in every arm run to date** — A0, base, general adapter, and
@@ -185,6 +199,22 @@ signal to trip the loose generic rule and never the tight combination a subclass
 the same limitation `n_class_domains` was groping at, stated in the field's own terms — and it is
 the thing to report and to target.
 
+### What was SCRAPPED today, and what survived
+
+| artifact | verdict |
+|---|---|
+| keyword-built **precursor panel** (81 families) | ⛔ SCRAPPED — ~half enzyme; quarantined to `DEPRECATED_component_panels.json` |
+| real-core precursor ceiling; **P+E / P+E+T** counts | ⛔ SCRAPPED — inflated / partly tautological |
+| transport, regulator, protease panels | ⚠️ PROVISIONAL — same unvalidated keyword method |
+| **"1.43× dilution"** as WIDE's cause | ⛔ RETRACTED — measure was partly circular; real gap 0.869→0.576 |
+| `n_class_domains ≥ 2` as a gate | ⛔ DEMOTED to diagnostic — only ~16% of *real* cores reach it |
+| precursor as a general BGC component | ⛔ WRONG — RiPP-specific; NRPS/PKS have none |
+| `ENZ` = `OBLIGATE_DOMAINS[RIPP]` | ✅ KEPT — data-derived |
+| `ripp_components.jsonl` (27,171 regions) | ✅ KEPT — raw antiSMASH annotation |
+| **WIDE failed** (Holm p=4.1e-04 / 3.2e-05 vs matched control) | ✅ KEPT — experimental, mechanism now uncertain |
+| **generations produce zero precursors** | ✅ KEPT — zero on a superset panel implies zero on the subset |
+| **Level 2: antiSMASH-confirmed 0.116 vs 0.760** | ✅ KEPT — the result |
+
 ### NEXT STEPS, in order
 
 1. **[P5-REPORT] Re-score every arm in FULL antiSMASH mode and report product specificity.**
@@ -208,9 +238,9 @@ the thing to report and to target.
 ⛔ **DROPPED:** precursor-based endpoints (detector caps at 8–50%, and precursors are RiPP-specific
 rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE and wider spans.
 
-## Backlog — Phase 3## Backlog — Phase 3## Backlog — Phase 3
+## Backlog — Phase 3
 
-**The phase has three legs.** Leg 1 is done and negative-but-directional; legs 2 and 3 are untried.
+**The phase had three legs.** Leg 1 ✅ significant · Leg 2 ✅ significant, class-specific · Leg 3 ⛔ closed (no instrument).
 
 | leg | status |
 |---|---|
@@ -404,7 +434,7 @@ than reconstructing (0/8 source-domain match vs 12/12 at 500 nt), and changing i
 the recall confound. Seed length and scoring window are independent axes; vary the window, hold the
 seed.
 
-### [P4-WIDE] WIDE_KINDS fine-tune — 🔄 RUNNING 2026-08-18
+### [P4-WIDE] WIDE_KINDS fine-tune — ⛔ **REFUTED 2026-08-19** (Holm p=4.1e-04 / 3.2e-05)
 Substrate widened from `{"biosynthetic"}` to `{"biosynthetic","biosynthetic-additional"}`.
 Same recipe as A0, `DATA=splits_class_wide/RIPP`, **epochs matched to A0 (3) rather than steps**.
 ⚠️ **3,723/7,808 records kept (47.7%)** — the rest exceed the 1B's **8,192 native context**
@@ -425,8 +455,8 @@ difference is span width. That is a perfectly matched pair, which a random subsa
 | arm | records | total nt | median nt | status |
 |---|---|---|---|---|
 | A0 — strict, full | 6,963 | 14.58 M | 1,713 | ✅ done |
-| **STRICT-matched** | **3,723** | **6.96 M** | 1,209 | ⬜ spec'd |
-| WIDE | 3,723 | 13.69 M | 3,714 | 🔄 running |
+| **STRICT-matched** | **3,723** | **6.96 M** | 1,209 | ✅ done |
+| WIDE | 3,723 | 13.69 M | 3,714 | ✅ done — REFUTED |
 
 **What each comparison isolates:**
 - **WIDE vs STRICT-matched** → the effect of *span width*, at identical clusters and count.
@@ -564,7 +594,7 @@ under-report on the pre-registered 2,000-nt endpoint. **Do not change the endpoi
 (Standing Constraint 4) — report the 2 kb endpoint as primary and a wider window alongside as a
 declared secondary.
 
-### [P3-B2a] Pruning DURING generation (guided decoding) — ⛔ BLOCKED ON A SCORER
+### [P3-B2a] Pruning DURING generation (guided decoding) — ⛔ **CLOSED 2026-08-18, measured**
 > **Not the phage-paper approach.** This scores partial candidates *mid-generation*. [P3-B2b] below
 > generates complete sequences then discards most. Different mechanisms; they compose.
 

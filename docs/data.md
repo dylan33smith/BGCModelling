@@ -233,7 +233,7 @@ A0). A size-matched STRICT control is required before the comparison is clean �
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase5_detect/` | 08-19 | **[P5-DETECT] fidelity baseline.** 12 real RIPP wide spans run through **FULL-mode antiSMASH** (no `--minimal`, so the RiPP/RODEO modules actually execute) with output **retained** at `as_full/<id>/`. Precursor predictions live in `modules.<lanthipeptides\|lassopeptides\|sactipeptides\|thiopeptides>.motifs`. **Result: 12/12 clusters detected, but only 1/12 = 8% carry a precursor motif** — because 79.7% of our RIPP labels are subclasses with no precursor module. | ✅ |
+| `phase5_detect/` | 08-19 | **[P5-DETECT] full-mode antiSMASH.** `as_full/` — 24 real RIPP wide spans (12 mixed subclass, 12 module-covered) establishing precursor sensitivity **8% vs 50%**. `ab/` — the `--minimal` vs full A/B on identical sequences (**100% agreement on `is_bgc`**, so no prior number is retracted). `full_arms/` — 180 sequences across 5 arms in full mode, which produced the **subclass-specificity** finding (real ~70% specific, our best arm **0%**). Output dirs **retained**, unlike the `TemporaryDirectory` used by `evaluation.py:check_antismash`. | ✅ |
 
 ⚠️ **All prior antiSMASH results (833 sequences) used `--minimal`** — analysis modules disabled, so
 **RODEO never ran** — and output went to a `TemporaryDirectory` that is deleted after `is_bgc` and
