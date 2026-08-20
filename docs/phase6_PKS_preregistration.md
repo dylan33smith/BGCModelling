@@ -66,6 +66,66 @@ both binding:
    that only ever emits T3PKS-like single genes would post a high detection rate while reproducing
    RIPP's "one gene is not a cluster" limitation in a new costume. Detection alone cannot see that.
 
+## 2.1 AMENDMENT 2026-08-19 (same day) — ⛔ §1's `n_class_domains >= 2` ARGUMENT IS LARGELY AN ARTIFACT OF THE MARKER SET
+
+§1 above stands unedited. It argued that PKS is worth this phase because
+`n_class_domains >= 2` reaches **0.740–0.840** in real PKS cores against RIPP's 0.200, so the
+endpoint that read 0/188 in every RIPP arm "becomes measurable against a real reference".
+**Measured properly, that argument mostly dissolves.**
+
+**`OBLIGATE_DOMAINS[PKS]` contains several Pfam models that cover ONE catalytic domain:**
+
+| catalytic unit | Pfam models in the marker set |
+|---|---|
+| **ketosynthase (KS)** | `PF00109` ketoacyl-synt · `PF02801` Ketoacyl-synt_C · `PF16197` KAsynt_C_assoc |
+| **chalcone synthase (CHS, = T3PKS)** | `PF00195` Chal_sti_synt_N · `PF08392` FAE1_CUT1_RppA (Chal_sti_synt_C) |
+| acyltransferase (AT) | `PF00698` |
+| dehydratase (DH) | `PF14765` |
+
+⇒ **A single T3PKS gene trips `PF00195` + `PF08392` and scores `n_class_domains` = 2 on its own.**
+That pair is the most common co-occurrence in real cores (14/30). The KS trio does the same for
+T1PKS.
+
+**Recomputed on the 50 real cores that fit the 1B, window 4,000:**
+
+| definition | count | rate |
+|---|---|---|
+| `n_class_domains >= 2` — distinct Pfam **accessions**, as reported in §1 | 40/50 | **0.800** |
+| >= 2 distinct **catalytic units** (N/C models collapsed) | 15/50 | **0.300** |
+| >= 2 distinct **ORFs** carrying a marker — a real multi-**gene** core | **3/50** | **0.060** |
+
+**28 of 50 records are the single unit-set `('CHS',)`** — one chalcone synthase gene, counted as two
+"class domains".
+
+⇒ **PKS is NOT more multi-gene than RIPP.** At 0.060 it is level with RIPP, not 4x it. The strict
+core is one gene in every class, because that is what strict-core trimming produces. **The class
+pivot does not solve the cluster-structure problem; only a span-width change could — which is the
+parked `bio + transport` line, not this phase.**
+
+**What survives, and is the corrected rationale for Phase 6:**
+1. **Intra-genic modular content is real and is ~2x RIPP's** — 0.300 of PKS cores carry >= 2
+   distinct *catalytic units*, and positives average **4.33** biosynthetic domains against RIPP's
+   1.91. A megasynthase genuinely is a multi-domain modular enzyme; that content exists in the
+   training span even though it sits inside one gene.
+2. **Domain ORDERING becomes the right structural endpoint, and it is the one PKS uniquely supports.**
+   `MODULE_PATTERNS["PKS"]` = KS-AT-ACP. Ordering is *designed* for intra-genic modularity, which is
+   exactly the kind of structure PKS actually has. §5.3 anticipated this; it is now promoted from
+   "available" to **the structural endpoint of the phase**.
+3. **Architectural bimodality (§2) is untouched** — it is measured from antiSMASH products, not from
+   the marker set.
+4. Method transfer — does the Phase-3 pipeline reproduce at all on another class — never depended on
+   this argument.
+
+**Binding consequences for every Phase-6 table:**
+- ⛔ **`n_class_domains` (Pfam-accession count) MUST NOT be quoted as a cluster-structure metric for
+  PKS.** Report it only beside the collapsed count and `n_bio_orfs`.
+- **Report all three**: distinct accessions, distinct catalytic units, and distinct marker-bearing
+  ORFs. The three answer different questions and the first one flatters.
+- The ceilings for the latter two are **0.300** and **0.060** — quote those, not 0.840.
+
+**Provenance:** `phase5_classprobe/PKS_collapsed_markers.json`, per-record Pfam scan
+(`check_class_markers`, full Pfam-A) over `real_PKS_fit50.jsonl`, window 4,000, n=50.
+
 ## 3. Primary endpoint — frozen
 
 **`best_bio_bits` > 0 @ `OBLIGATE_DOMAINS[PKS]` (8 accessions), scoring window 4,000 nt**, substrate

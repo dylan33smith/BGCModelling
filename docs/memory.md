@@ -1586,22 +1586,47 @@ PKS core is often one megasynthase ORF carrying many modules. Gene count is the 
 | metric | RIPP | **PKS** | TERPENE |
 |---|---|---|---|
 | `on_class` (Pfam ceiling) | 0.680 | **0.860** | **0.960** |
-| **`n_class_domains` >= 2** | **10/50 = 0.200** | **37/50 = 0.740** | 11/50 = 0.220 |
+[INCORRECT] - | **`n_class_domains` >= 2** | **10/50 = 0.200** | **37/50 = 0.740** | 11/50 = 0.220 |
+[CORRECTION - 2026-08-19]: **the PKS figure is largely a MARKER-SET ARTIFACT.**
+`OBLIGATE_DOMAINS[PKS]` holds several Pfam models per catalytic domain — `PF00195`+`PF08392` are
+the N/C halves of ONE chalcone synthase, `PF00109`+`PF02801`+`PF16197` of ONE ketosynthase — so a
+single T3PKS gene scores 2 on its own. Collapsed to catalytic units: **PKS 0.300, RIPP 0.080,
+TERPENE 0.140**. RIPP and TERPENE are unaffected (their accession and unit counts are identical);
+**the artifact is PKS-specific.**
 | `n_class_domains` \| on-class | 1.47 | **2.58** | 1.40 |
 | `n_bio_domains` \| on-class | 1.76 | **4.05** | 1.52 |
 | `bio_span_frac` \| on-class | 0.828 | 0.982 | 0.930 |
 | `n_orfs` | 2.34 | **1.36** | 1.80 |
 | `max_orf_aa` | 456 | **744** | 341 |
 
-⇒ **PKS reaches >=2 distinct class markers in 74% of real cores, against 20% for RIPP and 22% for
-TERPENE — and it does so in FEWER ORFs with a LONGER max ORF.** That is the megasynthase signature:
-the modules are *intra-genic*, so a single gene already carries cluster-grade domain content.
+[INCORRECT] - ⇒ **PKS reaches >=2 distinct class markers in 74% of real cores, against 20% for RIPP and 22% for TERPENE — and it does so in FEWER ORFs with a LONGER max ORF.** That is the megasynthase signature: the modules are *intra-genic*, so a single gene already carries cluster-grade domain content.
+[CORRECTION - 2026-08-19]: the megasynthase reading is right; the **magnitude is not**. On distinct
+catalytic units PKS is **0.300 vs RIPP 0.080** — real and the largest of the three, but under 4x,
+not 10x. And on distinct marker-bearing **ORFs** all three classes are level at **0.060 / 0.060 /
+0.080** — see the correction below.
 
-**★ WHY THIS MATTERS MORE THAN ANY OTHER ITEM ON THE BOARD.** `n_class_domains >= 2` was demoted to
-a diagnostic for RIPP (2026-08-19) **because the real-core ceiling was only ~16–20%** — a metric
-whose ceiling is 0.20 cannot grade a generator. **In PKS that ceiling is 0.740.** The endpoint that
-has read exactly 0/188 in every RIPP arm becomes measurable against a real reference for the first
-time. TERPENE would not deliver this: its structure is RIPP's, only shorter.
+[INCORRECT] - **★ WHY THIS MATTERS MORE THAN ANY OTHER ITEM ON THE BOARD.** `n_class_domains >= 2` was demoted to a diagnostic for RIPP (2026-08-19) **because the real-core ceiling was only ~16–20%** — a metric whose ceiling is 0.20 cannot grade a generator. **In PKS that ceiling is 0.740.** The endpoint that has read exactly 0/188 in every RIPP arm becomes measurable against a real reference for the first time. TERPENE would not deliver this: its structure is RIPP's, only shorter.
+[CORRECTION - 2026-08-19]: ⛔ **This overstated the case and the corrected version is a more
+useful finding.** Per-record Pfam scan over the same 50 real cores per class, three nested
+definitions:
+
+| definition | RIPP | PKS | TERPENE |
+|---|---|---|---|
+| >= 2 distinct Pfam **accessions** (as reported) | 0.080 | **0.800** | 0.140 |
+| >= 2 distinct **catalytic units** (N/C models collapsed) | 0.080 | **0.300** | 0.140 |
+| >= 2 distinct marker-bearing **ORFs** (a real multi-GENE core) | **0.060** | **0.060** | **0.080** |
+
+**28/50 PKS records are the single unit-set `('CHS',)`** — one chalcone synthase gene scored as two
+class domains.
+⇒ ★ **NO CLASS GIVES MULTI-GENE CLUSTER STRUCTURE IN THE STRICT-CORE SPAN — all three sit at
+0.06–0.08.** That is a property of **strict-core trimming**, not of any class. **The class pivot
+therefore cannot solve the cluster-structure problem; only a span-width change can** — i.e. the
+parked `bio + transport` line. The user's instinct to keep it alive was correct.
+⇒ **What PKS still uniquely offers:** ~4x RIPP's intra-genic catalytic-unit diversity (0.300 vs
+0.080), 4.33 biosynthetic domains per positive vs 1.91, architectural bimodality (T1/T3), and
+`MODULE_PATTERNS` **ordering** — which is the right structural endpoint precisely *because* PKS's
+structure is intra-genic. Phase 6 stands; its stated rationale is corrected in
+`docs/phase6_PKS_preregistration.md` §2.1.
 
 **Second thing PKS unlocks:** `MODULE_PATTERNS` has a PKS entry (`PF00109`-`PF00698`-`PF00550`,
 KS-AT-ACP) and **no RIPP entry, correctly** — RiPP gene order is not collinear, so ordering is
@@ -1691,7 +1716,10 @@ endpoint — forcing a substitute is how RIPP acquired three failed proxies.
 | metric | RIPP (w2000) | PKS (w4000) | TERPENE (w2000) |
 |---|---|---|---|
 | `on_class` | 0.440 | **0.920** | **0.980** |
-| `n_class_domains` >= 2 | 8/50 = 0.160 | **42/50 = 0.840** | 8/50 = 0.160 |
+[INCORRECT] - | `n_class_domains` >= 2 | 8/50 = 0.160 | **42/50 = 0.840** | 8/50 = 0.160 |
+[CORRECTION - 2026-08-19]: the PKS 0.840 counts Pfam accessions, several of which cover one
+catalytic domain. Collapsed to catalytic units it is **0.300**; on distinct marker-bearing ORFs,
+**0.060**. Quote those, never 0.840.
 | `n_class_domains` \| on-class | 1.55 | **2.80** | 1.16 |
 | `n_bio_domains` \| on-class | 1.91 | **4.33** | 1.22 |
 | `n_orfs` | 1.80 | **1.22** | 1.30 |
@@ -1704,10 +1732,10 @@ one long biosynthetic ORF. Any threshold derived on RIPP is meaningless here.
 `n_class_domains >= 2`), against my prediction that dropping T1PKS would lower it. The filter
 removes the unscoreable giants (median 14,162 nt, one record at the 262,144 nt cap) more than it
 removes structure.
-⬜ **OPEN:** whether PKS's 2.80 markers per positive across only **1.22 ORFs** is genuine multi-gene
-content or several Pfam models hitting one protein (KS N- and C-terminal are separate Pfams on one
-domain). If the latter, PKS's headline advantage is partly a marker-set artifact. Measurement
-running; **[P6-A0] does not depend on it.**
+✅ **RESOLVED, same day: it was the marker-set artifact.** 21 of the 23 multi-marker records had
+every marker on a **single ORF**; the top co-occurring pair is `PF00195`+`PF08392` (14/30), the two
+halves of one chalcone synthase. Collapsed ceilings are **0.300** (catalytic units) and **0.060**
+(multi-gene). See the corrections above and `docs/phase6_PKS_preregistration.md` §2.1.
 
 ### Novelty gates need NO new machinery for these classes — measured, not assumed
 

@@ -439,7 +439,7 @@ Aliases:              names seen in old docs. Do not use them.
 
   | metric | what it answers |
   |---|---|
-  | `n_class_domains` | distinct markers of the class. ⚠️ **NOT the definition of a cluster** — only ~16% of real cores reach ≥2 in a 2 kb window, and antiSMASH confirms single-marker records (12/24, 16/36). Diagnostic, demoted 2026-08-19. |
+  | `n_class_domains` | distinct markers of the class. ⛔ **COUNTS PFAM ACCESSIONS, NOT CATALYTIC DOMAINS — and for PKS that inflates it ~2.7x.** `OBLIGATE_DOMAINS[PKS]` holds `PF00195`+`PF08392` (one chalcone synthase) and `PF00109`+`PF02801`+`PF16197` (one ketosynthase), so a single T3PKS gene scores 2. Real PKS cores: 0.800 by accession, **0.300** by catalytic unit, **0.060** by distinct marker-bearing ORF. RIPP and TERPENE marker sets have no such pairs and are unaffected. Never quote the accession count as cluster structure for PKS (2026-08-19). ⚠️ **NOT the definition of a cluster** — only ~16% of real cores reach ≥2 in a 2 kb window, and antiSMASH confirms single-marker records (12/24, 16/36). Diagnostic, demoted 2026-08-19. |
   | `n_bio_domains` | total biosynthetic domain hits (AUROC 0.919) |
   | `n_bio_orfs` | how many distinct genes carry one |
   | `bio_span_frac` | how far apart they sit = is it a CLUSTER (AUROC 0.896) |
