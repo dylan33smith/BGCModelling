@@ -314,6 +314,36 @@ produce numbers, not errors. `BGC_EVAL_STRICT` exists because of them. When you 
 
 ## Evo2 / vortex / generation
 
+### [Symptom] Early stopping at EOS gives no speedup in BATCHED generation → [Fix] it is bounded by the slowest row, not by the median (2026-08-20)
+
+**Symptom.** Wrapping the sampler to exit once every row has emitted EOS produced a **1.01x**
+speedup — i.e. none. All three decoding modes ran the full 8,000 steps.
+
+**Cause.** The exit condition is `all(done)`, and in a batch only **9/24 rows ever emit EOS at
+all**. One row that never terminates holds the whole batch to `max_new_tokens`. This is intrinsic
+to batched decoding, not a bug in the wrapper: every row shares one forward pass, so the batch
+cannot finish before its slowest member.
+
+⚠️ **This also CORRECTS an earlier claim in `memory.md`** that "~75% of PKS generation compute runs
+after the model has finished". That figure came from the median **truncate-path length (~1,750 nt of
+8,000)**, which measures the first stop event **of any kind** — overwhelmingly degeneracy, not EOS.
+The EOS-specific picture is different and much less favourable to early stopping.
+
+**What actually works, in order of effort:**
+1. **Constrained decoding is the win from this build, not early stopping.** Same run: junk ids
+   **247 -> 0**, and `hit_eos` rose 9/24 -> 11/24. It costs nothing (1.01x) and removes the
+   alphabet leak by construction.
+2. **Shorten `--max-new-tokens`** — the cheapest real saving, since the request length is a
+   hyperparameter we impose and most records never approach it. Needs the EOS-position distribution
+   to pick a defensible value.
+3. **Per-row early exit** — genuinely saves the difference between "tokens the model needed" and
+   "tokens we paid for", but requires shrinking the batch mid-generation, which means rebuilding
+   vortex's cached `inference_params` for the surviving rows. Only worth it if the measured gap is
+   large.
+
+**Do not** claim a speedup from `all(done)` early stopping without measuring `steps`; the wall-clock
+difference is within noise and the step count is the honest readout.
+
 ### [Symptom] A fine-tuned adapter's generations are far shorter than the base model's, with `hit_eos` 0 → [Fix] `extract_sequence` truncated at a stray byte; mask it to N instead (2026-08-20)
 
 **Symptom.** The PKS adapter's de novo generations had a median length of 4,506 nt of a requested

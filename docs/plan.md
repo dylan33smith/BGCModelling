@@ -459,7 +459,67 @@ a capability limit, and it is testable.
   to any modular-PKS claim, and it also tests whether one adapter per *subclass* recovers what one
   per class does not.
 
-### [X3] ⛔ TEST GENOMEOCEAN — the model-vs-method question is now the binding one
+### [X3] ⛔ TEST GENOMEOCEAN ON TERPENE — the model-vs-method question is now the binding one
+
+#### [X3] TASK BREAKDOWN — ordered, with what is already done
+
+**Already built (2026-07-27, do not redo):**
+- ✅ **Weights local** — `GenomeOcean-4B` and `GenomeOcean-4B-bgcFM` in `hf_cache`; env at
+  `/data2/ds85/envs/genomeocean`.
+- ✅ **Leakage gate PASSED** — `smc_leakage.json`, containment **0.0000** across 48 true + 48
+  mismatched. This is the gate that would have disqualified the whole track; it is clear.
+- ✅ **Fine-tune feasibility PASSED** — `finetune_feasibility.json`: `MistralForCausalLM`, 4.25 B
+  params, 24 layers, **`max_position_embeddings` 32,768**, and all four gates green
+  (`class_token_atomic`, `embedding_resize`, `gradient_checkpointing_active`, `train_step`) at
+  seq_len 10,240. **22 class tokens added atomically**, vocab 4,096 → 4,118 — GenomeOcean can take a
+  real trainable class token, which Evo2 cannot.
+- ✅ **Tokenization measured** — `tokenization_report.json`.
+- ✅ **Zero-shot rate + class probe** — `go_zeroshot_rate_n216/`, `go_zeroshot_bgcfm/`.
+
+**T1 · Decide the base checkpoint: `GenomeOcean-4B` or `bgcFM`.** ⚠️ **This is a real fork, not a
+detail.** `bgcFM` is already trained on 12 M SMC BGC sequences, so it is the stronger starting point
+**and the weaker control** — a win could be "GenomeOcean is better" or "it already saw BGCs". The
+leakage gate passed for bgcFM against OUR test set, which is what makes it usable at all.
+**Recommend: base `GenomeOcean-4B`**, so the comparison against Evo2-1B is fine-tune-vs-fine-tune.
+Run bgcFM zero-shot alongside as a reference ceiling, not as the arm.
+
+**T2 · Build the TERPENE training substrate for a BPE tokenizer.** Reuse
+`splits_class/TERPENE` unchanged — same records, same splits, same held-out test — so the only
+difference from `[P7-A0]` is the model. ⚠️ Re-derive the token-length distribution: 10,240 BPE
+tokens ≈ **51,200 nt**, so ~94% context fit becomes ~100% and **the `<=7,992 nt` filter is dropped
+entirely**. Record how many records that adds back.
+
+**T3 · Confirm the EOS/class-token handling.** GenomeOcean's tokenizer **auto-wraps every sequence
+`BOS=1 … EOS=2`**, so `[X1b]` is free here. Verify the class token survives fine-tuning as one
+atomic id (already gated true) and that EOS lands in the training targets.
+
+**T4 · Fine-tune.** Match the Evo2 recipe wherever it is meaningful — LoRA, 3 epochs, same data —
+and record every axis where it cannot match (parameter count, tokenizer, context, optimizer).
+⚠️ 4.25 B params vs 1.1 B: **this arm is not parameter-matched and must never be reported as if it
+were.**
+
+**T5 · Generate the three pre-registered arms**, n=200, **the same 200 `eval_prompts.jsonl`
+prompts** as `[P7-A0]` so the comparison is prompt-paired: class adapter · base GenomeOcean ·
+(optional) bgcFM zero-shot.
+
+**T6 · Score through the IDENTICAL pipeline** — `novelty_battery.py --cls TERPENE --window 2000`,
+then full-mode antiSMASH at `--minlength 200`. Same ceiling (`real_TERPENE_fit50_w2000.json`), same
+floors, same gates. **Any pipeline change invalidates the comparison.**
+
+**T7 · Report as a two-model table with `n_pass` and product type as rows.** The question is not
+only "higher rate" but **"does it make the harder member"** — TERPENE cyclase vs precursor-only,
+where Evo2 read **0/13**.
+
+**T8 · Pre-register T1–T7 before generating** (Standing Constraint 4) in a new
+`docs/phase8_GENOMEOCEAN_preregistration.md` — ⚠️ ASK FIRST, it is a new doc file.
+
+⚠️ **What a GenomeOcean win would and would not settle.** Context, parameters, tokenizer and
+pretraining corpus ALL differ at once. A win says "this model does better"; it does **not** isolate
+which axis did it. **TERPENE is chosen precisely to keep context out of the explanation** — 94% of
+TERPENE already fits Evo2, so a win there cannot be attributed to the 6.4x context. That is what
+makes TERPENE the right first class and PKS the wrong one.
+
+
 Three classes, one model. Every finding above is **confounded with Evo2-1B**. GenomeOcean is the
 control that separates them, and two facts make it the right instrument rather than merely a
 different one:

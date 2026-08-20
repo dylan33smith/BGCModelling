@@ -2170,10 +2170,14 @@ if stop_at_eos and (generation[0, -1:] == eos_token_ids).all():
 ```
 **There is no `break`.** It prints and keeps generating. Our path passes `stop_at_eos=False` anyway.
 Second bug on the same line: `generation[0, -1:]` inspects **batch row 0 only**, so even with a
-`break` it would halt the whole batch on one sequence. ⇒ PKS `A0` stops at a median ~1,750 nt of
-8,000 requested, so **~75% of that arm's generation compute runs after the model has finished.**
-Fixing needs a patched loop with a per-row done-mask — nearly free once generation is token-id aware
-([X1e]).
+`break` it would halt the whole batch on one sequence.
+[INCORRECT] - ⇒ PKS `A0` stops at a median ~1,750 nt of 8,000 requested, so **~75% of that arm's generation compute runs after the model has finished.** Fixing needs a patched loop with a per-row done-mask — nearly free once generation is token-id aware ([X1e]).
+[CORRECTION - 2026-08-20]: **the ~75% figure was measured on the wrong quantity and the fix does not
+work as described.** The median ~1,750 nt is the first stop event **of any kind** — overwhelmingly
+degeneracy, not EOS. Measured with real token ids: only **9/24 rows emit EOS at all**, so an
+`all(done)` exit never fires and delivered a **1.01x** speedup with all 8,000 steps still run.
+Batched decoding is bounded by its **slowest** row. The win from that build was **constrained
+decoding** instead (junk ids 247 -> 0). See `bugs.md`.
 
 ---
 
