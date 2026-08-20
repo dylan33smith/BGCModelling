@@ -163,5 +163,6 @@ When an intervention, script, or experiment is confirmed complete:
 3. **Document fixes.** Append any `[Symptom] → [Fix]` to `bugs.md` under its subject heading.
 4. **Define new terms.** Any new metric/variant/pipeline step gets a full `terms.md` entry, tagged.
 5. **Register artifacts.** Every new checkpoint, generation set or dataset gets a `data.md` row.
-6. **Reset the board.** Rewrite `plan.md`'s Current State and queue the next task.
+6. **Reset the board.** Rewrite `plan.md`'s Current State, add the Phase-Ledger row, and **bump
+   `Last updated`** — the verifier fails if it predates the newest `memory.md` entry.
 7. **Verify.** `python tests/test_docs_contract.py` must pass before the session ends.

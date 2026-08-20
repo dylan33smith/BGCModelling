@@ -4,7 +4,7 @@
 one-row summary in the Phase Ledger for the rest of the phase; their full write-up goes to
 `memory.md` at completion. At phase close the ledger collapses to one line and the board resets.
 
-**Last updated:** 2026-08-14
+**Last updated:** 2026-08-19
 
 ---
 
@@ -132,7 +132,10 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P4-W1** | **WIDE adapter, seeded L=8** | antiSMASH-corrected | 188 | **0.027** (2.2k) · **0.000** (8k) | ⛔ **WORSE than matched control** | 2026-08-19 |
 | **P4-W2** | **STRICT size+cluster matched** | ″ | 188 | **0.043** (2.2k) · **0.085** (8k) | control — isolates span width | 2026-08-19 |
 | P4-SF | STRICT-full regenerated @8 kb | ″ | 188 | **0.116** | best arm; gen length n.s. (p=0.50) | 2026-08-19 |
-| **P4-DILUTE** | **biosynthetic fraction of training span** | paired, n=250 | 250 | STRICT **0.683** vs WIDE **0.477** | ★ **1.43× less signal/token — the cause** | 2026-08-19 |
+| ~~P4-DILUTE~~ | ~~biosynthetic fraction of training span~~ | paired, n=250 | 250 | ~~STRICT 0.683 vs WIDE 0.477~~ | ⛔ **RETRACTED — measure was circular**; honest gap 0.869→0.576 | 2026-08-19 |
+| **P5-SUBCLASS** | **product specificity, full antiSMASH** | `subclass_specificity` | 33 real / 12 gen | real **~70% specific**; best arm **0/12 — all `RiPP-like`** | ★ **the remaining gap, in the field's own terms** | 2026-08-19 |
+| P5-AB | `--minimal` vs full mode, identical seqs | `is_bgc` | 10 | 8/10 vs 8/10 — **100% agreement** | ✅ no prior number retracted | 2026-08-19 |
+| P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·

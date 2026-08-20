@@ -684,6 +684,41 @@ def check_plan_has_current_state(F):
         ok(cat, "plan.md has the required sections", "Current State + Ledger + date")
 
 
+def check_plan_reflects_latest_results(F):
+    """plan.md must have been touched since the newest memory.md entry.
+
+    WHY. The verifier caught every *structural* drift on 2026-08-19 — a mangled header, a deleted
+    table, an unregistered run dir — but missed that `Current State` still described a plan the
+    session had already abandoned, and still pointed readers at a dropped precursor track. Nothing
+    mechanically checks whether the prose still describes reality.
+
+    A date comparison is a proxy, not proof: it shows someone updated the board after the last
+    result landed. That is exactly wrap-up protocol step 6, and it is the cheapest signal that
+    catches "results were archived but the board was never reset".
+    """
+    cat = "plan"
+    if "plan.md" not in F or "memory.md" not in F:
+        return
+    plan, mem = read(F["plan.md"]), read(F["memory.md"])
+    m = re.search(r"\*\*Last updated:\*\*\s*(20\d\d-\d\d-\d\d)", plan)
+    if not m:
+        return                      # check_plan_has_required_sections already fails on this
+    plan_date = m.group(1)
+    entries = re.findall(r"^## (20\d\d-\d\d-\d\d)(.*)$", mem, re.M)
+    if not entries:
+        skip(cat, "plan.md reflects the latest results", "no dated memory.md entries")
+        return
+    newest_date, newest_title = max(entries, key=lambda e: e[0])
+    if plan_date < newest_date:
+        fail(cat, "plan.md reflects the latest results",
+             f"plan.md 'Last updated' is {plan_date} but memory.md has entries through "
+             f"{newest_date} — '{newest_title.strip(' —')[:60]}'. Reset Current State and the "
+             f"Phase Ledger (wrap-up step 6), then bump the date.")
+    else:
+        ok(cat, "plan.md reflects the latest results",
+           f"plan {plan_date} >= newest memory entry {newest_date}")
+
+
 def check_ledger_rows_have_provenance(F):
     """A ledger row without n, or a block without provenance, is not a result."""
     cat = "plan"
@@ -825,7 +860,8 @@ CHECKS = [
     check_case_collisions, check_deprecated_not_referenced,
     check_scored_outputs_stamp_their_config, check_scorer_is_class_gated,
     check_phase3_arms_report_the_full_set, check_arms_are_mutually_comparable,
-    check_plan_has_current_state, check_ledger_rows_have_provenance,
+    check_plan_has_current_state, check_plan_reflects_latest_results,
+    check_ledger_rows_have_provenance,
     check_manipulation_check_required, check_novelty_guard_present,
     check_correction_format, check_memory_append_marker,
     check_code_keys_documented, check_obligate_domains_classes,
