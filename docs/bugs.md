@@ -352,7 +352,28 @@ only LOSE hits, never gain them: the Phase-3 rates are **conservative**, and A0'
 lift would strengthen under the fix, not weaken. The affected Phase-6/7 sets were regenerated before
 any number was quoted; the old ones are `DEPRECATED_<arm>_truncatepath.jsonl`.
 
-**Cause of the stray byte itself: NOT IDENTIFIED.** Established: adapters do it ~35x more than base,
+### ⚠️ [CORRECTION 2026-08-20] THE STRAY BYTE IS ALMOST CERTAINLY THE EOS TOKEN
+
+**`detokenize([0]) == detokenize([1]) == detokenize([32]) == ' '`.** Token **0 is the tokenizer's
+EOS**, token 1 is PAD, token 32 is the literal space byte — **all three render as the same character
+in the decoded string**, and every stage of our pipeline reads the string. So "the model emitted
+EOS" and "the model emitted a space" have been indistinguishable in every arm we have ever
+generated.
+
+Everything fits the EOS reading: fine-tuned adapters do it 30–100x more than the base model
+(fine-tuning on complete records teaches termination), it lands immediately after a stop codon
+(`GGCTGA `, `GATTAA `, `CGATGA `), training sequences contain **zero** non-ACGTN characters, and the
+left-pad is ruled out twice. ⇒ **The model appears to HAVE learned to stop, and we have been
+truncating on its stop signal while reporting `hit_eos = 0`** — because `hit_eos` tests for the
+5-byte STRING `|END|`, which has never once fired (0/150, 0/188, 0/200, 0/200).
+
+⇒ **`|END|` is 5 tokens (124,69,78,68,124) and the tokenizer already has a 1-token EOS at id 0 that
+we have never trained.** See `plan.md` [X1].
+
+⇒ This SUPERSEDES the "constant per-token hazard, therefore not a learned terminator" reading
+recorded below — that inference was drawn from a decoded string that cannot tell EOS from a space.
+
+**Cause of the stray byte itself: NOT IDENTIFIED at the time of writing (superseded above).** Established: adapters do it ~35x more than base,
 and it lands at a codon boundary far above chance (`GGCTGA `, `GATTAA `, `CGATGA ` — TGA/TAA are stop
 codons). ⛔ **Ruled out — the batched left-pad**, despite `LEFT_PAD_CHAR` being a space: pad length
 does not predict truncation (Pearson **r = +0.020** over 200 records, no dose-response across pad

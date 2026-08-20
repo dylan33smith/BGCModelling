@@ -335,6 +335,85 @@ the thing to report and to target.
 ⛔ **DROPPED:** precursor-based endpoints (detector caps at 8–50%, and precursors are RiPP-specific
 rather than a general BGC component), `n_class_domains ≥ 2` as a gate, WIDE and wider spans.
 
+## Backlog — cross-phase, opened 2026-08-20 (user)
+
+### [X1] ⛔ THE MODEL EMITS NON-NUCLEOTIDE BYTES, AND OUR EOS IS 5 TOKENS WHEN IT COULD BE 1
+**Three separate defects that compound.**
+
+1. **A fine-tuned class adapter emits a non-ACGTN byte at ~7e-05/token (RIPP) to 1.5e-04 (PKS)** —
+   30–100x the base model. Over 8,000 tokens that truncates 43–70% of records.
+2. **`|END|` is FIVE tokens** (`|`,`E`,`N`,`D`,`|` = 124,69,78,68,124) and has never once fired:
+   `hit_eos` is 0/150, 0/188, 0/200, 0/200 across every arm ever generated.
+3. **The tokenizer ALREADY HAS a single-token EOS — id 0 — and we have never trained it.**
+   ⚠️ And **ids 0 (EOS), 1 (PAD) and 32 (space) ALL detokenize to `' '`**, so once generation is
+   decoded to a string these are indistinguishable. Our whole pipeline reads the string.
+
+**Interventions, cheapest first:**
+- **[X1a] CONSTRAINED DECODING — do this first, it is ~10 lines.** Mask the logits to
+  `{A,C,G,T}` (+ the EOS id once trained) before sampling. NVIDIA's own Evo2 NIM docs state only
+  the 4 base tokens are meaningful in output and the rest exist for technical reasons. This makes
+  the stray byte **impossible by construction** rather than filtered after the fact.
+  ⚠️ Keep an unconstrained arm as the diagnostic — constraining hides the behaviour we are studying.
+- **[X1b] Train a SINGLE-TOKEN EOS (id 0), not the 5-byte string** (user, 2026-08-20). One token is
+  ~5x the per-record gradient signal of a 5-token marker, and it makes [X1a] trivial (mask to 5 ids).
+  ⚠️ Upweighting it needs a **manipulation check** — Phase 2's weighted arm consumed a run and
+  returned an uninterpretable null because the treatment never landed.
+  ⚠️ Literature warns EOS becomes a **self-reinforcing attractor**: once emitted the model keeps
+  emitting it, so a mis-placed early EOS collapses the record. Cap the upweight and measure.
+- **[X1c] Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
+  legitimate as selection, and the phage paper used a plain length filter rather than a stop token.
+
+### [X2] ⛔ ONLY THE SIMPLEST SUBCLASS — the finding that now defines the project
+Measured in all three classes (`memory.md` 2026-08-20): **PKS T3PKS 8/8 and T1PKS 0/8** (p=0.041) ·
+**TERPENE precursor 13/13, cyclase 0/13** (p=0.0024) · **RIPP `RiPP-like` 7/7, subclass 0/7**
+(p=6.4e-06). Three different antiSMASH rule systems, one ceiling.
+
+⚠️ **BEFORE calling this a model property, close the CONTEXT CONFOUND.** The harder member is in
+every case the LONGER one, and the 1B's budget is 7,992 nt:
+
+| class | easy member | hard member | fits the 1B? |
+|---|---|---|---|
+| PKS | T3PKS, median **1,083 nt** | T1PKS, median **7,665 nt** | **the median T1PKS barely fits; half do not** |
+| TERPENE | precursor, median 928 nt | cyclase, median 2,009 nt | both fit |
+| RIPP | generic | subclass rules need more domains | — |
+
+⇒ For PKS the model may simply **never have seen a complete T1PKS**. That is a substrate defect, not
+a capability limit, and it is testable.
+
+**Ordered interventions:**
+- **[X2a] Powered re-measurement FIRST.** All three findings rest on **7–13 detections, below the
+  pre-registered >=15 floor**. n=200 yields ~14 Pfam-positives; **n=600 per arm** would clear it.
+  Generation is the cheap part of this pipeline — do not build on an underpowered headline.
+- **[X2b] Seeded hard-subclass positive control.** Seed from a real T1PKS / cyclase exemplar at
+  L\*=8. Phase 3 showed seeding lifts ~6x. **If seeded generation still yields 0 hard-subclass, the
+  limitation is real; if it does not, it was the prior, not the capability.** This is the single
+  most informative cheap experiment on the board.
+- **[X2c] Inverse-subclass-frequency upweighting** (user, 2026-08-20). Reweight training by rarity
+  of the subclass. ⚠️ **Do not run before [X2b]** — the PKS gap is 31.3% of training records
+  carrying a ketosynthase producing 0% of output, which is far worse than frequency alone predicts,
+  so reweighting may be aimed at the wrong cause.
+- **[X2d] Subclass-conditioned adapters** — a T1PKS-only adapter (~1,200 records). The honest route
+  to any modular-PKS claim, and it also tests whether one adapter per *subclass* recovers what one
+  per class does not.
+
+### [X3] ⛔ TEST GENOMEOCEAN — the model-vs-method question is now the binding one
+Three classes, one model. Every finding above is **confounded with Evo2-1B**. GenomeOcean is the
+control that separates them, and two facts make it the right instrument rather than merely a
+different one:
+- **Context: 10,240 BPE tokens ≈ 51,200 nt — 6.4x our 7,992 budget.** The median T1PKS (7,665 nt)
+  fits trivially; so does a whole antiSMASH region (median 21,896 nt), which the 1B hosts for only
+  1.9% of records. **It directly dissolves the [X2] context confound.**
+- **It is bacterial-only and has a BGC-specific variant** — `bgcFM`, trained on 12M BGC sequences
+  from SMC, reported to generate long BGC sequences unprompted. We already hold a
+  `go_zeroshot_bgcfm` run dir.
+
+**Scope it tightly** (Standing Constraint 3 — testing does not fan out across models): **ONE class,
+ONE arm, the same pre-registered endpoint.** Recommend **TERPENE** — highest ceiling (antiSMASH
+1.000), 94% context fit so the 1B is not handicapped, and its easy/hard split (precursor vs cyclase)
+is the cleanest of the three. **PKS is the tempting choice and the wrong first one**: its context
+confound means a GenomeOcean win there would be uninterpretable between "better model" and "longer
+context".
+
 ## Backlog — Phase 3
 
 **The phase had three legs.** Leg 1 ✅ significant · Leg 2 ✅ significant, class-specific · Leg 3 ⛔ closed (no instrument).
