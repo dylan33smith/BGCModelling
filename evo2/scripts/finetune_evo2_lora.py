@@ -1,7 +1,25 @@
 #!/usr/bin/env python3
-"""Fine-tune Evo2 7B on BGC data using LoRA adapters (PEFT).
+"""Fine-tune Evo2 on BGC data using LoRA adapters (PEFT).
 
-Phase 1 conditioning: COMPOUND_CLASS + taxonomic tag, no COMPOUND token.
+⚠️ THE PARAMETER COUNTS IN THIS HEADER ARE FOR THE 7B. Phases 3/6/7 train the **1B**
+(`EVO2_BASE_MODEL=evo2_1b_base`, 25 blocks, 1,118,465,280 params, native context **8,192** — a hard
+model limit). On the 1B the same LoRA config yields **10,475,520 trainable params = 0.937%**, 208
+tensors. The run's own log line is authoritative; this header is kept for the 7B sizing argument.
+
+CONDITIONING PREFIX — still present, and a deliberate no-op for per-class adapters.
+Every record's `training_text` is `|COMPOUND_CLASS:X|` + `|taxonomic_tag|` + sequence, built once at
+dataset-build time. Two facts about it:
+  * The prefix is **MASKED FROM THE LOSS** (H3, below), so it contributes no gradient. It is context
+    the model may attend to, not a target.
+  * Inside a per-class adapter the class tag has exactly **ONE distinct value**, so it carries zero
+    information. Phase 1 measured the tag at **−0.0006 nats** — no effect — and that is precisely
+    why Phase 3 stopped conditioning on labels and started routing to per-class adapters instead.
+  * The **taxonomic tag is NOT a no-op**: 1,260–1,494 distinct values per class. It is real varying
+    conditioning and is the bulk of the prefix (~110 of ~130 characters).
+⇒ It is retained for **train/generation consistency** — `seed_generate.py` prepends the same prefix
+  (`class_tag=True`) — not because the class tag does anything. Removing it would invalidate
+  comparison with every Phase-3 arm. Cost: ~130 characters, 6.8% of a median RIPP record, 10.1% for
+  PKS, **14.2% for TERPENE**.
 
 Why LoRA (not full fine-tune)
 -----------------------------
@@ -155,7 +173,12 @@ DEFAULTS = dict(
 # (audit M2). First-window validation makes the loss comparable to inference;
 # stratifying by full BGC length separates "whole short BGC" from "prefix of a
 # long BGC" so a length-correlated regression is visible.
-VAL_LENGTH_BOUNDS = [16384, 32768, 65536, 131072]
+# ⚠️ Sub-16k boundaries added 2026-08-20. The old bounds started at 16,384, which was right for
+# Phase 1's 32k-context records but collapses to a SINGLE bucket for per-class phases, where every
+# record is <= 7,992 nt (the 1B's context minus the prefix). Phase 6/7 val loss was therefore
+# unstratified and could not show, for example, whether long T1PKS records were learned worse than
+# short T3PKS ones. Extra low-end buckets are harmless for Phase 1.
+VAL_LENGTH_BOUNDS = [1500, 3000, 6000, 16384, 32768, 65536, 131072]
 
 # LoRA-specific defaults
 LORA_DEFAULTS = dict(

@@ -4,7 +4,7 @@
 one-row summary in the Phase Ledger for the rest of the phase; their full write-up goes to
 `memory.md` at completion. At phase close the ledger collapses to one line and the board resets.
 
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-20
 
 ---
 
@@ -16,9 +16,20 @@ not dropped** (user, 2026-08-19) — see *Parked: RIPP* below for exactly what i
 
 | phase | target | state |
 |---|---|---|
-| **6** | **PKS** | 🔄 **[P6-A0] strict adapter TRAINING** (`phase6_PKS/`, 3,906 records, 75.2% of split). Pre-reg `docs/phase6_PKS_preregistration.md`. |
-| **7** | **TERPENE** | ⬜ **[P7-A0] strict adapter QUEUED** behind PKS on the shared H100 (`phase7_TERPENE/`). Pre-reg `docs/phase7_TERPENE_preregistration.md`. |
+| **6** | **PKS** | ✅ **[P6-A0] adapter TRAINED** (732 steps = 3 epochs, best val 0.8635, 1h44m). 🔄 **de novo generation running**, n=200 × 3 arms. ⚠️ **T3PKS-dominated substrate** — see below. |
+| **7** | **TERPENE** | ✅ **[P7-A0] adapter TRAINED** (1,998 steps, best val 0.8417, 4h13m). 🔄 **de novo generation queued**, n=200 × 3 arms. |
 | 5 | RIPP | ⏸️ **PARKED** — Level 2 achieved and defensible; open items listed below. |
+
+⚠️ **[P6-A0] IS T3PKS-DOMINATED AND MUST BE DESCRIBED AS SUCH.** Of the 3,906 training records the
+1B kept, **59.3% carry a chalcone synthase (T3PKS — a single ~350-aa gene)** and only **31.3% a
+ketosynthase (T1PKS-type modular)**; median kept record 1,167 nt. Required phrasing and the
+forbidden claim are pinned in `docs/phase6_PKS_preregistration.md` §2.2.
+
+⚠️ **Per-class metric policy is now machine-readable** — `config/class_eval_policy.yaml` pins each
+class's window, antiSMASH `--minlength`, and which metrics are void. `scripts/novelty_battery.py`
+loads it, warns on a window mismatch, prints a `⛔ VOID` banner and stamps the policy into every
+scored file. Void today: `bio_span_frac` and `n_class_domains` for **PKS**; `subclass_specificity`
+for **TERPENE**.
 
 ⚠️ **No cross-phase number comparisons.** Three scoring axes differ by design — class marker set,
 window (PKS **4,000** · TERPENE **2,000** · RIPP 2,000) and antiSMASH `--minlength` (TERPENE **200**,
@@ -186,6 +197,8 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | P5-AB | `--minimal` vs full mode, identical seqs | `is_bgc` | 10 | 8/10 vs 8/10 — **100% agreement** | ✅ no prior number retracted | 2026-08-19 |
 | ⚠️ **P5-DEDUP** | **fan-out shard-collision audit** | effective n of every generation set | 68 sets | **5 Phase-4/5 sets 4x-duplicated; all Phase-3 sets CLEAN** | ⛔ **WIDE refutation halved; guard added to the scorer** | 2026-08-19 |
 | **P5-CLASSPROBE** | **cross-class substrate comparison** | multi-domain / multi-gene content of real cores | 50/class | **catalytic units: PKS 0.300 · RIPP 0.080 · TERPENE 0.140.** ⚠️ **multi-GENE: 0.060 · 0.060 · 0.080 — level** | ★ **no class has multi-gene structure in the strict core; PKS's edge is INTRA-genic** | 2026-08-19 |
+| **P6-A0-train** | **PKS strict adapter** | training convergence | 3,906 rec | 732 steps = 3 ep, loss 0.794→0.753, **best val 0.8635** | ✅ trained; ⚠️ 59.3% T3PKS / 31.3% T1PKS-type | 2026-08-20 |
+| **P7-A0-train** | **TERPENE strict adapter** | ″ | 10,658 rec | 1,998 steps, loss 0.843→0.766, **best val 0.8417** | ✅ trained; ⚠️ **at the `--max-steps 2000` cap** | 2026-08-20 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**

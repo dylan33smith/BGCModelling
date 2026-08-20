@@ -217,6 +217,41 @@ only after [P6-A0] reads out, because **every regime-specific value must be re-d
 inherited** (Standing Constraint 9): RIPP's L\*=8 came from RIPP start-codon entropy, and the
 two-pass Pfam -> antiSMASH calibration is stamped RIPP-specific in `terms.md`.
 
+## 6.1 AMENDMENT 2026-08-20 — n AND ARMS FOR [P6-A0], REGISTERED BEFORE GENERATION
+
+**Three arms, n=200 each, on the same 200 prompts** from `splits_class/PKS/eval_prompts.jsonl`
+(all of them — that file holds exactly 200), de novo (prefix only, no sequence seed):
+
+| arm | model | role |
+|---|---|---|
+| **P6-A0** | `phase6_PKS/adapter_run/final_adapter` | the treatment |
+| **P6-A0-C1** | unadapted `evo2_1b_base` | floor |
+| **P6-A0-C2** | general all-class adapter (`phase2_long/baseline_long/final_adapter`) | floor — isolates "a class-specific adapter" from "any adapter" |
+
+**Power.** Pooled control n=400 against treatment n=200. Phase 3 measured the binding constraint
+directly ([P3-B3]): against a control that stays at exactly 0, Fisher's exact reaches **p=0.004 at
+5 treatment hits** in this configuration, and **p=0.012 at 4**. Generating more *treatment* does not
+help — the control arm is what moves the p-value. All 200 prompts are used by every arm, so the
+arms are prompt-matched, not merely size-matched.
+
+**Generation length 8,000 nt, scored at the registered 4,000 nt window.** Length may differ from
+other phases safely: the scored span is a fixed prefix and an autoregressive model writes the same
+first 4,000 tokens regardless of the total requested.
+
+**Substrate:** `evo2_1b_base`, now enforced in code — `generate_bgc.py` refuses to run without an
+explicit substrate rather than defaulting to the 7B (`bugs.md` [P3-B7]).
+
+**Manipulation check, read BEFORE the endpoint:** the adapter arm's output must differ from
+P6-A0-C1 on some measured axis. An adapter that changes nothing is not a treatment and its null is
+uninformative, not negative.
+
+**Novelty gates:** `containment` AND `protein_aai`, plus intra-set distinctness — the scorer now
+refuses to score a set containing exact duplicates, and any fan-out varies `--seed` per shard
+(`bugs.md`, shard collision).
+
+**Kill criterion:** treatment indistinguishable from the pooled control at this n, with the
+manipulation check passing, closes [P6-A0] as a powered negative for this class.
+
 ## 7. Novelty gates — unchanged, both hard
 
 `containment` < 0.80 AND `protein_aai` < 0.95, reported per arm, never co-reported with the

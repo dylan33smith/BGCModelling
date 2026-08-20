@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 import sys
@@ -240,6 +241,23 @@ def generate_batch(wrapper: Any, prompts: list[dict], args) -> list[dict]:
     return records
 
 
+def require_explicit_substrate(base_model: str | None) -> str:
+    """Fail loudly when the substrate is not stated. [P3-B7]
+
+    This script used to fall through to the 7B whenever `EVO2_BASE_MODEL` was unset, so a bare
+    invocation silently generated from the wrong model and only failed if the adapter happened to
+    be shape-incompatible. That cost 150 discarded control generations on 2026-08-17 (`bugs.md`).
+    The substrate is not a default — it is part of the result, and an unstated one is a bug.
+    """
+    resolved = base_model or os.environ.get("EVO2_BASE_MODEL")
+    if not resolved:
+        raise SystemExit(
+            "[generate_bgc] FATAL: no substrate. Set EVO2_BASE_MODEL (e.g. evo2_1b_base) or pass "
+            "--base-model. This script previously defaulted to the 7B and silently produced "
+            "generations from the wrong model -- see bugs.md [P3-B7]. Refusing to guess.")
+    return resolved
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -275,11 +293,18 @@ def main() -> None:
                     help="Max fraction of N for a sequence to be flagged n_pass=true.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--base-model", default=None,
+                    help="Evo2 substrate, e.g. evo2_1b_base. REQUIRED unless EVO2_BASE_MODEL is "
+                         "set in the environment -- this script does not guess (bugs.md P3-B7).")
     ap.add_argument("--out-fasta", type=Path, default=Path("generated_bgcs.fasta"))
     ap.add_argument("--out-jsonl", type=Path, default=Path("generated_bgcs.jsonl"))
     ap.add_argument("--dry-run", action="store_true",
                     help="Print the prompt/decoding plan without loading the model.")
     args = ap.parse_args()
+    # Substrate must be explicit BEFORE any model load, and is stamped into every record.
+    args.base_model = require_explicit_substrate(args.base_model)
+    os.environ["EVO2_BASE_MODEL"] = args.base_model
+    print(f"[generate_bgc] substrate: {args.base_model}", flush=True)
 
     # Resolve prompts.
     rng = random.Random(args.seed)
