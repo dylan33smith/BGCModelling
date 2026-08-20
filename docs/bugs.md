@@ -336,10 +336,19 @@ The EOS-specific picture is different and much less favourable to early stopping
 2. **Shorten `--max-new-tokens`** — the cheapest real saving, since the request length is a
    hyperparameter we impose and most records never approach it. Needs the EOS-position distribution
    to pick a defensible value.
-3. **Per-row early exit** — genuinely saves the difference between "tokens the model needed" and
-   "tokens we paid for", but requires shrinking the batch mid-generation, which means rebuilding
-   vortex's cached `inference_params` for the surviving rows. Only worth it if the measured gap is
-   large.
+3. **Per-row early exit — MEASURED, and the gap IS large: 38.5%.** n=32, 8,000 tokens, constrained:
+   **21/32 rows emit EOS** (median position **2,869**, min 623, max 7,648) and 11/32 never do.
+   Tokens the model actually needed **157,490** vs **256,000** paid for ⇒ **per-row exit saves 38.5%
+   of decode compute; all-rows exit saves 0.0%.** Requires shrinking the batch mid-generation, i.e.
+   rebuilding vortex's cached `inference_params` for the surviving rows.
+4. **Smaller batches — the cheap approximation.** Waste scales with how long the batch waits on its
+   slowest row, so batch 8 wastes far less than batch 32 while giving up some GPU utilisation.
+   There is an optimum; it is measurable without touching vortex internals.
+
+⚠️ **Constrained decoding also appears to RAISE the EOS rate** — 9/24 unconstrained vs 11/24 and
+21/32 constrained. Expected mechanically: mass that leaked to junk is renormalised over
+`{ACGTN,EOS}`, so EOS gets a larger share. ⚠️ Those runs differ in n and prompt subset — treat the
+direction as suggestive, not measured.
 
 **Do not** claim a speedup from `all(done)` early stopping without measuring `steps`; the wall-clock
 difference is within noise and the step count is the honest readout.

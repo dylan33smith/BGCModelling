@@ -418,9 +418,15 @@ stop), and **both scorings are reported as a pair** until generation is token-id
   unlocks all three:** capture ids at sampling time, then (a) `hit_eos` tests id 0, (b) a per-row
   done-mask stops each sequence at its own EOS, (c) the junk-vs-EOS distinction that makes the
   mask/truncate choice unnecessary. **Do this before any further generation spend.**
-- **[X1f] FIX `stop_at_eos` — it is broken in vortex and costs ~75% of generation compute.**
-  `generation.py:208` checks for EOS and only `print`s; there is no `break`. It also inspects batch
-  row 0 only. PKS `A0` stops at a median ~1,750 nt of 8,000 requested. Needs a per-row done-mask.
+- **[X1f] EARLY STOPPING — ⚠️ BUILT, MEASURED, AND THE SIMPLE VERSION DOES NOT WORK.**
+  vortex's `stop_at_eos` checks for EOS and only `print`s (no `break`), and inspects batch row 0
+  only — but fixing that is not enough. An `all(rows done)` exit gives **1.01x**, because only
+  **21/32 rows emit EOS at all** and one non-terminating row holds the whole batch.
+  ⇒ **Per-row exit is worth building: 38.5% of decode compute** (157,490 tokens needed vs 256,000
+  paid). EOS position median **2,869**, min 623, max 7,648. Needs vortex's cached
+  `inference_params` rebuilt for surviving rows.
+  ⇒ **Cheaper approximations first:** shorten `--max-new-tokens` (median EOS is 2,869 of 8,000
+  requested), and use **smaller batches** — waste scales with the wait on the slowest row.
 - **[X1c] Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
   legitimate as selection, and the phage paper used a plain length filter rather than a stop token.
 
