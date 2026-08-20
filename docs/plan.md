@@ -382,9 +382,10 @@ stop), and **both scorings are reported as a pair** until generation is token-id
 - **[X1b] Train the EXISTING single-token EOS (id 0), not the 5-byte string** (user, 2026-08-20).
   ⚠️ **Do not ADD a token — id 0 is already there and the model already reaches for it.** One token
   is ~5x the per-record gradient of a 5-token marker and makes [X1a] trivial (mask to 5 ids).
-  ⚠️ **Upweighting may be unnecessary**: at generation-time stops the signal is already 16–159x
-  uniform. The defect was that we DISCARDED it. Fix the reader first, then measure whether the
-  writer needs help.
+  ✅ **SHIPPED 2026-08-20** as `--eos-mode {token,marker,both}`, default **`token`**. Evo2's
+  tokenizer appends nothing, so the id is added after tokenisation; `eos_reserve` corrected per mode.
+  ⛔ **UPWEIGHTING DROPPED** (user): the signal was never weak — masking EOS causally restores the
+  median generation length from 4,583 to 8,000. We were discarding it. Fix the reader, not the writer.
   ⚠️ Upweighting it needs a **manipulation check** — Phase 2's weighted arm consumed a run and
   returned an uninterpretable null because the treatment never landed.
   ⚠️ Literature warns EOS becomes a **self-reinforcing attractor**: once emitted the model keeps
@@ -394,6 +395,9 @@ stop), and **both scorings are reported as a pair** until generation is token-id
   the **27.5% degenerate records in PKS `A0`**. Masking logits at such a position just forces an
   arbitrary nucleotide. Needs the `n_pass` / length-quality gate, and it is the one place a
   *capability* fix (better model, more context) may be required rather than a decoding fix.
+- **[X1f] FIX `stop_at_eos` — it is broken in vortex and costs ~75% of generation compute.**
+  `generation.py:208` checks for EOS and only `print`s; there is no `break`. It also inspects batch
+  row 0 only. PKS `A0` stops at a median ~1,750 nt of 8,000 requested. Needs a per-row done-mask.
 - **[X1c] Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
   legitimate as selection, and the phage paper used a plain length filter rather than a stop token.
 

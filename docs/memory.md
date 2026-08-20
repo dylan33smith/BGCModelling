@@ -2117,4 +2117,64 @@ reported as a pair.
 
 ---
 
+## 2026-08-20 — ★★★ CAUSAL: masking EOS restores full-length generation. `--eos-mode token` shipped.
+
+**The first causal test (n=24, 4,000 tokens) was UNDERPOWERED and read as negative** — 6/24 -> 5/24
+stop events, which I reported as inconclusive rather than accepting either answer. **Powered rerun
+(n=48, 8,000 tokens, identical prompts + seed, only the logit mask differing) is decisive:**
+
+| arm | seqs with a stop event | **median length** |
+|---|---|---|
+| UNMASKED (control) | 36/48 | **4,583** |
+| **MASK id 0 (EOS)** | **22/48 (−14)** | **8,000** |
+| MASK id 1 (PAD) | 36/48 (+0) | 4,583 |
+| MASK {0,1,32} all space-decoding | 22/48 (−14) | 8,000 |
+| MASK all non-ACGTN | **0/48 (−36)** | 8,000 |
+
+⇒ **Masking EOS restores the median from 4,583 to the full 8,000 requested.** EOS is causally
+responsible for the early termination. ⇒ **PAD is irrelevant** (identical to control). ⇒ Masking all
+three space-decoding ids is **no better than masking id 0 alone**, so among them only EOS matters.
+⇒ **Full constrained decoding eliminates stop events entirely (0/48)** — [X1a] works as designed.
+⇒ The residual **22/48** are the DEGENERATE population, untouched by EOS masking. **EOS explains the
+early stopping; degeneracy explains the rest.** Two mechanisms, two fixes ([X1d]).
+
+### `--eos-mode` shipped in `finetune_evo2_lora.py` (default **`token`**)
+
+**Evo2's tokenizer appends NOTHING** — `CharLevelTokenizer.tokenize()` is a raw byte map. The id has
+to be added **after tokenisation**, because no *character* encodes to it (0/1/32 all DEtokenize to
+`' '`, but `' '` ENcodes to 32). Contrast **GenomeOcean's BPE tokenizer, which wraps every sequence
+`BOS=1 … EOS=2` automatically** — a GenomeOcean fine-tune trains a proper single-token EOS with no
+work at all, which is one more reason [X3] sidesteps [X1] rather than needing it fixed first.
+
+| mode | appended to the final window | tokens |
+|---|---|---|
+| **`token`** (DEFAULT) | `[0]` | 1 |
+| `marker` (pre-2026-08-20) | `[124, 69, 78, 68, 124]` | 5 |
+| `both` | `[124, 69, 78, 68, 124, 0]` | 6 |
+
+Appended **after the prefix**, so it stays supervised; only on the window carrying the record's true
+end; `eos_reserve` corrected per mode (over-reserving silently shortens every training window).
+Tests updated to cover all three modes — `tests/test_chunk_eos_windows.py` previously pinned the
+string marker, and the val-side assertion is now mode-agnostic.
+
+⛔ **UPWEIGHTING IS DROPPED** (user, 2026-08-20). The signal was never weak — 16–159x uniform at the
+model's own stop points, and causally sufficient to halve generation length. **We were discarding
+it.** Fix the reader, not the writer.
+
+### ⚠️ `stop_at_eos` IS BROKEN IN VORTEX — we are burning ~75% of generation compute
+
+`vortex/model/generation.py:208`:
+```
+if stop_at_eos and (generation[0, -1:] == eos_token_ids).all():
+    print("Stopping generation at EOS")
+```
+**There is no `break`.** It prints and keeps generating. Our path passes `stop_at_eos=False` anyway.
+Second bug on the same line: `generation[0, -1:]` inspects **batch row 0 only**, so even with a
+`break` it would halt the whole batch on one sequence. ⇒ PKS `A0` stops at a median ~1,750 nt of
+8,000 requested, so **~75% of that arm's generation compute runs after the model has finished.**
+Fixing needs a patched loop with a per-row done-mask — nearly free once generation is token-id aware
+([X1e]).
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

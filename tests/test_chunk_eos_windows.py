@@ -114,15 +114,26 @@ def main():
                     assert text.startswith(f"|CONTINUATION:{cls}|"), \
                         f"interior window must use continuation prefix: {text[:40]!r}"
 
-                # 3) EOS placement
+                # 3) EOS placement -- depends on --eos-mode (added 2026-08-20).
+                #    'token'  appends the tokenizer's REAL single-token EOS, id 0. This is the
+                #             default: |END| is a 5-BYTE STRING that never once fired at
+                #             generation, while id 0 is what Evo2 pretrained with and what the
+                #             model demonstrably emits (masking it restores full-length output).
+                #    'marker' is the pre-2026-08-20 5-byte string, kept to reproduce old runs.
                 if is_last:
                     n_eos += 1
-                    assert text.endswith(F.EOS_MARKER), \
-                        f"last window must end with EOS: {text[-12:]!r}"
-                    # 4) EOS is supervised (after the masked prefix)
-                    eos_len = len(F.EOS_MARKER.encode())
-                    assert p <= len(ids) - eos_len, "EOS must lie in the supervised region"
-                    assert decode(ids[-eos_len:]) == F.EOS_MARKER
+                    mode = getattr(ds, "eos_mode", "marker")
+                    if mode in ("marker", "both"):
+                        eos_len = len(F.EOS_MARKER.encode())
+                        tail = ids[-eos_len:] if mode == "marker" else ids[-eos_len - 1:-1]
+                        assert decode(tail) == F.EOS_MARKER, \
+                            f"last window must carry the string marker: {text[-12:]!r}"
+                        assert p <= len(ids) - eos_len, "EOS must lie in the supervised region"
+                    if mode in ("token", "both"):
+                        assert ids[-1] == F.EOS_TOKEN_ID, \
+                            f"last window must END with token id {F.EOS_TOKEN_ID}, got {ids[-1]}"
+                        # supervised: the appended id sits after the masked prefix
+                        assert p <= len(ids) - 1, "EOS token must lie in the supervised region"
                 else:
                     assert not text.endswith(F.EOS_MARKER), \
                         f"non-final window must NOT have EOS: {text[-12:]!r}"
@@ -149,9 +160,11 @@ def main():
         eos_count = 0
         for ci, (rec_idx, nt0, nt1) in enumerate(vds.chunks):
             assert nt0 == 0, "first_window_only must keep only nt_start==0 windows"
-            text = decode(vds[ci]["input_ids"])
+            ids_ = [int(x) for x in vds[ci]["input_ids"]]
+            text = decode(ids_)
             assert text.startswith("|COMPOUND_CLASS:"), "val first window uses class prefix"
-            if text.endswith(F.EOS_MARKER):
+            # mode-agnostic: an end signal is EITHER the string marker OR the real EOS token id
+            if text.endswith(F.EOS_MARKER) or ids_[-1] == F.EOS_TOKEN_ID:
                 eos_count += 1
         # Only the short record's first window is also the last -> gets EOS.
         assert eos_count == 1, f"only the single-window (short) record gets EOS, got {eos_count}"

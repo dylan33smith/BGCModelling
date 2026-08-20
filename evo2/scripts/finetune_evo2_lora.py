@@ -140,6 +140,16 @@ from bgc_pipeline.objective import custom_lm_loss  # noqa: E402
 # so "|END|" can never occur inside an ACGTN sequence (unambiguous stop string).
 EOS_MARKER = "|END|"
 
+# ⚠️ THE REAL EOS IS A SINGLE TOKEN AND WE NEVER TRAINED IT (2026-08-20).
+# `EOS_MARKER` is a 5-BYTE STRING (124,69,78,68,124) and `hit_eos` has read 0 in every arm ever
+# generated. Meanwhile `CharLevelTokenizer.eos` is **token id 0**, which Evo2's own pretraining
+# already uses as a sequence separator: measured on real held-out cores, P(id 0) at the true end vs
+# mid-core is 40.9x for the BASE model and 2,100x for our adapter. And it is CAUSAL -- masking id 0
+# to -inf at generation restores the median length from 4,583 to the full 8,000 requested tokens.
+# ⚠️ Evo2's tokenizer appends NOTHING automatically (unlike GenomeOcean's BPE tokenizer, which wraps
+# every sequence BOS=1 ... EOS=2). So the id must be appended by hand, after tokenisation.
+EOS_TOKEN_ID = 0
+
 # Base hyperparameters — same schedule as full fine-tune
 DEFAULTS = dict(
     max_seq_len       = 32768,
@@ -256,6 +266,14 @@ def parse_args() -> argparse.Namespace:
     eg.add_argument("--no-eos-token", dest="eos_token", action="store_false",
                     help="Do not append an end-of-BGC token.")
     p.set_defaults(eos_token=True)
+    eg.add_argument("--eos-mode", choices=("token", "marker", "both"), default="token",
+                    help="HOW the end-of-record signal is written. 'token' (DEFAULT since "
+                         "2026-08-20) appends the tokenizer's real single-token EOS (id 0) after "
+                         "tokenisation -- the token Evo2 pretrained with and the one the model "
+                         "already emits. 'marker' is the pre-2026-08-20 behaviour: the 5-byte "
+                         "STRING '|END|', which never once fired at generation. 'both' writes the "
+                         "marker then the token. Recorded in the run config -- it is part of what "
+                         "the model was trained to do.")
     cg = p.add_mutually_exclusive_group()
     cg.add_argument("--continuation-prefix", dest="continuation_prefix",
                     action="store_true",
@@ -926,6 +944,7 @@ class BGCTextDataset(Dataset):
         lengths_cache_dir: Path | None = None,
         first_window_only: bool = False,
         append_eos: bool = False,
+        eos_mode: str = "token",
         continuation_prefix: bool = False,
         gene_aware_chunking: bool = False,
     ) -> None:
@@ -939,11 +958,17 @@ class BGCTextDataset(Dataset):
         self.lengths_cache_dir = lengths_cache_dir
         self.first_window_only = first_window_only
         self.append_eos = append_eos
+        self.eos_mode = eos_mode
         self.continuation_prefix = continuation_prefix
         self.gene_aware_chunking = gene_aware_chunking
         # Tokens reserved for the EOS_MARKER on the final window (M11). Computed
         # from the tokenizer so the chunk budget below leaves room for it.
-        self.eos_reserve = count_prefix_tokens(tokenizer, EOS_MARKER) if append_eos else 0
+        # Reserve exactly what will be appended: 5 tokens for the string marker, 1 for the real
+        # EOS id, 6 for both. Over-reserving silently shortens every training window.
+        _marker_toks = count_prefix_tokens(tokenizer, EOS_MARKER)
+        self.eos_reserve = 0 if not append_eos else (
+            1 if eos_mode == "token" else
+            _marker_toks if eos_mode == "marker" else _marker_toks + 1)
 
         self.offsets: list[int] = []
         with jsonl_path.open("rb") as f:
@@ -1060,7 +1085,8 @@ class BGCTextDataset(Dataset):
             # it (and the tail), correctly signalling "not the real end".
             nt_start, nt_end = 0, len(seq)
             win_prefix = first_prefix
-            text = training_text + (EOS_MARKER if self.append_eos else "")
+            _want_marker = self.append_eos and self.eos_mode in ("marker", "both")
+            text = training_text + (EOS_MARKER if _want_marker else "")
         else:
             if not training_text.endswith(seq):
                 raise ValueError(
@@ -1077,11 +1103,25 @@ class BGCTextDataset(Dataset):
             sub = seq[nt_start:nt_end]
             # EOS_MARKER is appended (supervised, after the prefix) only on the
             # window that contains the true end of the BGC (M11 / termination).
-            tail = EOS_MARKER if (self.append_eos and is_last) else ""
+            tail = EOS_MARKER if (self.append_eos and is_last
+                                  and self.eos_mode in ("marker", "both")) else ""
             text = win_prefix + sub + tail
 
         tokens = self.tokenizer.tokenize(text)
         ids = list(tokens) if isinstance(tokens, (list, tuple)) else [int(t) for t in tokens]
+        ids = [int(t) for t in ids]
+
+        # ── APPEND THE REAL EOS TOKEN (id 0) ───────────────────────────────────────────────
+        # Evo2's CharLevelTokenizer maps bytes and appends NOTHING, so the id has to be added by
+        # hand -- and it must be added HERE, after tokenisation, because there is no character
+        # that encodes to it (ids 0, 1 and 32 all DEtokenize to ' ', but ' ' encodes to 32).
+        # Appended AFTER the prefix, so it stays supervised by the masking below; and appended
+        # only on the window carrying the record's true end, exactly like the string marker.
+        _is_last_window = True if self.chunks is None else (nt_end >= len(seq))
+        _want_token = (self.append_eos and _is_last_window
+                       and self.eos_mode in ("token", "both"))
+        if _want_token:
+            ids.append(EOS_TOKEN_ID)
 
         # Count prefix tokens for label-masking. Relies on Evo2's
         # CharLevelTokenizer where `tokenize(prefix + sub)` is the concatenation
@@ -2105,6 +2145,7 @@ def main() -> None:
         "chunk_overlap": args.chunk_overlap,
         "lengths_cache_dir": cache_dir if args.long_seq_strategy == "chunk" else None,
         "append_eos": args.eos_token,
+        "eos_mode": args.eos_mode,
         "continuation_prefix": args.continuation_prefix,
         "gene_aware_chunking": args.gene_aware_chunking,
     }
