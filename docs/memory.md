@@ -2181,4 +2181,59 @@ decoding** instead (junk ids 247 -> 0). See `bugs.md`.
 
 ---
 
+## 2026-08-20 — Phase 8 opens: GenomeOcean on TERPENE. T1 decided on a measurement.
+
+**Pre-registered before anything generates:** `docs/phase8_GENOMEOCEAN_preregistration.md` (user
+approved the new file). This phase re-runs **Phase 7's exact endpoint on a different model**, so its
+only comparison partner is `[P7-A0]`.
+
+### T1 — the arm is fine-tuned `GenomeOcean-4B`, NOT `bgcFM`
+
+| model | class probe, balanced acc | chance | shuffled |
+|---|---|---|---|
+| `GenomeOcean-4B` (base) | **0.878** (layer 8) | 0.091 | 0.083 |
+| `GenomeOcean-4B-bgcFM` | **0.894** (layer 12) | 0.091 | 0.082 |
+| Evo2 (reference) | ~0.91 | 0.09 | — |
+
+⇒ **bgcFM buys +0.016 — nothing representationally**, while adding the confound "it already saw
+12 M SMC BGC sequences". Base keeps the comparison fine-tune-vs-fine-tune. bgcFM runs **zero-shot as
+a declared reference ceiling**, never as the arm; its unconditioned `is_bgc` is already measured at
+**27/216 = 0.125** (`go_zeroshot_bgcfm/`, ~44 s/sequence).
+
+### ★ THE PREDICTION THIS FORCES, RECORDED BEFORE THE RUN
+
+**All three models encode compound class at ~0.88–0.91 against ~0.09 chance.** Representation was
+never the bottleneck — **generation is**. ⇒ **A model swap alone may well not move the endpoint.**
+Writing that down now so a null is interpretable rather than disappointing.
+
+### Why TERPENE and not PKS — the whole design
+
+GenomeOcean differs on **four axes at once**: params (4.25 B vs 1.1 B), context (~51,200 nt vs
+8,192), tokenizer (BPE vs byte-level), corpus (metagenomic vs all-domains). A win cannot be
+attributed to one. TERPENE removes the most dangerous from contention: **94.0% of TERPENE already
+fits Evo2's budget**, so Evo2 was not context-limited there and a win cannot be explained by context.
+⛔ **PKS would be uninterpretable** — 75.2% fit, and its hard member (T1PKS, median 7,665 nt) is
+precisely the one that does not.
+
+### Two-way kill criterion
+
+- Rate indistinguishable from `[P7-A0]` **and still 0 cyclase detections** ⇒ the "easiest member"
+  limit is **method-attributable**, survives a 4x model with 6.4x context, and **[X2] un-holds**.
+- Cyclase detections where Evo2 had none ⇒ **model-attributable**, and every [X2] intervention is
+  aimed at the wrong cause.
+
+### Inherited, deliberately
+
+Same marker set, window (2,000 nt), `--minlength 200`, ceiling file, battery and antiSMASH runner as
+`[P7-A0]`, and the **same 200 prompts** so the comparison is prompt-paired. ⚠️ This is the one phase
+where inheriting rather than re-deriving is correct — **the model is the variable**, and a pipeline
+change invalidates the only comparison the phase exists to make.
+⚠️ **[X1] does not apply here:** GenomeOcean's tokenizer auto-wraps `BOS=1 … EOS=2`, so the Evo2
+stray-byte pathology should be absent. **Report junk-token and degeneracy rates anyway — their
+absence is itself a result.**
+⚠️ **Re-run the leakage gate on the fine-tuned arm.** It passed at containment 0.0000 for the
+pretrained checkpoints, but fine-tuning on our data changes what memorisation is possible.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

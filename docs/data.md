@@ -324,6 +324,12 @@ applies to the **frame arm only**. Do not quote the weighted arm as a negative r
 
 ### GenomeOcean
 
+⚠️ **Phase 8 opens on this track (`docs/phase8_GENOMEOCEAN_preregistration.md`, 2026-08-20).**
+Arm = fine-tuned `GenomeOcean-4B` on `splits_class/TERPENE`; `bgcFM` is a declared reference, not a
+control. Both checkpoints are local in `hf_cache`; env `/data2/ds85/envs/genomeocean`.
+Class probe: base **0.878**, bgcFM **0.894**, chance 0.091 (`genomeocean/experiments/`).
+
+
 | Run dir | Date | Size | Status |
 |---|---|---|---|
 | `go_zeroshot_rate_n216/` | 07-27 | 24M | ✅ leakage gate **PASSED** — 0.0000 containment, greedy, positive control first |

@@ -482,12 +482,15 @@ a capability limit, and it is testable.
 - ✅ **Tokenization measured** — `tokenization_report.json`.
 - ✅ **Zero-shot rate + class probe** — `go_zeroshot_rate_n216/`, `go_zeroshot_bgcfm/`.
 
-**T1 · Decide the base checkpoint: `GenomeOcean-4B` or `bgcFM`.** ⚠️ **This is a real fork, not a
-detail.** `bgcFM` is already trained on 12 M SMC BGC sequences, so it is the stronger starting point
-**and the weaker control** — a win could be "GenomeOcean is better" or "it already saw BGCs". The
-leakage gate passed for bgcFM against OUR test set, which is what makes it usable at all.
-**Recommend: base `GenomeOcean-4B`**, so the comparison against Evo2-1B is fine-tune-vs-fine-tune.
-Run bgcFM zero-shot alongside as a reference ceiling, not as the arm.
+**T1 · ✅ DECIDED 2026-08-20 — the arm is fine-tuned `GenomeOcean-4B`; `bgcFM` is a reference only.**
+Settled on a measurement: the class probe reads **0.878 (base) vs 0.894 (bgcFM)**, chance 0.091 —
+bgcFM's extra BGC pretraining buys **+0.016**, i.e. essentially nothing representationally, while
+adding the confound "it already saw BGCs". ⇒ base `GenomeOcean-4B` keeps the comparison
+fine-tune-vs-fine-tune; `bgcFM` runs zero-shot as a **declared reference ceiling** (its
+unconditioned `is_bgc` is already measured at **27/216 = 0.125**).
+★ **And all three models encode class at ~0.88–0.91 vs ~0.09 chance** (Evo2 ~0.91). **The bottleneck
+has never been representation — it is generation.** That predicts a model swap alone may not move
+the endpoint, and it is recorded before the run rather than after.
 
 **T2 · Build the TERPENE training substrate for a BPE tokenizer.** Reuse
 `splits_class/TERPENE` unchanged — same records, same splits, same held-out test — so the only
@@ -516,8 +519,11 @@ floors, same gates. **Any pipeline change invalidates the comparison.**
 only "higher rate" but **"does it make the harder member"** — TERPENE cyclase vs precursor-only,
 where Evo2 read **0/13**.
 
-**T8 · Pre-register T1–T7 before generating** (Standing Constraint 4) in a new
-`docs/phase8_GENOMEOCEAN_preregistration.md` — ⚠️ ASK FIRST, it is a new doc file.
+**T8 · ✅ DONE 2026-08-20 — `docs/phase8_GENOMEOCEAN_preregistration.md`** (user approved the new
+file). Freezes the inherited endpoint, the arms, n=200 on the **same prompts as `[P7-A0]`**, the
+five declared confounds, and a **two-way kill criterion**: an indistinguishable rate with still-zero
+cyclase detections makes the "easiest member" limit method-attributable and **un-holds [X2]**;
+cyclase detections where Evo2 had none make it model-attributable and aim [X2] at the wrong cause.
 
 ⚠️ **What a GenomeOcean win would and would not settle.** Context, parameters, tokenizer and
 pretraining corpus ALL differ at once. A win says "this model does better"; it does **not** isolate
