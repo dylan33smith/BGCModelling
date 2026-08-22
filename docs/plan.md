@@ -492,11 +492,14 @@ unconditioned `is_bgc` is already measured at **27/216 = 0.125**).
 has never been representation — it is generation.** That predicts a model swap alone may not move
 the endpoint, and it is recorded before the run rather than after.
 
-**T2 · Build the TERPENE training substrate for a BPE tokenizer.** Reuse
-`splits_class/TERPENE` unchanged — same records, same splits, same held-out test — so the only
-difference from `[P7-A0]` is the model. ⚠️ Re-derive the token-length distribution: 10,240 BPE
-tokens ≈ **51,200 nt**, so ~94% context fit becomes ~100% and **the `<=7,992 nt` filter is dropped
-entirely**. Record how many records that adds back.
+**T2 · ✅ DONE 2026-08-22** (`phase8_TERPENE_GO/data/`, `substrate_report.json`).
+`splits_class/TERPENE` reused unchanged. Measured: **4.974 nt/token**, median record 960 nt =
+**192 tokens**; context 10,240 tok = **50,934 nt = 6.4x** Evo2's 7,992. Kept **11,260/11,297 =
+0.997** train (Evo2: 0.943) and 788/793 val ⇒ **+602 records recovered (+5.3%)**.
+★ **The 6.4x context buys +5.3% — which is the design working, not a letdown**: TERPENE was chosen
+because Evo2 was not context-limited on it, so **a GenomeOcean win cannot be attributed to
+context.** 37 records still exceed even the 32,768 ceiling (largest ~270 kb) and are dropped and
+counted. Context **frozen at 10,240**. ✅ Tokenizer auto-wrap `BOS=1 … EOS=2` asserted in code.
 
 **T3 · Confirm the EOS/class-token handling.** GenomeOcean's tokenizer **auto-wraps every sequence
 `BOS=1 … EOS=2`**, so `[X1b]` is free here. Verify the class token survives fine-tuning as one

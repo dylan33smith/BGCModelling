@@ -2236,4 +2236,42 @@ pretrained checkpoints, but fine-tuning on our data changes what memorisation is
 
 ---
 
+## 2026-08-22 — [P8-T2] GenomeOcean TERPENE substrate built. The 6.4x context buys +5.3%.
+
+`genomeocean/scripts/build_class_substrate_go.py` → `phase8_TERPENE_GO/data/` +
+`substrate_report.json`. **`splits_class/TERPENE` reused UNCHANGED** — same records, same splits,
+same held-out test as `[P7-A0]`. Only the length filter differs, which is the entire point: the
+model is the variable.
+
+| | train | val |
+|---|---|---|
+| records in the split | 11,297 | 793 |
+| median length | **960 nt = 192 tokens** (**4.974 nt/token**) | 975 nt = 197 tok |
+| kept by **Evo2-1B** (<= 7,992 nt) | 10,658 = **0.943** | 747 = 0.942 |
+| kept by **GenomeOcean** (<= 10,240 tok) | 11,260 = **0.997** | 788 = 0.994 |
+| **recovered** | **+602 (+5.3%)** | +41 (+5.2%) |
+
+**Context: 10,240 tok x 4.974 nt/token = 50,934 nt — 6.4x Evo2's 7,992.**
+
+### ★ THE 6.4x CONTEXT RECOVERS ONE RECORD IN NINETEEN — AND THAT IS THE DESIGN WORKING
+
+TERPENE was chosen (Phase-8 prereg §2) *because* Evo2 was not context-limited on it. T2 now
+**measures** that instead of assuming it. ⇒ **If `[P8-A0]` beats `[P7-A0]`, the context cannot be the
+explanation** — the largest confound is measured out of contention before the run.
+⇒ On PKS this table would have looked entirely different (75.2% fit, hard member 7,665 nt) and the
+phase would have been uninterpretable. **This is the concrete vindication of not picking PKS first.**
+
+⇒ **37 train records still do not fit** at 10,240 tok; the largest is **54,376 tokens (~270 kb)**,
+past GenomeOcean's own 32,768 ceiling. No context setting rescues them — dropped and counted.
+⇒ **Training context FROZEN at 10,240** (what the feasibility gate passed at; already 99.7%). The
+32,768 ceiling would buy <=0.3% more records for ~3x memory.
+
+✅ **EOS verified in code:** the builder asserts the tokenizer auto-wraps `BOS=1 … EOS=2` and
+**refuses to emit a substrate otherwise**. `[X1]` does not apply to this phase — but junk-token and
+degeneracy rates are still reported, because their absence is itself a result.
+
+**Next: T3 is already discharged by that assertion; T4 is the fine-tune.**
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

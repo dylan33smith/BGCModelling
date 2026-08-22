@@ -63,6 +63,41 @@ model swap alone may not move the endpoint.
 different question. Its zero-shot unconditioned rate is already measured: **`is_bgc` 27/216 =
 0.125**.
 
+## 3.1 T2 COMPLETE 2026-08-22 — the substrate is built, and it STRENGTHENS §2's argument
+
+`genomeocean/scripts/build_class_substrate_go.py` · `phase8_TERPENE_GO/substrate_report.json`.
+`splits_class/TERPENE` reused unchanged; only the length filter differs.
+
+| | train | val |
+|---|---|---|
+| records in the split | 11,297 | 793 |
+| median length | **960 nt = 192 tokens** (**4.974 nt/token**) | 975 nt = 197 tok |
+| kept by **Evo2-1B** (<= 7,992 nt) | 10,658 = **0.943** | 747 = 0.942 |
+| kept by **GenomeOcean** (<= 10,240 tok) | 11,260 = **0.997** | 788 = 0.994 |
+| **records recovered** | **+602 (+5.3%)** | +41 (+5.2%) |
+
+**Context available: 10,240 tokens x 4.974 nt/token = 50,934 nt — 6.4x Evo2-1B's 7,992.**
+
+⇒ ★ **AND IT BUYS ALMOST NOTHING HERE — +5.3% of records.** That is not a disappointment, it is
+**the design working as intended (§2).** TERPENE was chosen precisely because Evo2 was not
+context-limited on it, and T2 now *measures* that rather than assuming it: a 6.4x context increase
+recovers one record in nineteen. **So if `[P8-A0]` beats `[P7-A0]`, the 6.4x context cannot be the
+explanation.** On PKS the same table would have looked entirely different and the phase would have
+been uninterpretable.
+
+⇒ **37 train records still do not fit** even at 10,240 tokens — the largest is **54,376 tokens
+(~270 kb)**, which exceeds GenomeOcean's own 32,768 ceiling. No context setting rescues those; they
+are dropped and counted, not hidden.
+
+⇒ **Training context is FROZEN at 10,240 tokens** — the value the feasibility gate passed at, and it
+already keeps 99.7%. Raising it to the 32,768 ceiling would buy at most 0.3% of records for ~3x the
+memory.
+
+✅ **EOS verified in code, not assumed:** the tokenizer auto-wraps `BOS=1 … EOS=2`, asserted by the
+builder, which **refuses to emit a substrate if the wrap is absent**. `[X1]` therefore does not apply
+to this phase — but junk-token and degeneracy rates are still reported (§6.3), because their absence
+is itself a result.
+
 ## 4. Primary endpoint — INHERITED FROM PHASE 7, UNCHANGED
 
 **`best_bio_bits` > 0 @ `OBLIGATE_DOMAINS[TERPENE]` (7 accessions), scoring window 2,000 nt**, then
