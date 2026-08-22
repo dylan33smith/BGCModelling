@@ -432,6 +432,33 @@ stop), and **both scorings are reported as a pair** until generation is token-id
 - **[X1c] Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
   legitimate as selection, and the phage paper used a plain length filter rather than a stop token.
 
+### [X4] ⬜ BACKLOG — is the taxonomy prefix doing anything for Evo2? (user, 2026-08-22, NOT a focus)
+
+**Not urgent, logged so it is not re-derived from scratch later.**
+
+**Settled already:** GenomeOcean **cannot** take it — its BPE vocabulary is DNA-only, and the Evo2
+prefix tokenizes to **122 UNK of 132 ids**. Phase 8 therefore conditions on `[CLS_TERPENE]` alone,
+and losing taxonomy is a declared confound that biases **against** GenomeOcean (prereg §6).
+
+**Open for Evo2.** We do not care about taxonomy as an *output* — `taxon_faithfulness` was retired
+2026-08-10 because "it graded taxon conditioning, which is not what this project tests". But that is
+not the same claim as "it does nothing as an *input*", and one specific fact argues for care:
+**the GTDB lineage tag is the ONLY conditioning field Evo2 was pretrained on**
+(`model_comparison_evo2_vs_genomeocean.md:45` — "GTDB lineage tag only — no product-class prior").
+Our class half is something the base model never saw; the taxonomy half it genuinely understands,
+and it varies across **1,260–1,494 values per class** rather than being constant like the class tag.
+
+**What removing it would buy:** context — 6.8% of a median RIPP record, 10.1% PKS, **14.2% TERPENE**
+— and, more usefully, **a cleaner Evo2↔GenomeOcean match**, since it would delete the Phase-8
+confound. ⚠️ But that requires retraining every Evo2 adapter and regenerating every arm, breaking
+continuity with Phases 3/6/7.
+
+**The cheap test, ~30 min GPU:** one adapter, the same 200 prompts, three arms — real taxonomy ·
+shuffled taxonomy (a real tag from the wrong record) · no taxonomy — compared on `on_class`.
+⇒ **Measure before removing.** Reasoning instead of measuring was wrong three times this session
+(the containment null, the left-pad hypothesis, the early-stopping speedup) and the measurement was
+cheap every time.
+
 ### [X2] ⛔ ONLY THE SIMPLEST SUBCLASS — the finding that now defines the project
 Measured in all three classes (`memory.md` 2026-08-20): **PKS T3PKS 8/8 and T1PKS 0/8** (p=0.041) ·
 **TERPENE precursor 13/13, cyclase 0/13** (p=0.0024) · **RIPP `RiPP-like` 7/7, subclass 0/7**
