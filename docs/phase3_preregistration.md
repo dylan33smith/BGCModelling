@@ -289,6 +289,20 @@ WIDE−S2-1 difference alone would confound width with the 7,250→3,723 size dr
 **CO-PRIMARY for this arm, declared now:** **`n_class_domains ≥ 2`** — the metric the whole
 WIDE hypothesis targets. It has read **0–2/188 in every arm ever run**; real cores read 29%.
 
+**[AMENDED 2026-08-24 — the "29%" real-core reference above is WRONG, and this co-primary was
+DEMOTED.]** Two corrections, neither of which changes the PRIMARY endpoint (Standing Constraint 4):
+1. **The reference is ~16%, not 29%.** The marker-count distribution of real held-out cores in the
+   same 2 kb window is **0 markers 28/50 · 1 marker 14/50 · 2 markers 6/50 · 4 markers 2/50** ⇒
+   **~16%** reach ≥2 (~16–21% depending on the draw). The 29% came from a different denominator
+   (9/31) and was quoted against a 2 kb window it was not measured in.
+2. **`n_class_domains ≥ 2` is DEMOTED from co-primary to DIAGNOSTIC** (2026-08-19). antiSMASH — our
+   own gold standard — **confirms RIPP clusters carrying exactly ONE of our markers** (12/24 and
+   16/36 across two arms, every confirmation classed RIPP). A metric satisfied by a **minority of
+   genuine clusters** is a stricter-than-field-standard proxy, not the definition of success. The
+   cluster verdict to quote is **antiSMASH-confirmed rate against the real-core ceiling** — best arm
+   **0.116 vs a 0.760 ceiling**, ~15% of ceiling, not zero. See `memory.md` 2026-08-19, and §9.2 for
+   the metric that replaced it (`subclass_specificity`).
+
 **Powered contrasts, fixed now:**
 - **W-1 vs W-2** — the clean span-width test. At 0.176 baseline, n=188 detects a lift to ~0.28.
 - **W-1 vs S2-1 (0.176)** — reported, but confounded with training-set size; secondary.

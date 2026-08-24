@@ -15,7 +15,8 @@ Large-Scale Metagenomic Assemblies*, bioRxiv [2025.01.30.635558](https://doi.org
 
 GenomeOcean is not a better Evo2; it is a **different shape of model that happens to remove
 the three specific things that have blocked this project**. Evo2 is a 7B byte-level
-StripedHyena with a `CharLevelTokenizer` — no trainable special-token slots, no usable EOS,
+StripedHyena with a `CharLevelTokenizer` — no trainable special-token slots, an EOS that must be
+appended by hand (⚠️ **not** an absent one — see §2.1),
 a bespoke `vortex` runtime, and a training step so expensive that we are pinned to
 `batch_size=1` at 32 kb and n≈15 evaluations. GenomeOcean is a stock 4B `MistralForCausalLM`
 with a real 4,096-entry BPE vocabulary, 5 special tokens, and a proper EOS. That means a
@@ -38,7 +39,7 @@ much better *substrate* to install conditioning into, not that conditioning come
 | Architecture | StripedHyena 2 (hybrid conv/attn) | `MistralForCausalLM` — stock transformer decoder |
 | Parameters | 7B | 4.25B (measured) |
 | Tokenizer | `CharLevelTokenizer`, byte-level, 1 token = 1 bp | BPE, 4,096 vocab, **5.15 bp/token** (measured on `splits_core`) |
-| Special tokens | none usable; no reliable EOS | `[UNK]`/`[CLS]`/`[SEP]`(EOS)/`[PAD]`/`[MASK]`; `N` = token 8 |
+| Special tokens | no trainable slots; EOS is **real (id 0) but must be appended manually** — see §2.1 | `[UNK]`/`[CLS]`/`[SEP]`(EOS)/`[PAD]`/`[MASK]`; `N` = token 8; **auto-wraps `BOS=1 … EOS=2`** |
 | Context (ours) | L = 32,768 tokens = **32.8 kb** | 10,240 tokens = **52.7 kb**; RoPE ceiling 32,768 tokens = **169 kb** |
 | Runtime | `vortex` + DeepSpeed, bespoke | plain HF `transformers`; vLLM upstream |
 | PEFT | LoRA works, but wrapping is fiddly (TELinear, `target_parameters`) | `get_peft_model` works out of the box |
@@ -46,6 +47,55 @@ much better *substrate* to install conditioning into, not that conditioning come
 | Pretraining corpus | GTDB reference genomes (OpenGenome) | 645 Gbp metagenome co-assemblies |
 | BGC-specialised checkpoint | none (we made ours) | **`bgcFM`**: base + 1.72M dedup'd SMC BGCs (43.5 Gbp) |
 | License | Apache-2.0 | BSD-3-Clause |
+
+---
+
+## 2.1 CORRECTION 2026-08-20 — ⛔ "Evo2 has no usable EOS" IS WRONG
+
+§1 and the table above originally said Evo2 has **"no usable EOS" / "no reliable EOS."** That claim
+was made 2026-07-27 from the tokenizer definition alone and is **refuted**. It matters because it
+was one of the three stated reasons to switch models, and it is the reason a stale "Evo2 cannot
+stop" keeps resurfacing.
+
+**Evo2's EOS is token id 0, it is real, and the base model already uses it.** Three independent
+lines, all `memory.md` 2026-08-20:
+
+| evidence | measurement |
+|---|---|
+| **Pretrained** — `P(id 0)` at a real core's TRUE END vs mid-core | base `evo2_1b_base` **40.9x** · adapter `phase6_PKS` **2,100x** (n=12 real held-out cores) |
+| **Emitted at generation** — which id holds the mass at coherent stop points (`P(ACGT) >= 0.01`) | **id 0 in 13/13 = 100%**, at **16x–159x uniform** |
+| **Causal** — mask one id to `-inf`, n=48, 8,000 tokens, identical prompts + seed | mask **id 0**: median length **4,583 → 8,000**, stop events 36/48 → 22/48 · mask id 1 (PAD): **no change** |
+
+- **COLUMNS:** *evidence* = which of the three questions the row answers (is the token pretrained,
+  is it emitted at generation, is it causal) · *measurement* = the number, with its n and its control.
+- **ROWS:** *Pretrained* — a next-token readout on real cores, no sampling; a spike at the true end
+  and not mid-core means termination is learned rather than sampled by accident. *Emitted* — which
+  id actually holds the mass where the model decides to stop; splitting coherent from degenerate
+  positions is essential, pooling them buries the result in ~uniform noise. *Causal* — the only test
+  that shows the token is doing the work; PAD is the negative control and it moves nothing.
+
+⚠️ **Why it looked absent.** `detokenize([0]) == detokenize([1]) == detokenize([32]) == ' '` — EOS,
+PAD and the literal space byte all render as the same character, and every stage of our pipeline
+read the decoded string. So "the model stopped" and "the model emitted junk" were indistinguishable,
+`hit_eos` (which tested the 5-byte string `|END|`) read a structural **0/150, 0/188, 0/200, 0/200**,
+and we truncated on the model's own stop signal for months while reporting that it never stopped.
+
+**What the real difference is, stated correctly.** Not "Evo2 has no EOS" but:
+
+| | Evo2 | GenomeOcean |
+|---|---|---|
+| a single-token EOS exists | ✅ id 0 | ✅ id 2 |
+| the tokenizer wraps it automatically | ❌ appends nothing — must be added **after** tokenisation | ✅ auto-wraps `BOS=1 … EOS=2` |
+| the runtime stops on it | ❌ `vortex` `generation.py:208` `print`s and never `break`s, and inspects batch row 0 only | ✅ standard HF generate |
+| the decoded string identifies it | ❌ ids 0/1/32 all decode to `' '` | ✅ distinct |
+
+- **COLUMNS:** *Evo2* / *GenomeOcean* = the two candidate substrates, on the four separable
+  properties that "has a usable EOS" was silently bundling together.
+
+⇒ **The GenomeOcean advantage on this axis is real but narrower than claimed** — it is *convenience*
+(auto-wrap + a runtime that honours it), not *capability*. Evo2 now appends id 0 unconditionally
+after tokenisation; `|END|` is retired. ⇒ **The trainable class-token argument is unaffected** and
+remains the genuine structural difference between the two models.
 
 ---
 

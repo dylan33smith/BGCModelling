@@ -17,16 +17,28 @@
 #    being asked. This is a cleaner design, not a workaround.
 #
 # 2. WHOLE-RECORD, NOT CHUNKED — and this is the point of picking a short class.
-#    `|END|` has NEVER worked: hit_eos is 0/204 across two Phase-2 runs. The trainer appends the
-#    marker to the FINAL WINDOW only, so under chunking it lands at an arbitrary stride boundary
+#    A stop token is only learnable if it lands at a TRUE cluster boundary. The trainer appends it
+#    to the FINAL WINDOW only, so under chunking it lands at an arbitrary stride boundary
 #    uncorrelated with content, and the model cannot learn "the cluster is complete" from it.
-#    ⚠️ UPDATE 2026-08-20: the 5-byte "|END|" STRING is RETIRED. The tokenizer's REAL EOS (id 0) is
-#    now appended unconditionally after tokenisation -- no flag. It is the token Evo2 pretrained
-#    with, and masking it at generation causally restores full-length output (4,583 -> 8,000 nt). On the general corpus only 68.5% of records fit whole; **on RIPP ~89% do**.
-#    At L=8192 with no chunking, nearly every training example therefore ends with `|END|` at the
-#    TRUE cluster boundary — the first clean signal this marker has ever had.
-#    ⇒ If it works, generation length becomes an OUTPUT rather than a hyperparameter we impose, and
-#      "does the model know when a cluster is finished" becomes measurable.
+#    On the general corpus only 68.5% of records fit whole; on RIPP ~89% do. At L=8192 with no
+#    chunking, nearly every training example therefore ends at its own true boundary.
+#
+#    ⚠️ CORRECTED 2026-08-20 — the earlier version of this block said `|END|` "has NEVER worked:
+#    hit_eos is 0/204 across two Phase-2 runs", and read that zero as a fact about the MODEL.
+#    It was a fact about the METRIC. Two things were both true:
+#      (a) the 5-byte "|END|" STRING genuinely never fired — 0/150, 0/188, 0/200, 0/200 — and it is
+#          now RETIRED. `hit_eos` tested for that string, so it was a structural zero.
+#      (b) the model was terminating ALL ALONG, on the tokenizer's REAL EOS, token id 0, which Evo2
+#          PRETRAINED with as a sequence separator. On real held-out cores P(id 0) at the true end
+#          vs mid-core is 40.9x for the base model and 2,100x for our adapter — we did not teach
+#          this, we sharpened it ~51x. At generation, 13/13 coherent stop positions are id 0 at
+#          16x–159x uniform, and masking id 0 causally restores median length 4,583 -> 8,000 nt.
+#      ids 0 (EOS), 1 (PAD) and 32 (space) ALL detokenize to ' ', so the decoded string our pipeline
+#      reads could never tell them apart. See docs/memory.md 2026-08-20.
+#    ⇒ The real EOS (id 0) is now appended UNCONDITIONALLY after tokenisation — no flag, no marker
+#      string, eos_reserve 1. Whole-record training still matters for exactly the original reason.
+#    ⇒ "Does the model know when a cluster is finished" is ANSWERED: yes. What is still open is the
+#      READER — `hit_eos` in generate_bgc.py still tests the retired string (plan.md [X1e]).
 #    ⇒ The records that do not fit are DROPPED, not chunked. That is a real cost (it biases
 #      training toward shorter RIPPs) and it is recorded here rather than hidden: mixing chunked and
 #      whole records would reintroduce the arbitrary-boundary problem for exactly the records whose

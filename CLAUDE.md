@@ -37,9 +37,9 @@
 7. **Never MIX antiSMASH and `class_markers` proxy numbers in one comparison** — the proxy inflates
    substantially (`terms.md`). This is not a reason to skip antiSMASH: **run it, report it as its
    own row.**
-8. **`correct_class` under a class-specific adapter is UNMEASURED, not zero** (rewritten
-   2026-08-18; the pre-Phase-3 rule asserted it reads ~0 de novo). Measure it before treating it
-   as either a target or a dead end — see `memory.md`.
+8. **`correct_class` under a class-specific adapter is MEASURED and NON-ZERO** (rewritten
+   2026-08-24; "UNMEASURED" 2026-08-18 and "~0 de novo" before it are both superseded — rates in
+   `memory.md` 2026-08-20). "~0" held for LABEL conditioning; adapter routing changed it.
 
 9. **A validation holds only in the REGIME it was measured in.** Any discrimination score,
    threshold or calibration must be re-derived when the scoring set, window, seed length, substrate

@@ -114,11 +114,28 @@ record — `tests/test_scored_span.py` pins the analogous property for the exist
 | **T4.1** coding density | fraction of bases in predicted ORFs | real 0.97, de novo 0.74–0.82 | output that is not gene-like at all |
 | **T4.2** `max_orf_aa` | longest reading frame | real 729, de novo 448 | structural only — **DEMOTED**, AUROC 0.709 and r=0.051/−0.120 within de novo |
 | **T4.3** GC content + dinucleotide composition | vs the RIPP training distribution | — | a model matching composition without content, or drifting off it |
-| **T4.4** `hit_eos` rate + generated length distribution | does the model TERMINATE | **currently 0/204 — has never worked** | whether length is learned or imposed |
+| **T4.4** `hit_eos` rate + generated length distribution | does the model TERMINATE | ⚠️ **ANSWERED 2026-08-20 — YES, on token id 0.** The "0/204" below was the METRIC, not the model | whether length is learned or imposed |
 | **T4.5** `n_orfs` | ORF count | real 2.12, de novo 4.02 (INVERTED — more is worse) | fragmentation |
 
-T4.4 is the one to watch on the first RIPP run: whole-record training gives `|END|` its first clean
-signal, and if it fires, generation length becomes an output rather than a hyperparameter.
+⚠️ **CORRECTED 2026-08-24 — T4.4 is ANSWERED, and the earlier text here was wrong.** This paragraph
+previously read: *"T4.4 is the one to watch on the first RIPP run: whole-record training gives
+`|END|` its first clean signal, and if it fires, generation length becomes an output rather than a
+hyperparameter."* It never fired, and we read that as a fact about the model. It was a fact about
+the test.
+
+**What is now established** (`memory.md` 2026-08-20, three independent lines):
+- The 5-byte STRING `|END|` genuinely never fired — **0/150, 0/188, 0/200, 0/200** — and is
+  **RETIRED**. `hit_eos` tested for that string, so it was a **structural zero**.
+- **The model terminates on the tokenizer's real EOS, token id 0**, which **Evo2 pretrained with**:
+  `P(id 0)` at a real core's true end vs mid-core is **40.9x for the base model** and **2,100x for
+  our adapter** (fine-tuning sharpened it ~51x). At generation, **13/13 coherent stop positions are
+  id 0**, at **16x–159x uniform**. Masking id 0 is **causal** — median length **4,583 → 8,000**.
+- ⚠️ **ids 0 (EOS), 1 (PAD), 32 (space) all detokenize to `' '`**, so a string-level test can never
+  see it. We were truncating on the model's own stop signal while reporting `hit_eos = 0`.
+
+⇒ **Generation length IS partly an output already** — we were discarding the signal. ⇒ T4.4 must be
+computed on **token id 0** (`terms.md` → `hit_eos`); a string-path zero may not be reported.
+⚠️ The reader is not yet fixed in `generate_bgc.py` — `plan.md` [X1e]/[X1g].
 
 ---
 

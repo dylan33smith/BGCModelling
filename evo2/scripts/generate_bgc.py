@@ -97,16 +97,36 @@ def extract_sequence(generated: str, junk_policy: str = JUNK_POLICY_DEFAULT) -> 
     window vs 2.0% of base-model records), so it biased precisely the treatment-vs-control comparison
     the phase exists to make.
 
-    ⚠️ **THE CAUSE IS NOT IDENTIFIED.** What is established: fine-tuned adapters do it ~35x more than
-    the base model (PKS 69.5% of records vs 2.0%), and the character lands at a codon boundary far
-    more often than chance would suggest — ``GGCTGA ``, ``GATTAA ``, ``CGATGA `` (TGA/TAA are stop
-    codons). **Ruled out:** the batched left-pad, even though ``LEFT_PAD_CHAR`` is itself a space —
-    pad length does not predict truncation (Pearson r = +0.020 over 200 records, and no dose-response
-    across pad buckets). **Still open:** whether this is a partially-learned terminator (each training
-    record ends, so the adapter may have learned "stop here" and reached for the nearest
-    boundary-like byte it ever saw) or simply a low-probability byte surfacing under top-k sampling.
-    Against the "learned stop" reading: the model does not actually stop — the text after the
-    character is 99.9% valid DNA and continues for a median of 6.2 kb.
+    ✅ **THE CAUSE IS IDENTIFIED (2026-08-20): the stray character is the EOS TOKEN, id 0.** The
+    model HAS learned to terminate and this function was truncating on its stop signal. Established
+    three ways: (a) read off the logits — at positions where the model still holds the nucleotide
+    alphabet (``P(ACGT) >= 0.01``, a real termination decision) the mass is on **id 0 in 13/13 = 100%
+    of cases, at 16x–159x uniform**; (b) localization on real held-out cores — ``P(id 0)`` at the true
+    end vs mid-core is **40.9x for the base model, 2,100x for our adapter**, so Evo2 PRETRAINED with
+    id 0 as a separator and our fine-tuning sharpened it ~51x (which is why adapters do it ~35x more
+    than base); (c) causally — masking id 0 to ``-inf`` restores the median generation length from
+    **4,583 to the full 8,000** requested, while masking pad id 1 changes nothing.
+
+    ⚠️ **ids 0 (EOS), 1 (PAD) and 32 (space) ALL DETOKENIZE TO ``' '``**, so a decoded string cannot
+    tell them apart — which is the whole reason this looked like a mystery byte for so long, and why
+    ``hit_eos`` below has read 0 in every arm ever generated. **Ruled out:** the batched left-pad,
+    even though ``LEFT_PAD_CHAR`` is itself a space (Pearson r = +0.020 over 200 records, no
+    dose-response across pad buckets); and the training data (zero non-ACGTN characters).
+
+    ⛔ **RETRACTED — "the model does not actually stop, because 99.9% valid DNA continues for a median
+    of 6.2 kb."** That inference was drawn from a decoded string that cannot distinguish EOS from a
+    space, so it could never have settled the question. The continuation exists because vortex keeps
+    sampling past EOS (its ``stop_at_eos`` only ``print``s — there is no ``break``), not because the
+    model declined to stop. Same retraction applies to the "constant per-token hazard, therefore not
+    a learned terminator" reading. See ``docs/memory.md`` 2026-08-20 and ``docs/bugs.md``.
+
+    ⚠️ **THEREFORE NEITHER ``junk_policy`` IS CORRECT ON ITS OWN.** ``truncate`` is right for EOS
+    (it stops where the model stopped) and wrong for genuine junk; ``mask`` is right for junk and
+    wrong for EOS (it scores what the model wrote AFTER it said stop). Measured contamination in the
+    scored window: PKS ``A0`` has a stop event inside its window in **44.5%** of records vs 2.5–5.0%
+    of its controls — treatment-loaded. TERPENE is balanced (5.0% vs 4.5%/5.5%) and unaffected.
+    The correct fix needs the token id at generation time — see ``constrained_generation.py``, which
+    records real ids, and ``plan.md`` [X1e]/[X1g] for wiring it into this path.
 
     ⚠️ **DO NOT "STRIP" THE CHARACTER BY DELETING IT.** Deletion shifts the reading frame by one base
     and destroys every downstream ORF, and ORFs are what the entire scoring stack is built on.
@@ -114,6 +134,12 @@ def extract_sequence(generated: str, junk_policy: str = JUNK_POLICY_DEFAULT) -> 
     """
     if junk_policy not in ("mask", "truncate"):
         raise ValueError(f"junk_policy must be 'mask' or 'truncate', got {junk_policy!r}")
+    # ⚠️ `hit_eos` HERE TESTS THE 5-BYTE STRING `|END|`, WHICH IS RETIRED AND NEVER FIRED.
+    # It has read 0/150, 0/188, 0/200, 0/200 — a structural zero, NOT a property of the model.
+    # The real EOS is TOKEN ID 0 and the model emits it (see extract_sequence's docstring above),
+    # but ids 0/1/32 all detokenize to ' ' so this string-level test cannot see it. Do NOT quote a
+    # `hit_eos` of 0 from this path as evidence about termination. Fixing it requires token ids at
+    # sampling time (`constrained_generation.py:TokenRecorder`, not yet wired in here) — plan.md [X1e].
     hit_eos = EOS_MARKER in generated
     body = generated.split(EOS_MARKER, 1)[0] if hit_eos else generated
     up = body.upper()

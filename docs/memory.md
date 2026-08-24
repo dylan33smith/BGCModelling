@@ -2314,4 +2314,92 @@ tokenizer. Declared confound, biases against GenomeOcean.
 
 ---
 
+## 2026-08-24 — ⚠️ REFUTED-CLAIM AUDIT: 16 stale claims were still live outside `memory.md`
+
+**Q (user): are there early claims that later work refuted, still being asserted as fact?** Prompted
+by an EOS claim resurfacing in another session. **Yes — 16, across the docs, the code and the
+cross-session auto-memory.** `memory.md` itself was CLEAN: every superseded finding here already
+carries its `[INCORRECT]` / `[CORRECTION]` pair. **The leak was one-way — corrections were recorded
+in the ledger and never propagated to the derived documents that people actually read.**
+
+### The root cause of the specific EOS recurrence
+
+The claim **"Evo2 has no usable EOS"** lived in the cross-session auto-memory
+(`~/.claude/projects/.../memory/evo2-vortex-conditioning-facts.md`, written 2026-07-24), which loads
+into **every session regardless of repo context**. That is why it resurfaced with no `memory.md`
+entry to contradict it. ⇒ **The auto-memory is a documentation surface and must be audited like
+one.** It also carried two more: per-class adapters "de-prioritised" (the whole Phase-3/6/7 program
+refutes it) and pointers to `docs/project_memory/` + `progress.md`, both deleted at the 2026-08-14
+cutover.
+
+### What was found and fixed
+
+| # | stale claim | lived in | corrected to |
+|---|---|---|---|
+| 1 | Evo2 has "no usable EOS" | auto-memory · `model_comparison` §1 + table | id 0 is real: 40.9x base / 2,100x adapter end-vs-mid, 13/13 at generation, causal 4,583→8,000 |
+| 2 | `hit_eos` "0/204 — has never worked"; `\|END\|` "not worth fixing" | `phase3_evaluation_battery` T4.4 · `plan` [P3-B2b] · `train_class_adapter.sh` | structural zero of the METRIC; model was stopping all along |
+| 3 | stray byte "CAUSE NOT IDENTIFIED"; "the model does not actually stop" | `generate_bgc.py:extract_sequence` docstring | identified as EOS; the continuation exists because vortex never breaks |
+| 4 | "~75% of PKS generation compute runs after the model finished" | `constrained_generation.py` docstring | wrong quantity; `all(done)` = **1.01x**, per-row = **38.5%** |
+| 5 | WIDE refuted at Holm **p=4.1e-04 / 3.2e-05** | `plan` ×3 · `terms` · `data` | pre-dedup values; **p=0.021 @ 2.2 kb, 8 kb n.s. p=0.15** |
+| 6 | WIDE's "cause is dilution" | `plan` leg table | RETRACTED as partly circular; cause UNKNOWN |
+| 7 | `n_class_domains`>=2 real cores **29%** | `phase3_prereg` §8.6 | **~16%**; and the metric was DEMOTED to diagnostic |
+| 8 | `subclass_specificity` real "~70%"; best arm "12 detected" | `data` · `plan` | **0.909 (30/33)** per sequence; **3** unique, not 12 |
+| 9 | PKS `n_class_domains`>=2 = **0.740** as a real ceiling | `phase7_prereg` §1 · `data` | accession double-count; **0.300** catalytic, **0.060** per ORF |
+| 10 | Stage-1 AAI trend 0.617→…→**0.914** | `plan` ledger row P3-S1n (reproduced the `[INCORRECT]` line verbatim) | pooling artifact; on-class L8 **0.499** vs L500 **0.450** — no rise |
+| 11 | `correct_class` "~0 de novo since project start" | `terms` · `CLAUDE.md` Constraint 8 | measured: PKS **0.040**, TERPENE **0.065**, controls 0.000 |
+| 12 | per-class adapters "de-prioritised"; adapter added no class representation | auto-memory | refuted by Phases 3/6/7 — significant de novo in all three classes |
+| 13 | source of truth = `docs/project_memory/`, `progress.md` | auto-memory ×3 | deleted 2026-08-14; it is the six `CLAUDE.md` files |
+| 14 | `\|END\|` "still lands at a true boundary" / "never lands on a cut sequence" | `data` ×2 | `\|END\|` retired 2026-08-20; the stop token is id 0 |
+| 15 | `phase3_RIPP_wide/` status "🔄 training" | `data` (duplicate row) | trained and refuted |
+| 16 | ladder AUROCs 0.950 / 0.919 / 0.896 in per-metric `Status:` lines | `terms` ×3 | do not transfer: **0.575 / 0.519 / 0.173 (inverted)** |
+
+- **COLUMNS:** *stale claim* = the text as it stood · *lived in* = every live site outside
+  `memory.md` · *corrected to* = the superseding measurement.
+- **ROWS:** each is one refuted assertion. 1–4 are the EOS/generation cluster (a metric misread as a
+  model property); 5–6 the WIDE p-values and mechanism after [P5-DEDUP]; 7–10 and 16 metric
+  references quoted against the wrong denominator, window or pool; 11–13 claims true of an earlier
+  regime that stopped generalising; 14–15 pointers to retired artifacts.
+
+### Two structural gaps that let this happen
+
+1. ⛔ **`hit_eos` had NO `terms.md` entry** — it is reported per arm and named in the Phase-3 prereg
+   §4, but was never defined. So when its meaning changed from "the string `\|END\|` appeared" to
+   "token id 0 was sampled", there was no canonical entry to correct and the change propagated as a
+   silent redefinition. **Entry now written**, with both computation paths and an explicit ⛔ on
+   comparing across them.
+2. ⚠️ **The metric is still wrong in the live path.** `generate_bgc.py:117` computes
+   `hit_eos = EOS_MARKER in generated`. `constrained_generation.py:TokenRecorder` records real ids
+   but is **not wired into** `generate_bgc.py` / `seed_generate.py` ([X1e]/[X1g]). A ⚠️ comment now
+   sits at the computation site; the fix itself is unchanged on the board.
+
+### What was deliberately NOT changed
+
+- **`memory.md` history** — untouched, per the In-Place Correction Rule. Only this entry was added.
+- **Pre-registered endpoints** — corrections to `phase3_prereg` and `phase7_prereg` were added as
+  **dated `[AMENDED]` blocks below the original text**, never rewrites (Standing Constraint 4).
+- **`generate_bgc.py`'s `hit_eos` computation** — flagged, not silently changed; altering it would
+  change what every future arm records, which is [X1e]'s job and needs its own read.
+
+### ⚠️ AND A CORRECTION TO THIS AUDIT'S OWN FIRST PASS
+
+I initially reported the **PI artifact as ~5 days stale**, based on the local copy
+`docs/artifacts/pi_research_update.html` (2026-08-19) and the auto-memory's URL. **Both pointed at
+the wrong artifact.** `2598de14` "BGC Generation — Research Update" is the **superseded Evo2-7B-era**
+document (last updated 2026-08-12). The live PI artifact is `01a6e035` **"Class-Specific BGC
+Generation"** (2026-08-20), which already carried Phases 6/7, the dedup correction,
+`subclass_specificity` and the EOS diagnosis. ⇒ It needed a **targeted update, not a rewrite**:
+Phase-8 progress (T1/T2/T3/T4/T8 done, T5 next), the [X1] statuses (X1g/X1a shipped), and a fourth
+correction card for the retracted ~75% figure. **Lesson: verify which artifact is live before
+grading it — `Artifact action:"list"` shows the real update dates.**
+
+**Artifacts.** Local copies now `docs/artifacts/pi_class_specific_bgc.html` (live) and
+`docs/artifacts/DEPRECATED_pi_research_update_evo2_7b_era.html` (superseded, renamed per the
+`CLAUDE.md` deprecation convention).
+
+**Verifier:** `tests/test_docs_contract.py` **29 passed, 0 failed** after every edit. It also caught
+one of my own: result figures placed in `CLAUDE.md` Constraint 8, which the "zero findings" rule
+forbids — rewritten to point at `memory.md` instead.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

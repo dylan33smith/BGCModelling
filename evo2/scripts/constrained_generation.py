@@ -9,10 +9,22 @@ vortex's `generate()` returns `logits` / `logprobs_mean` / `sequences` and never
 cannot tell "the model stopped" from "the model emitted junk". Everything below follows from
 recovering the ids.
 
-1. **EARLY STOPPING.** ⚠️ vortex's own `stop_at_eos` is BROKEN: `generation.py:208` checks for EOS
-   and then only `print`s -- there is no `break` -- and it inspects `generation[0]`, batch row 0
-   only. Measured cost: the PKS adapter stops at a median ~1,750 nt of 8,000 requested, so ~75% of
-   that arm's generation compute ran after the model had finished.
+1. **EARLY STOPPING -- ⚠️ BUILT, MEASURED, AND THE SIMPLE VERSION DOES NOT WORK.** vortex's own
+   `stop_at_eos` is BROKEN: `generation.py:208` checks for EOS and then only `print`s -- there is no
+   `break` -- and it inspects `generation[0]`, batch row 0 only. But fixing that is NOT enough.
+   ⛔ **RETRACTED: "the PKS adapter stops at a median ~1,750 nt of 8,000, so ~75% of that arm's
+   generation compute ran after the model had finished."** That figure was measured on the wrong
+   quantity -- the median truncate-path length is the first stop event **of any kind**, overwhelmingly
+   DEGENERACY, not EOS. Measured here with real token ids: only **9/24 rows emit EOS at all**, so the
+   `all(done)` exit below almost never fires and delivers **1.01x** -- all 8,000 steps still run.
+   Batched decoding is bounded by its **slowest** row, not its median.
+   ⇒ **The real numbers:** with constrained decoding, 21/32 rows emit EOS (median position 2,869,
+   min 623, max 7,648) and 11/32 never do. Tokens actually needed **157,490** vs **256,000** paid ⇒
+   **per-row exit would save 38.5%; all-rows exit saves 0.0%.** Per-row exit needs vortex's cached
+   `inference_params` rebuilt for the surviving rows. Cheaper first: shorten `--max-new-tokens`, and
+   use smaller batches (waste scales with the wait on the slowest row).
+   ⇒ **The win from this build was CONSTRAINED DECODING, not early stopping** (junk ids 247 -> 0 at
+   1.01x cost). See `docs/bugs.md` and `docs/memory.md` 2026-08-20.
 2. **CONSTRAINED DECODING.** The adapter puts ~1.8% of its probability mass on non-nucleotide
    tokens. Masking every id outside {A,C,G,T,N,EOS} to -inf makes the stray byte impossible by
    construction. Measured: 0/48 stop events under a full non-ACGTN mask, vs 36/48 unmasked.

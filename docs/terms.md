@@ -74,8 +74,10 @@ Aliases:              names seen in old docs. Do not use them.
     pre-registration names.** Under it the general adapter scores 0.000, not 0.080.
   - Also changes with the scoring window (2,000 nt fixed in Phase 3) and the gene caller.
 - **Valid vs:** same Pfam subset, same window, same class, same caller. Nothing else.
-- **Status:** **PRIMARY** (AUROC 0.950 on the validated ladder). Heavily zero-inflated — report as
-  a **rate with an exact binomial CI**, never as an arm mean.
+- **Status:** **PRIMARY.** ⚠️ **The 0.950 ladder AUROC DOES NOT TRANSFER to Phase 3** — re-derived
+  within the on-class pool against antiSMASH labels it is **0.575** (see THE LADDER). It justified
+  ADOPTING this metric; it is not evidence it ranks Phase-3 candidates. Heavily zero-inflated —
+  report as a **rate with an exact binomial CI**, never as an arm mean.
 - **Aliases:** `bio`, "bio bits", "biosynthetic bits", "best_bio".
 
 ### `bio_accs`  [evaluation]
@@ -104,8 +106,12 @@ Aliases:              names seen in old docs. Do not use them.
   records match nothing, not that they match poorly.
 - **Valid vs:** same DB, same sensitivity. Complementary to `containment`, never a substitute:
   ⚠️ **DNA containment cannot see protein-level reconstruction.** In the seed sweep containment
-  stayed ≤0.021 while `protein_aai` rose to 0.914 and the model was demonstrably rebuilding the
-  seeded cluster. See `bugs.md` 2026-08-17.
+  stayed ≤0.021 while the model was demonstrably rebuilding the seeded cluster at L=500 — 12/12
+  on-class hits reproduced their own source cluster's domain, vs 0/8 at L=8. ⚠️ **Corrected
+  2026-08-24:** this used to be argued from "`protein_aai` rose to 0.914". **That trend was a POOLING
+  artifact** — 0.914 is a single pooled maximum, and among on-class records AAI does **not** rise with
+  seed length (L8 **0.499** · L100 0.635 · L500 **0.450**). The containment-is-blind conclusion stands,
+  on the domain-match evidence, which is independent and stronger. See `memory.md` 2026-08-18.
 - **Status:** **PRIMARY GATE** alongside `containment`. `FAIL_paraphrase` at ≥0.95. Both gates must
   be pre-registered for any seeded arm.
 - **Aliases:** "AAI", "protein novelty", "T3.2".
@@ -140,7 +146,11 @@ Aliases:              names seen in old docs. Do not use them.
 - **CHANGES MEANING WITH:** the Pfam subset (as `best_bio_bits`); sequence length (it is a ratio,
   so it is not comparable across generation lengths).
 - **Valid vs:** same length, same subset.
-- **Status:** SECONDARY, rung 3 (AUROC 0.896). Real cores **0.876** vs de novo **0.051**.
+- **Status:** SECONDARY, rung 3. ⚠️ **The 0.896 ladder AUROC DOES NOT TRANSFER** — re-derived in the
+  class-specific regime it **INVERTS to 0.173**, and real cores average only 1.04 biosynthetic
+  domains inside a 2 kb window, so there is no span to measure. **Must not be used as a cluster rung
+  at 2 kb** (see THE LADDER). ⛔ **VOID for PKS** per `config/class_eval_policy.yaml`. Between-group
+  reference, 8 kb: real cores **0.876** vs de novo **0.051**.
 
 ### `biosynthetic_fraction`  [evaluation] [diagnostic]
 - **Is:** `best_bio_bits / best_any_bits`. "Of the protein it writes, how much is biosynthetic?"
@@ -199,9 +209,15 @@ Aliases:              names seen in old docs. Do not use them.
 - **CHANGES MEANING WITH:** ⚠️ its **source** — antiSMASH or the `class_markers` proxy. Recorded in
   `_verdict_source`. Always report which.
 - **Valid vs:** same source, same regime (seeded vs de novo).
-- **Status:** GATE, but **not an optimisation target de novo** (Standing Constraint 8): ~0 de novo
-  since project start, 0.283–0.40 seeded. Decomposes as `P(detect) × P(right | detect)`; de novo
-  `P(detect) = 0.012`, seeded `0.367` with `P(right|detect) = 0.932`.
+- **Status:** GATE. ⚠️ **CORRECTED 2026-08-24 — this entry previously read "~0 de novo since project
+  start."** That was true of **label/prefix conditioning** and is **no longer true under a
+  class-specific adapter**, where it is now MEASURED and non-zero. antiSMASH, de novo, Stage B:
+  **PKS `[P6-AS]` 0.040** (ceiling 0.980) · **TERPENE `[P7-AS]` 0.065** (ceiling 1.000) · **all four
+  base/general control arms 0.000**. Seeded RIPP `[P3-AS]` reads **0.485** against a **0.740** real-core
+  ceiling. ⚠️ On every set measured so far `is_bgc` and `correct_class` are **identical** — when this
+  model produces a cluster, it is on-class; the gap is detection, not class. Decomposes as
+  `P(detect) × P(right | detect)`. The pre-Phase-3 form of this claim is superseded in `CLAUDE.md`
+  Standing Constraint 8.
 
 ---
 
@@ -226,6 +242,40 @@ Aliases:              names seen in old docs. Do not use them.
 - **Status:** PRIMARY regime for Phase-3 capability claims.
 
 ### `frac` (code key)  →  see **`biosynthetic_fraction`**
+
+---
+
+## H
+
+### `hit_eos`  [evaluation] [diagnostic]
+- **Is:** Whether a generated record terminated on the model's own stop signal, rather than running
+  out of `--max-new-tokens`. ⚠️ **This identifier has meant TWO DIFFERENT THINGS**, and the change is
+  the entire reason it read zero for months. **The doc-canonical meaning is: the model sampled
+  TOKEN ID 0.**
+- **Computed by:**
+  - ⛔ **STRING PATH (legacy, still live and WRONG):** `evo2/scripts/generate_bgc.py:extract_sequence`
+    → `EOS_MARKER in generated`, where `EOS_MARKER = "|END|"` is a **5-byte string**
+    (124,69,78,68,124). **This is what produced every `hit_eos` on disk.**
+  - ✅ **TOKEN-ID PATH (correct):** `evo2/scripts/constrained_generation.py:TokenRecorder.sequences`
+    → `ids[-1] == EOS_ID` where `EOS_ID = 0`. ⚠️ **Not yet wired into `generate_bgc.py` /
+    `seed_generate.py`** — `plan.md` [X1e]/[X1g].
+  - GenomeOcean: `genomeocean/scripts/generate_class_go.py` tests `eos_token_id` (id 2) directly and
+    is correct by construction — its BPE tokenizer auto-wraps `BOS=1 … EOS=2`.
+- **CHANGES MEANING WITH:** ⚠️ **WHICH PATH COMPUTED IT — the #2 drift risk after the Pfam subset.**
+  The string path is a **structural zero**: `|END|` has read **0/150, 0/188, 0/200, 0/200** across
+  every arm ever generated, and it is now RETIRED from training. Also changes with `--junk-policy`
+  and with constrained decoding (which raises the observed rate by renormalising junk mass onto
+  `{ACGTN,EOS}` — 9/24 unconstrained vs 11/24 and 21/32 constrained, ⚠️ different n and prompt
+  subsets, direction suggestive only).
+- **Valid vs:** same path only. ⛔ **A string-path `hit_eos` may NEVER be compared with a token-id
+  `hit_eos`, and a string-path zero may NEVER be quoted as evidence about termination.**
+- **Status:** **DIAGNOSTIC.** ⚠️ **DO NOT READ A ZERO HERE AS "the model cannot stop."** That
+  inference was made and is **RETRACTED (2026-08-20)**. The model terminates on **token id 0**, which
+  **Evo2 pretrained with** (`P(EOS)` end/mid = 40.9x base, 2,100x adapter) and which our fine-tuning
+  sharpened ~51x; at generation, **13/13 coherent stop positions are id 0 at 16x–159x uniform**; and
+  masking id 0 **causally** restores median length **4,583 → 8,000**. ⚠️ ids 0 (EOS), 1 (PAD) and 32
+  (space) **all detokenize to `' '`**, so no string-level test can ever see it.
+- **Aliases:** "EOS rate", "termination rate", `|END|` rate, T4.4. Do not use.
 
 ---
 
@@ -270,7 +320,8 @@ Aliases:              names seen in old docs. Do not use them.
 - **Computed by:** `ladder_audit.py:one` → `len(biohits)`.
 - **CHANGES MEANING WITH:** the Pfam subset. Distinct from `n_bio_orfs` = number of *distinct ORFs*
   carrying ≥1 hit. These are routinely confused.
-- **Status:** SECONDARY, rung 2 (AUROC 0.919).
+- **Status:** SECONDARY, rung 2. ⚠️ **The 0.919 ladder AUROC DOES NOT TRANSFER** — re-derived in the
+  class-specific regime it is **0.519**, i.e. chance (see THE LADDER).
 
 ### `n_bio_orfs`  [evaluation]
 - **Is:** Number of **distinct ORFs** carrying ≥1 biosynthetic domain hit.
@@ -315,8 +366,11 @@ Aliases:              names seen in old docs. Do not use them.
 - **Valid vs:** the same numerator definition only. **Use DEFINING-genes** for comparing span
   definitions; BIO-only is only meaningful within a fixed span.
 - **Status:** **DIAGNOSTIC.** ⚠️ It is **NOT established** as the cause of [P4-WIDE]'s failure — that
-  failure is a direct experimental result (Holm p=4.1e-04 / 3.2e-05 vs a matched control); the
-  dilution explanation is a hypothesis whose magnitude was overstated. See `memory.md` 2026-08-19.
+  failure is a direct experimental result (**Holm p=0.021 at 2.2 kb; the 8 kb contrast is n.s. at
+  p=0.15**); the dilution explanation is a hypothesis whose magnitude was overstated and was
+  **RETRACTED as partly circular**. ⚠️ **Corrected 2026-08-24** — this line previously quoted
+  **p=4.1e-04 / 3.2e-05**, which are the **pre-deduplication** values ([P5-DEDUP]: effective n was
+  47–141, not 188). See `memory.md` 2026-08-19.
 
 ### `subclass_specificity`  [evaluation] [method]
 - **Is:** Of the generations antiSMASH **detects**, the fraction assigned a **specific RiPP subclass**

@@ -21,6 +21,17 @@ It is explicitly **not** the class that tests cluster structure. Measured 2026-0
 **0.220** of real cores against PKS's 0.740, 1.40 markers per positive against PKS's 2.58. That
 question belongs to Phase 6.
 
+⚠️ **[AMENDED 2026-08-24 — the "PKS's 0.740" comparison above is largely a MARKER-SET ARTIFACT.]**
+`n_class_domains` **counts Pfam accessions**, and `OBLIGATE_DOMAINS[PKS]` pairs `PF00195`+`PF08392`
+(one chalcone synthase) and `PF00109`+`PF02801`+`PF16197` (one ketosynthase) — so **a single T3PKS
+gene scores 2** and PKS is inflated ~2.7x. On distinct **catalytic units** the real-core figure is
+**0.300**, and by distinct marker-bearing **ORF** it is **0.060** — against RIPP 0.080 and TERPENE
+0.140 by catalytic unit. **No class has multi-gene structure in the strict core** (multi-GENE:
+0.060 · 0.060 · 0.080, level across all three); PKS's edge is **intra-genic**. `n_class_domains` is
+⛔ **VOID for PKS** in `config/class_eval_policy.yaml`. See `docs/phase6_PKS_preregistration.md`
+§2.1 and `memory.md` 2026-08-19. **This does not change anything TERPENE was chosen for** — it
+narrows the PKS contrast this paragraph is drawn against.
+
 What TERPENE has that neither other class does:
 
 | | RIPP | PKS | **TERPENE** |

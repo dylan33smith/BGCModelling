@@ -787,6 +787,43 @@ statistic beside the result it invalidates.
   `bs=1 ga=128` fits. Effective batch is still 128.
 - **NCCL "process group not destroyed"** warning on shutdown is expected for short runs.
 
+### [Symptom] A refuted claim keeps resurfacing in new sessions even though `memory.md` records the correction → [Fix] audit the DERIVED docs and the cross-session auto-memory, not the ledger (2026-08-24)
+
+**Symptom.** "Evo2 had 0/200 EOS tokens" was asserted in a fresh session **days after** the EOS deep
+dive refuted it. `memory.md` was correct and carried the full `[INCORRECT]`/`[CORRECTION]` pair.
+
+**Cause — corrections flow one way.** The In-Place Correction Rule keeps `memory.md` honest, but
+**nothing propagates a correction to the documents that are actually read**: `plan.md`, `terms.md`,
+`data.md`, the prereg docs, code docstrings, and — the one that bit here — the **cross-session
+auto-memory** at `~/.claude/projects/-home-ds85-projects-BCGModelling/memory/`, which loads into
+**every session regardless of repo context**. A claim there outlives any repo correction.
+Audit 2026-08-24 found **16** such live claims.
+
+**Proven fix — grep the refuted TEXT, not the topic.** Every `[INCORRECT]` line in `memory.md` is a
+ready-made search string for its own stale copies:
+
+```
+grep -n "^\[INCORRECT\]" docs/memory.md          # the claims that were refuted
+grep -rn "<distinctive phrase or number from one>" docs/ evo2/ evo2_1b/ genomeocean/ scripts/ CLAUDE.md \
+  ~/.claude/projects/-home-ds85-projects-BCGModelling/memory/
+```
+
+Numbers are the highest-signal probes — a superseded p-value (`4.1e-04`), ceiling (`29%`) or ratio
+(`~75%`) is distinctive enough to find every copy, where the topic word is not.
+
+⚠️ **Three traps this audit hit:**
+1. **A ledger row can reproduce an `[INCORRECT]` line verbatim.** `plan.md`'s P3-S1n carried the
+   retracted pooled-AAI series with no correction attached. Grep the numbers, not the verdicts.
+2. **A per-metric `Status:` line can restate a refuted value that the file corrects elsewhere.**
+   `terms.md`'s THE LADDER carries "these AUROCs do not transfer"; the three individual entries a
+   reader lands on repeated 0.950 / 0.919 / 0.896 with no pointer.
+3. **Verify which artifact is live before grading it.** The local copy and the auto-memory both named
+   a **superseded** PI artifact; the live one was 8 days newer and already correct.
+   `Artifact action:"list"` shows real update dates.
+
+**Also:** `CLAUDE.md` must carry **zero findings** — `tests/test_docs_contract.py` fails on
+result-like figures there. Cite `memory.md` instead of restating a rate.
+
 ## Agent / shell self-traps (when operating the repo)
 
 - **[2026-08-19] Quoting a number in prose that is not in the table above it.**

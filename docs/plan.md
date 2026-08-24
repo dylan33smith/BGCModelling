@@ -4,7 +4,7 @@
 one-row summary in the Phase Ledger for the rest of the phase; their full write-up goes to
 `memory.md` at completion. At phase close the ledger collapses to one line and the board resets.
 
-**Last updated:** 2026-08-22
+**Last updated:** 2026-08-24
 
 ---
 
@@ -122,9 +122,13 @@ overnight) or to leave them at effective n with the correction documented. See N
 
 **Was: "the model was never shown clusters, so it cannot be failing to generate them."**
 **Answer: tested and REFUTED.** Widening the training span made the model **significantly worse**
-(WIDE vs a size- and cluster-matched control: Holm p=4.1e-04 at 2.2 kb, 3.2e-05 at 8 kb), and the
-training-set size drop cost nothing (p=0.79). Wider spans are closed. The reasoning below is kept
-for the record.
+(WIDE vs a size- and cluster-matched control: **Holm p=0.021 at 2.2 kb**; the 8 kb contrast is
+**n.s., p=0.15**), and the training-set size drop cost nothing (p=0.79). Wider spans are closed.
+⚠️ **CORRECTED 2026-08-24** — this line previously read "Holm p=4.1e-04 at 2.2 kb, 3.2e-05 at 8 kb".
+Those are the **pre-deduplication** values. The [P5-DEDUP] audit found the fan-out wrote four
+byte-identical copies, so effective n was 47–141, not 188. **WIDE is still refuted, but on ONE
+window instead of two, and at p=0.021 instead of 4e-04.** See `memory.md` 2026-08-19 and the
+READ FIRST block above. The reasoning below is kept for the record.
 
 *Original text:*
 **The model was never shown clusters, so it cannot be failing to generate them.**
@@ -192,7 +196,7 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | P3-NOV | novelty guard on A0 | `containment` | 150 | max 0.003; AAI med 0.000 / max 0.470; 150/150 distinct | ✅ pass | 2026-08-14 |
 | P3-S1 | **seed-length sweep, LoRA** | ″ | 50/cell | L4 0.140 · **L8 0.160** · L20 0.100 · L100 0.100 · L500 0.240 | ✅ all beat de novo | 2026-08-17 |
 | P3-S1c | **seed sweep, BASE 1B control** | ″ | 50/cell | **0/50 at every length incl. 500 nt** | ★ the seed alone does nothing | 2026-08-17 |
-| P3-S1n | protein-novelty guard on the sweep | max AAI | 50/cell | 0.617 · 0.620 · 0.801 · 0.793 · **0.914** | ⚠️ memorisation at L=500 | 2026-08-17 |
+| P3-S1n | protein-novelty guard on the sweep | `protein_aai`* | 50/cell | ⚠️ **POOLED, RETRACTED** (was 0.617 · 0.620 · 0.801 · 0.793 · 0.914). Stage-B, among on-class: **L8 0.499 · L100 0.635 · L500 0.450 — no rise** | ⚠️ memorisation at L=500 **stands, on the domain-match evidence** (12/12 vs 0/8), not on AAI | 2026-08-18 |
 | **P3-S2-1** | **RIPP LoRA + real seed @ L=8** | ″ | 188 | **33/188 = 0.176** [0.124,0.238] | ✅ **vs general p=2.5e-11** | 2026-08-18 |
 | **P3-S2-2** | **general adapter + real seed** | ″ | 188 | **0/188 = 0.000** (0.181 *generic*) | ★ lift is class-specific | 2026-08-18 |
 | P3-S2-3 | base 1B + real seed | ″ | 188 | 0/188 on RIPP **and** generic | floor | 2026-08-18 |
@@ -223,6 +227,7 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P8-T2** | **GenomeOcean TERPENE substrate** | records kept vs Evo2 | 11,297 | **11,260 = 0.997 vs Evo2 0.943 → +602 (+5.3%)**; 4.974 nt/token, context 50,934 nt = 6.4x | ✅ **confound measured out: context cannot explain a P8 win** | 2026-08-22 |
 | **P8-T4** | **GenomeOcean TERPENE adapter** | training convergence | 11,260 rec | 2,112 steps = 3 ep, eval 4.5192→**4.2798**; **1.2414 bits/nt vs Evo2 1.2143** | ✅ trained; ★ **loss parity — representation was never the bottleneck** | 2026-08-22 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
+| **P8-AUDIT** | **refuted-claim audit across docs, code and cross-session auto-memory** | stale claims still asserted as fact outside `memory.md` | 16 sites | **16 corrected**; `memory.md` itself CLEAN. `hit_eos` had no `terms.md` entry — written. Auto-memory was the EOS leak (loads every session) | ⚠️ **corrections were reaching the ledger and not the docs people read** | 2026-08-24 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·
@@ -282,9 +287,16 @@ a loose generic **`RiPP-like`** rule that fires on weaker evidence when no subcl
 | | products called |
 |---|---|
 | real cores (33 detected) | lassopeptide 7 · RiPP-like 4 · lanthipeptide-class-iv 4 · class-i 3 · class-iii 3 · redox-cofactor 2 |
-| **our best arm (12 detected)** | **RiPP-like 12 — nothing else** |
+| **our best arm (unique records: 3 detected)** ⚠️ | **`RiPP-like` 3 — nothing else** |
 
-⇒ **~70% of real detections get a specific chemistry; 0% of ours do.** The model produces enough
+⚠️ **CORRECTED 2026-08-24.** This row previously read "our best arm (12 detected) | RiPP-like 12".
+Those were the **duplicated** records ([P5-DEDUP]); on unique records it is **3**, and the W-2 arm is
+**4**. The real-core column is unchanged. ⚠️ The rate below previously read "~70%", which came from
+counting **product strings**; counted **per detected sequence** it is **0.909 (30/33)** — the figure
+`terms.md` pins.
+
+⇒ **0.909 of real detections get a specific chemistry; 0.000 of ours do** (Fisher p≈1e-5, ⚠️ n=7
+unique generated detections — the direction is established, the rate is not). The model produces enough
 signal to trip the loose generic rule and never the tight combination a subclass requires. This is
 the same limitation `n_class_domains` was groping at, stated in the field's own terms — and it is
 the thing to report and to target.
@@ -301,7 +313,7 @@ the thing to report and to target.
 | precursor as a general BGC component | ⛔ WRONG — RiPP-specific; NRPS/PKS have none |
 | `ENZ` = `OBLIGATE_DOMAINS[RIPP]` | ✅ KEPT — data-derived |
 | `ripp_components.jsonl` (27,171 regions) | ✅ KEPT — raw antiSMASH annotation |
-| **WIDE failed** (Holm p=4.1e-04 / 3.2e-05 vs matched control) | ✅ KEPT — experimental, mechanism now uncertain |
+| **WIDE failed** (**Holm p=0.021 at 2.2 kb; 8 kb n.s. at p=0.15** — corrected 2026-08-24 from the pre-dedup 4.1e-04 / 3.2e-05) | ✅ KEPT — experimental, one window, mechanism unknown |
 | **generations produce zero precursors** | ✅ KEPT — zero on a superset panel implies zero on the subset |
 | **Level 2: antiSMASH-confirmed 0.116 vs 0.760** | ✅ KEPT — the result |
 
@@ -552,6 +564,13 @@ floors, same gates. **Any pipeline change invalidates the comparison.**
 only "higher rate" but **"does it make the harder member"** — TERPENE cyclase vs precursor-only,
 where Evo2 read **0/13**.
 
+**T9 · 🔄 SEEDED ARMS (added 2026-08-24, user).** ⚠️ `[P7-A0]` is **de novo** — no seeded TERPENE
+arm existed, so a "GenomeOcean+seed vs Evo2" table would compare seeded against de novo. Building the
+missing **2x2**: `[P7-A0s]` (Evo2 seeded) and `[P8-A0s]` (GenomeOcean seeded), both L\*=8, scored on
+the continuation only. L\*=8 transfers on a measurement — TERPENE start-codon entropy matches RIPP's
+(1.74→1.97 bits vs 1.53→1.99). Plus **+600 Evo2 de novo** to power the cyclase contrast, which was
+n.s. at p=0.21 purely because Evo2 had only 13 detections.
+
 **T8 · ✅ DONE 2026-08-20 — `docs/phase8_GENOMEOCEAN_preregistration.md`** (user approved the new
 file). Freezes the inherited endpoint, the arms, n=200 on the **same prompts as `[P7-A0]`**, the
 five declared confounds, and a **two-way kill criterion**: an indistinguishable rate with still-zero
@@ -589,7 +608,7 @@ context".
 | leg | status |
 |---|---|
 | 1. class-specific LoRA fine-tuning | ✅ **DONE — 0.027 vs 0/400, p=0.0054 significant** |
-| 4. WIDE_KINDS span width | ⛔ **REFUTED 2026-08-19 — significantly worse; cause is dilution** |
+| 4. WIDE_KINDS span width | ⛔ **REFUTED 2026-08-19 — significantly worse (Holm p=0.021 @ 2.2 kb; 8 kb n.s.). ⚠️ CAUSE UNKNOWN** — the "dilution" explanation was RETRACTED 2026-08-19 as partly circular |
 | 2. class-specific seeding | ✅ **DONE — 0.176 at L=8, class-specific (p=2.5e-11), seed content irrelevant** |
 | 3. inference pruning | ⬜ not started — two distinct mechanisms: [P3-B2a] prunes *during* generation, [P3-B2b] filters *after* |
 
@@ -778,11 +797,12 @@ than reconstructing (0/8 source-domain match vs 12/12 at 500 nt), and changing i
 the recall confound. Seed length and scoring window are independent axes; vary the window, hold the
 seed.
 
-### [P4-WIDE] WIDE_KINDS fine-tune — ⛔ **REFUTED 2026-08-19** (Holm p=4.1e-04 / 3.2e-05)
+### [P4-WIDE] WIDE_KINDS fine-tune — ⛔ **REFUTED 2026-08-19** (**Holm p=0.021 @ 2.2 kb; 8 kb n.s.**)
 Substrate widened from `{"biosynthetic"}` to `{"biosynthetic","biosynthetic-additional"}`.
 Same recipe as A0, `DATA=splits_class_wide/RIPP`, **epochs matched to A0 (3) rather than steps**.
 ⚠️ **3,723/7,808 records kept (47.7%)** — the rest exceed the 1B's **8,192 native context**
-(`evo2_1b_base`, a hard model limit) and are dropped, not chunked, so `|END|` still lands true.
+(`evo2_1b_base`, a hard model limit) and are dropped, not chunked, so the stop token still lands at
+a true record boundary. (⚠️ `|END|` **retired 2026-08-20**; the real EOS is token id 0.)
 Read this arm as a **lower bound** on what WIDE can do: full WIDE is 4.41 genes/record, the
 ≤8,192 subset only 2.27 (vs 1.87 strict).
 
@@ -992,8 +1012,14 @@ instrument and should stay closed** regardless of the Q1/Q2 history.
   hits (vs 0.151 predicted under independence). Tokens spent late are worth ~half those spent early.
 - Their funnel: ~14,466 training genomes → thousands generated → 302 candidates → 285 synthesised
   → 16 viable. Roughly 1000:1 overgeneration.
-- ⚠️ **`|END|` does not work and is not worth fixing** (0/150, previously 0/204; whole-record
-  training did not change it). The phage paper used a **length filter (4–6 kb)**, not a stop token.
+- ⚠️ **CORRECTED 2026-08-24 — this bullet previously read "`|END|` does not work and is not worth
+  fixing (0/150, previously 0/204; whole-record training did not change it)."** The zero was a
+  property of the **metric**, not the model. The 5-byte string `|END|` genuinely never fired and is
+  now **retired**; but the tokenizer's **real EOS is token id 0**, Evo2 pretrained with it, and our
+  adapters emit it (13/13 coherent stop positions, 16x–159x uniform; masking it restores median
+  length 4,583 → 8,000). `hit_eos` tested the string, so it read a structural 0. See `memory.md`
+  2026-08-20 and [X1]. The phage paper still used a **length filter (4–6 kb)**, not a stop token —
+  which remains a reasonable selection step regardless.
 
 ### [P3-B3] ✅ DONE 2026-08-17 — A0 powered to p=0.0054 by generating controls
 **The obvious plan is wrong.** Generating more A0 sequences does **not** close this. Fisher's exact

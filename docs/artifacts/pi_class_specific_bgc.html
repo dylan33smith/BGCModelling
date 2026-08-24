@@ -1,0 +1,483 @@
+<title>Class-Specific BGC Generation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ink:#131d1c; --paper:#f6f8f7; --surface:#ffffff; --muted:#5e6f6c; --line:#d7e0dd;
+  --accent:#1c6b66; --accent-soft:#e4efed; --signal:#9a5b0c; --signal-soft:#f7eddd;
+  --retract:#8a3a38; --retract-soft:#f7e7e6; --good:#2f6b4f;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --body:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --display:"Newsreader",Georgia,serif;
+  --spine:68ch;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ink:#e4ecea; --paper:#0e1716; --surface:#152220; --muted:#93a5a1; --line:#263936;
+  --accent:#5fbdb4; --accent-soft:#16302e; --signal:#d9a24e; --signal-soft:#2c2415;
+  --retract:#e08a86; --retract-soft:#2e1a19; --good:#6fbf95;
+}}
+:root[data-theme="dark"]{
+  --ink:#e4ecea; --paper:#0e1716; --surface:#152220; --muted:#93a5a1; --line:#263936;
+  --accent:#5fbdb4; --accent-soft:#16302e; --signal:#d9a24e; --signal-soft:#2c2415;
+  --retract:#e08a86; --retract-soft:#2e1a19; --good:#6fbf95;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:var(--spine);margin:0 auto;padding:0 24px}
+.wide{max-width:1080px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:var(--display);font-weight:500;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.3rem,5.5vw,3.6rem);line-height:1.06;letter-spacing:-.015em}
+h2{font-size:clamp(1.5rem,3vw,2.05rem);line-height:1.15;margin:0 0 .4em}
+h3{font-size:1.16rem;line-height:1.3;margin:2.2em 0 .5em;font-weight:600}
+p{margin:0 0 1.05em}
+a{color:var(--accent)}
+code,.m{font-family:var(--mono);font-size:.88em;font-variant-numeric:tabular-nums}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 .9em}
+
+/* header */
+header{border-bottom:1px solid var(--line);padding:clamp(48px,8vw,88px) 0 40px;background:var(--surface)}
+.claim{font-family:var(--display);font-size:clamp(1.12rem,2.2vw,1.4rem);line-height:1.45;
+  border-left:3px solid var(--accent);padding-left:20px;margin:28px 0 0;color:var(--ink)}
+.stamp{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px;font-family:var(--mono);font-size:.72rem}
+.stamp span{border:1px solid var(--line);border-radius:2px;padding:4px 9px;color:var(--muted)}
+.stamp .ok{border-color:var(--accent);color:var(--accent)}
+
+/* sections on the phase spine */
+section{padding:52px 0}
+section+section{border-top:1px solid var(--line)}
+.phase{display:flex;gap:20px;align-items:baseline}
+.phase .num{font-family:var(--mono);font-size:.72rem;color:var(--accent);letter-spacing:.1em;
+  padding-top:.55em;flex:0 0 auto;min-width:5.4em}
+
+/* data */
+.scroll{overflow-x:auto;margin:22px 0;border:1px solid var(--line);border-radius:3px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.85rem;font-family:var(--mono);
+  font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:9px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;font-family:var(--body);white-space:normal;min-width:15ch}
+thead th{font-family:var(--body);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);font-weight:600;border-bottom:1.5px solid var(--line)}
+tbody tr:last-child td{border-bottom:none}
+.hi{color:var(--accent);font-weight:600}
+.zero{color:var(--muted)}
+.void{color:var(--retract);font-size:.78rem}
+caption{caption-side:bottom;text-align:left;padding:11px 14px;font-size:.74rem;color:var(--muted);
+  font-family:var(--body);line-height:1.5;border-top:1px solid var(--line)}
+
+/* metric row */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:3px;margin:24px 0;overflow:hidden}
+.metric{background:var(--surface);padding:16px 18px}
+.metric .v{font-family:var(--mono);font-size:1.45rem;font-weight:600;color:var(--accent);
+  font-variant-numeric:tabular-nums;line-height:1.1}
+.metric .k{font-size:.73rem;color:var(--muted);margin-top:5px;line-height:1.35}
+
+/* correction motif — the project's own in-place rule, made visual */
+.corr{border:1px solid var(--line);border-left:3px solid var(--retract);border-radius:3px;
+  background:var(--surface);padding:16px 18px;margin:18px 0}
+.corr .was{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--retract);
+  text-decoration-thickness:1.5px;font-size:.9rem;display:block;margin-bottom:8px}
+.corr .now{font-size:.94rem}
+.corr .tag{font-family:var(--mono);font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--retract);display:block;margin-bottom:9px}
+
+.note{border-left:3px solid var(--signal);background:var(--signal-soft);padding:14px 18px;
+  margin:18px 0;font-size:.93rem;border-radius:0 3px 3px 0}
+.note strong{color:var(--signal)}
+
+ul{margin:0 0 1.05em;padding-left:1.15em}
+li{margin-bottom:.5em}
+li::marker{color:var(--accent)}
+
+.next{border:1px solid var(--line);border-radius:3px;background:var(--surface);
+  padding:20px 22px;margin:16px 0}
+.next h3{margin:0 0 .35em;font-family:var(--body);font-size:1rem;font-weight:600}
+.next .id{font-family:var(--mono);font-size:.7rem;color:var(--accent);letter-spacing:.1em;
+  display:block;margin-bottom:7px}
+.next p{margin:0;font-size:.92rem;color:var(--muted)}
+.next.held{opacity:.72}
+.tasks{list-style:none;margin:14px 0 0;padding:0;border-top:1px solid var(--line)}
+.tasks li{display:grid;grid-template-columns:4.6em 1fr;gap:14px;margin:0;padding:10px 0;
+  border-bottom:1px solid var(--line);font-size:.9rem;align-items:start}
+.tasks li:last-child{border-bottom:none}
+.tasks .tid{font-family:var(--mono);font-size:.7rem;color:var(--accent);letter-spacing:.06em;
+  padding-top:.28em}
+.tasks .tid.done{color:var(--good)}
+.tasks .tid.hold{color:var(--muted)}
+.tasks .tid.warn{color:var(--signal)}
+.tasks b{font-weight:600;display:block;margin-bottom:2px}
+.tasks span.d{color:var(--muted);font-size:.86rem;line-height:1.5}
+.next.held{opacity:.72}
+.next.held .id{color:var(--muted)}
+
+footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);font-size:.8rem;
+  background:var(--surface)}
+@media(max-width:640px){
+  .phase{display:block}
+  .phase .num{display:block;padding:0 0 6px}
+}
+</style>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Research update · 24 August 2026 · Evo2-1B → GenomeOcean-4B</p>
+    <h1>Class-Specific BGC Generation</h1>
+    <p class="claim">A class-specific LoRA puts class-appropriate biosynthetic machinery into
+      <em>de novo</em> DNA on three independent compound classes — against controls that produce
+      exactly none. In every class the model makes only the simplest member.</p>
+    <div class="stamp">
+      <span>substrate <b class="m">evo2_1b_base</b></span>
+      <span>context <b class="m">8,192 nt</b></span>
+      <span>RIPP · PKS · TERPENE</span>
+      <span class="ok">Phase 8 · GenomeOcean trained</span>
+      <span class="ok">docs verifier 29 / 0</span>
+    </div>
+  </div>
+</header>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 3</div>
+  <div>
+    <h2>One class at a time</h2>
+    <p>The pivot was to stop conditioning on a class label and instead route to a per-class
+      adapter. Phase 1 had measured the class tag at <span class="m">−0.0006 nats</span> — no
+      effect — so the label was never the lever. Target: <strong>RIPP</strong>, trained on the
+      biosynthetic <em>core</em> only.</p>
+    <div class="metrics">
+      <div class="metric"><div class="v">0.027</div><div class="k">de novo, vs 0/400 controls · p=0.0054</div></div>
+      <div class="metric"><div class="v">6×</div><div class="k">lift from an 8-nt real seed</div></div>
+      <div class="metric"><div class="v">2.5e-11</div><div class="k">class-specific vs general adapter</div></div>
+      <div class="metric"><div class="v">0.66</div><div class="k">seed <em>content</em> irrelevant (shuffled)</div></div>
+    </div>
+    <p>Two constraints shaped everything after. We train on the strict core — a median
+      <span class="m">2,191 nt</span> of a <span class="m">~21,900 nt</span> region — so generations
+      contain no transport, regulatory or resistance genes <em>by construction</em>. And the 1B's
+      <span class="m">8,192</span>-token context is a hard model limit, not a config choice.</p>
+  </div>
+ </div></div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Correction</div>
+  <div>
+    <h2>What the audit found</h2>
+    <p>Assembling a full report surfaced four defects. Each was caught by measurement, and each is
+      recorded in place rather than edited away.</p>
+  </div>
+ </div></div>
+ <div class="wrap">
+  <div class="corr">
+    <span class="tag">Retracted — fan-out shard collision</span>
+    <span class="was">Five Phase-4/5 arms at n = 188, WIDE refuted at Holm p = 4.1e-04 and 3.2e-05</span>
+    <span class="now">Four workers launched with the same <code>--seed</code> wrote
+      <strong>byte-identical shards</strong>. Effective n was <strong>47–141</strong>. Rates survived
+      (duplication was uniform); <strong>one of two p-values did not</strong> — the 8 kb contrast fell
+      to <span class="m">p = 0.15</span>, n.s. All Phase-3 sets audited clean.</span>
+  </div>
+  <div class="corr">
+    <span class="tag">Retracted — extraction truncated on a stop byte</span>
+    <span class="was">Sequences end early; the model has learned to stop</span>
+    <span class="now">The extractor kept only the leading <code>ACGTN</code> run, discarding a median
+      <strong>6.2 kb of 99.9%-valid DNA</strong>. It hit adapters ~35× harder than base models, so it
+      loaded onto the treatment arm: <strong>45.5% vs 2.0%</strong> below the scoring window.</span>
+  </div>
+  <div class="corr">
+    <span class="tag">Corrected — marker-set artifact</span>
+    <span class="was">PKS reaches ≥2 class domains in 74% of real cores vs RIPP's 20%</span>
+    <span class="now"><code>OBLIGATE_DOMAINS[PKS]</code> holds several Pfam models per catalytic
+      domain, so a single T3PKS gene scores 2 unaided. Collapsed to catalytic units it is
+      <strong>0.300</strong>; by distinct gene, <strong>0.060</strong> — level with RIPP.</span>
+  </div>
+  <div class="corr">
+    <span class="tag">Retracted — the early-stopping speedup</span>
+    <span class="was">~75% of PKS generation compute runs after the model has finished</span>
+    <span class="now">Measured on the wrong quantity. The median <span class="m">~1,750 nt</span> stop
+      was the first stop of <em>any</em> kind — overwhelmingly degeneracy, not EOS. With real token
+      ids only <strong>9/24 rows emit EOS at all</strong>, so an all-rows exit delivered
+      <strong>1.01×</strong>. Batched decoding is bounded by its <em>slowest</em> row. Per-row exit
+      is worth <strong>38.5%</strong>; the win from that build was constrained decoding instead.</span>
+  </div>
+  <div class="note"><strong>The finding that replaced the marker artifact is more useful.</strong> No
+    class has multi-gene cluster structure in the strict-core span — all three sit at 0.06–0.08. That
+    is a property of strict-core trimming, not of any class, so changing class cannot fix it. Only span
+    width or context can.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 6·7</div>
+  <div>
+    <h2>The method transfers</h2>
+    <p>PKS and TERPENE opened as their own phases, each pre-registered before any arm generated,
+      each with its own scoring window because none of them transfer. Three arms per class at
+      n = 200 on the same prompts.</p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Pre-registered primary endpoint <code>best_bio_bits &gt; 0</code>, plus antiSMASH
+      confirmation. Windows differ by class (PKS 4,000 nt; TERPENE 2,000 nt) and are not
+      cross-comparable — only the <em>shape</em> transfers, never the magnitude.</caption>
+    <thead><tr><th>Metric</th><th>PKS A0</th><th>base</th><th>general</th><th>PKS real</th>
+      <th>TERP A0</th><th>base</th><th>general</th><th>TERP real</th></tr></thead>
+    <tbody>
+      <tr><td>Pfam endpoint</td><td class="hi">0.070</td><td class="zero">0.000</td><td class="zero">0.000</td><td>0.920</td>
+        <td class="hi">0.070</td><td class="zero">0.000</td><td class="zero">0.000</td><td>0.980</td></tr>
+      <tr><td>antiSMASH corrected</td><td class="hi">0.040</td><td class="zero">0.000</td><td class="zero">0.000</td><td>0.980</td>
+        <td class="hi">0.065</td><td class="zero">0.000</td><td class="zero">0.000</td><td>1.000</td></tr>
+      <tr><td>JOINT_PASS *</td><td class="hi">14/200</td><td class="zero">0</td><td class="zero">0</td><td>46/50</td>
+        <td class="hi">14/200</td><td class="zero">0</td><td class="zero">0</td><td>49/50</td></tr>
+      <tr><td>containment * max</td><td>0.004</td><td>0.002</td><td>0.005</td><td>0.043</td>
+        <td>0.014</td><td>0.002</td><td>0.005</td><td>0.140</td></tr>
+      <tr><td>protein_aai * max</td><td>0.567</td><td>0.000</td><td>0.592</td><td>0.699</td>
+        <td>0.583</td><td>0.000</td><td>0.535</td><td>0.867</td></tr>
+      <tr><td>max_orf_aa</td><td class="hi">633</td><td>164</td><td>478</td><td>673</td>
+        <td>386</td><td>136</td><td>342</td><td>339</td></tr>
+      <tr><td>n_pass (≤1% N)</td><td class="void">145/200</td><td>191/200</td><td>200/200</td><td>—</td>
+        <td>194/200</td><td>191/200</td><td>200/200</td><td>—</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <p>Both classes reach <span class="m">p = 1.5e-07</span> against a pooled control of
+    <span class="m">0/400</span>. <code>JOINT_PASS</code> equals the endpoint in both, so every
+    on-class record also cleared both novelty gates — none of it is bought by copying.</p>
+  <div class="note"><strong>Read the caveats with the result.</strong> Both classes landing on
+    14/200 is a coincidence, not a shared rate. Both sit at only ~7% of their own ceiling —
+    transfer of significance is not transfer of competence. And PKS <code>A0</code> is the least
+    stable arm on the board at <strong>27.5% degenerate</strong> records.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Finding</div>
+  <div>
+    <h2>Only ever the easy member</h2>
+    <p>Given a class, the model produces its simplest member and never the harder one — measured in
+      three classes with three unrelated antiSMASH rule systems.</p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Detected products, generated vs real held-out cores. Denominators are small: the
+      <em>direction</em> is established in all three, the <em>rate</em> is not.</caption>
+    <thead><tr><th>Class</th><th>What the model made</th><th>Harder type</th>
+      <th>Generated</th><th>Real cores</th><th>Fisher p</th></tr></thead>
+    <tbody>
+      <tr><td>PKS</td><td>T3PKS — one ~350-aa chalcone synthase</td><td>T1PKS, modular megasynthase</td>
+        <td class="zero">0/8</td><td>20/49</td><td>0.041</td></tr>
+      <tr><td>TERPENE</td><td>terpene-precursor gene</td><td>terpene cyclase rule</td>
+        <td class="zero">0/13</td><td>22/50</td><td>0.0024</td></tr>
+      <tr><td>RIPP</td><td><code>RiPP-like</code> generic catch-all</td><td>any specific subclass</td>
+        <td class="zero">0/7</td><td>30/33</td><td>6.4e-06</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <p>The harder member is, in every case, the <strong>longer</strong> one — T1PKS at a median
+    <span class="m">7,665 nt</span> against T3PKS at <span class="m">1,083</span>. The 1B's training
+    budget is <span class="m">7,992 nt</span>, so <strong>half of all T1PKS records do not fit</strong>.
+    The PKS adapter is 59.3% T3PKS by construction, and it reproduced its substrate exactly.</p>
+  <div class="note"><strong>This is why model and substrate are not yet separable.</strong> All three
+    classes share one context limit and one trimming rule, and in each the missing member is the one
+    that does not fit. "The model cannot" and "we never showed it one" predict the same result here.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Diagnosis</div>
+  <div>
+    <h2>The model was stopping all along</h2>
+    <p>Generations ended early while <code>hit_eos</code> read 0 in every arm ever produced. The
+      cause: token ids <span class="m">0</span> (EOS), <span class="m">1</span> (PAD) and
+      <span class="m">32</span> (space) all decode to the same character, and the whole pipeline
+      read the decoded string.</p>
+    <div class="metrics">
+      <div class="metric"><div class="v">2,100×</div><div class="k">P(EOS) at a real core's end vs mid-core, adapter</div></div>
+      <div class="metric"><div class="v">40.9×</div><div class="k">same ratio in the <em>base</em> model — Evo2 taught it, not us</div></div>
+      <div class="metric"><div class="v">4,583→8,000</div><div class="k">median length when EOS is masked — causal</div></div>
+      <div class="metric"><div class="v">0/48</div><div class="k">stop events under full constrained decoding</div></div>
+    </div>
+    <p>We never trained token 0. <code>--eos-token</code> appended a five-byte <em>string</em>,
+      <code>|END|</code>, which never once fired. The real EOS came from Evo2's pretraining and our
+      fine-tuning sharpened it 51×. It is now appended unconditionally, with no flag.</p>
+    <div class="note"><strong>This retired a claim that had propagated for a month.</strong> The
+      model-comparison doc listed <em>"Evo2 has no usable EOS"</em> as one of three reasons to switch
+      models. Evo2's EOS is real; what GenomeOcean actually offers on this axis is
+      <em>convenience</em> — its tokenizer auto-wraps <span class="m">BOS=1 … EOS=2</span> and its
+      runtime honours it. The trainable class token remains the genuine structural difference.</div>
+    <p><strong>Degeneracy is a separate failure.</strong> Two mechanisms were tested and both
+      rejected: the pre-collapse context is <em>not</em> worse on-class (p = 0.22), and degenerate
+      records show no more within-alphabet repetition than clean ones. It is an abrupt exit from the
+      nucleotide manifold — encouraging for constrained decoding, since there is no repetition loop
+      to fall into, but whether constraining yields <em>usable</em> sequence there is untested.</p>
+  </div>
+ </div></div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 8</div>
+  <div>
+    <h2>A second model, and a result before it generates</h2>
+    <p>Every finding above is confounded with Evo2-1B. GenomeOcean-4B is the control that separates
+      "the method" from "this model" — re-running <em>Phase 7's exact endpoint</em> on a different
+      architecture, tokenizer, context and pretraining corpus. It is now fine-tuned, and the training
+      curve alone answers something.</p>
+    <div class="metrics">
+      <div class="metric"><div class="v">1.2414</div><div class="k">GenomeOcean bits/nt · Evo2 <b class="m">1.2143</b> — parity</div></div>
+      <div class="metric"><div class="v">6.4×</div><div class="k">context — 50,934 nt vs Evo2's 7,992</div></div>
+      <div class="metric"><div class="v">+5.3%</div><div class="k">training records recovered by that context</div></div>
+      <div class="metric"><div class="v">0.878</div><div class="k">class probe, base GenomeOcean · chance 0.091</div></div>
+    </div>
+    <p><strong>The 6.4× context buys +5.3% — which is the design working, not a letdown.</strong>
+      TERPENE was chosen precisely <em>because</em> Evo2 was not context-limited on it, so a
+      GenomeOcean win there cannot be attributed to context. Had we picked PKS, a win would have been
+      uninterpretable between "better model" and "longer context".</p>
+    <div class="note"><strong>Recorded before generation, not after.</strong> All three models encode
+      compound class at <span class="m">0.878–0.91</span> against <span class="m">0.09</span> chance —
+      GenomeOcean base 0.878, its BGC-specialised <code>bgcFM</code> variant 0.894, Evo2 ~0.91. The
+      extra BGC pretraining buys <strong>+0.016</strong>, essentially nothing. Together with loss
+      parity after fine-tuning, that says <strong>the bottleneck has never been representation — it
+      is generation</strong>, and predicts a model swap alone may not move the endpoint.</div>
+    <p><code>bgcFM</code> is therefore the reference ceiling, not the arm: the comparison stays
+      fine-tune vs fine-tune on plain <code>GenomeOcean-4B</code>. ⚠️ At 4.25 B against 1.1 B this arm
+      is <strong>not parameter-matched</strong> and must never be reported as if it were.</p>
+  </div>
+ </div></div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Next</div>
+  <div>
+    <h2>What happens now</h2>
+  </div>
+ </div></div>
+ <div class="wrap">
+  <div class="next">
+    <span class="id">X3 · running</span>
+    <h3>GenomeOcean on TERPENE</h3>
+    <p>Pre-registered before anything generated. The kill criterion is two-way: an indistinguishable
+      rate with still-zero cyclase detections makes the "easiest member" limit
+      <strong>method-attributable</strong> and releases the held X2 work; cyclase detections where
+      Evo2 had none make it <strong>model-attributable</strong> and aims X2 at the wrong cause.</p>
+    <ul class="tasks">
+      <li><span class="tid done">done</span><span><b>Leakage gate</b><span class="d">Containment
+        <span class="m">0.0000</span> across 48 true + 48 mismatched. The gate that would have
+        disqualified the track is clear.</span></span></li>
+      <li><span class="tid done">done</span><span><b>Fine-tune feasibility</b><span class="d">All
+        four gates green at seq_len 10,240; 22 class tokens added atomically, vocab 4,096 → 4,118.
+        GenomeOcean takes a real trainable class token — Evo2 cannot.</span></span></li>
+      <li><span class="tid done">T1</span><span><b>Base checkpoint decided</b><span class="d">Settled
+        on a measurement, not a preference: the class probe reads <span class="m">0.878</span> base vs
+        <span class="m">0.894</span> bgcFM. Plain <code>GenomeOcean-4B</code> is the arm; bgcFM runs
+        zero-shot as a declared reference ceiling.</span></span></li>
+      <li><span class="tid done">T2</span><span><b>Substrate built</b><span class="d"><code>splits_class/TERPENE</code>
+        reused unchanged — only the length filter differs. <span class="m">4.974</span> nt/token;
+        kept <span class="m">11,260/11,297 = 0.997</span> against Evo2's 0.943, recovering
+        <strong>+602 records</strong>. Context frozen at 10,240.</span></span></li>
+      <li><span class="tid done">T3</span><span><b>EOS and class token verified in code</b><span class="d">The
+        builder asserts the tokenizer auto-wraps <span class="m">BOS=1 … EOS=2</span> and that
+        <code>[CLS_TERPENE]</code> survives as one atomic id, masked from the loss.</span></span></li>
+      <li><span class="tid done">T4</span><span><b>Fine-tuned</b><span class="d">2,112 steps = 3
+        epochs, 2 h 19 m, 55.4 M trainable (1.287%). Best eval <span class="m">4.2798</span> =
+        <strong>1.2414 bits/nt</strong> against Evo2's 1.2143 — the first like-for-like loss
+        comparison, and it is parity.</span></span></li>
+      <li><span class="tid warn">T5</span><span><b>Generate three arms, n=200</b><span class="d">Next.
+        The <b>same 200 prompts</b> as the Evo2 run, so the comparison is prompt-paired.</span></span></li>
+      <li><span class="tid">T6</span><span><b>Score through the identical pipeline</b><span class="d">Same
+        window, same ceiling, same gates, same antiSMASH config. Any pipeline change invalidates the
+        comparison.</span></span></li>
+      <li><span class="tid">T7</span><span><b>Report as a two-model table</b><span class="d">The
+        question is not only "higher rate" but <b>does it make the harder member</b> — where Evo2
+        read 0/13.</span></span></li>
+      <li><span class="tid done">T8</span><span><b>Pre-registration filed</b><span class="d">Endpoints,
+        arms, n, five declared confounds and the two-way kill criterion, all frozen before
+        generation.</span></span></li>
+    </ul>
+  </div>
+
+  <div class="next">
+    <span class="id">X1 · alongside</span>
+    <h3>Generation correctness and speed</h3>
+    <p>One missing capability — <strong>seeing the sampled token ids</strong> — blocked all of these.
+      vortex returns logits and strings but never ids, and ids 0, 1 and 32 all decode to the same
+      character, so the pipeline could not tell a stop from a collapse. That capability now exists;
+      what remains is wiring it into the generation scripts.</p>
+    <ul class="tasks">
+      <li><span class="tid done">X1g</span><span><b>Token-id-aware generation</b><span class="d">Built.
+        The sampler is wrapped to mask logits, record ids and exit early — nothing depends on vortex's
+        return value.</span></span></li>
+      <li><span class="tid done">X1a</span><span><b>Constrained decoding</b><span class="d">Works, and
+        was the real win from that build: junk ids <strong>247 → 0</strong> at <span class="m">1.01×</span>
+        cost. Mask every id outside <span class="m">{A,C,G,T,N,EOS}</span> to −∞.</span></span></li>
+      <li><span class="tid done">X1b</span><span><b>Train the real EOS</b><span class="d">Shipped, and
+        with no flag — id 0 is appended unconditionally. The 5-byte <code>|END|</code> string is
+        retired.</span></span></li>
+      <li><span class="tid warn">X1e</span><span><b><code>hit_eos</code> tests the token id</b><span class="d">Still
+        open in <code>generate_bgc.py</code>, which reads the retired string and so reports a
+        structural zero. Until it lands, no <code>hit_eos</code> from that path may be quoted as
+        evidence about termination.</span></span></li>
+      <li><span class="tid">X1f</span><span><b>Per-row early stopping</b><span class="d">The simple
+        version does not work — see the retraction above. Per-row exit is measured at
+        <strong>38.5%</strong> of decode compute (157,490 tokens needed vs 256,000 paid) and needs
+        vortex's cached <code>inference_params</code> rebuilt for surviving rows. Cheaper first:
+        shorter requests and smaller batches.</span></span></li>
+      <li><span class="tid">X1i</span><span><b>Snip-and-replace</b><span class="d">Detect a degenerate
+        or zero-length record, discard, regenerate the slot. Rejection sampling; legitimate as
+        selection <b>provided the discard rate is reported</b>.</span></span></li>
+      <li><span class="tid warn">X1d</span><span><b>Degeneracy needs its own gate</b><span class="d">Constraining
+        does not fix it — at a uniform-distribution position masking just forces an arbitrary
+        base.</span></span></li>
+    </ul>
+  </div>
+
+  <div class="next held">
+    <span class="id">X2 · held</span>
+    <h3>Subclass interventions</h3>
+    <p>All held until GenomeOcean reports — it may reattribute the finding from the method to the
+      context limit, which would aim every one of these at the wrong cause.</p>
+    <ul class="tasks">
+      <li><span class="tid hold">X2a</span><span><b>Bigger denominators</b><span class="d">Not a
+        blocker — all three contrasts are already significant. Turns a direction into a
+        rate.</span></span></li>
+      <li><span class="tid hold">X2b</span><span><b>Seeded hard-subclass control</b><span class="d">Seed
+        from a real T1PKS or cyclase exemplar. If seeded generation still yields zero, the limitation
+        is real. The most informative cheap experiment on the board.</span></span></li>
+      <li><span class="tid hold">X2c</span><span><b>Inverse-frequency weighting</b><span class="d">Do
+        not run before X2b — 31% of PKS training carries a ketosynthase and produced 0% of output,
+        far worse than frequency alone predicts.</span></span></li>
+      <li><span class="tid hold">X2d</span><span><b>Subclass-conditioned adapters</b><span class="d">A
+        T1PKS-only adapter, ~1,200 records — the honest route to any modular-PKS
+        claim.</span></span></li>
+    </ul>
+  </div>
+
+  <div class="next held">
+    <span class="id">RIPP · parked</span>
+    <h3>bio + transport span, arm regeneration, Level-2 write-up</h3>
+    <p>Not dropped. The <code>bio + transport</code> substrate is the one live intervention aimed at
+      multi-gene structure, which the class pivot demonstrably cannot deliver.</p>
+  </div>
+ </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Provenance: <code>phase6_PKS</code>, <code>phase7_TERPENE</code>,
+      <code>phase5_classprobe</code>, <code>phase8_TERPENE_GO</code> · generations
+      <code>--junk-policy mask</code>, <code>--base-model evo2_1b_base</code> · antiSMASH 8.0.4 full
+      mode, output dirs retained · every scored file carries <code>class_policy</code> and
+      <code>integrity</code> blocks. Gate metrics marked <code>*</code>. Rates over all 200 records,
+      not over <code>n_pass</code>.</p>
+  </div>
+</footer>
