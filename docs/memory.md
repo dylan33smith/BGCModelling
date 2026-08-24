@@ -2274,4 +2274,44 @@ degeneracy rates are still reported, because their absence is itself a result.
 
 ---
 
+## 2026-08-22 — [P8-T4] GenomeOcean TERPENE adapter TRAINED. First like-for-like loss comparison.
+
+`genomeocean/scripts/finetune_go_class.py` → `phase8_TERPENE_GO/adapter_run/final_adapter`.
+**2,112 steps = 3 epochs, 2h19m, sentinel 0.** Trainable **55,449,600 / 4,308,630,528 = 1.287%**
+(LoRA r=16 α=32 on q/k/v/o/gate/up/down, plus `embed_tokens`+`lm_head` via `modules_to_save`).
+`eval_loss` fell monotonically **4.5192 → 4.4209 → 4.2820 → 4.2798** across 9 evaluations.
+
+### ⚠️ RAW CROSS-ENTROPY IS NOT COMPARABLE ACROSS TOKENIZERS — normalise to bits per NUCLEOTIDE
+
+Evo2 is byte-level (1 nt/token, ~4 outcomes); GenomeOcean is BPE (**4.974 nt/token**, 4,096 vocab).
+Comparing 4.28 against 0.84 directly would be meaningless.
+
+| model | nats/token | nt/token | nats/nt | **bits/nt** |
+|---|---|---|---|---|
+| Evo2-1B `[P7-A0]` | 0.8417 | 1.000 | 0.8417 | **1.2143** |
+| GenomeOcean `[P8-A0]` | 4.2798 | 4.974 | 0.8604 | **1.2414** |
+
+⇒ **The two models are within 0.027 bits/nt of each other on held-out TERPENE, with GenomeOcean
+very slightly WORSE.** A 4x larger model with 6.4x the context and a different tokenizer compresses
+this data essentially identically.
+⇒ **This is consistent with the prediction registered at T1** — all three models already encode
+compound class at ~0.88–0.91 vs ~0.09 chance, so **representation was never the bottleneck**. Loss
+parity is what that prediction looks like at the training stage. **It does NOT settle the endpoint**:
+Phase 3 showed repeatedly that likelihood and generation quality come apart.
+
+⚠️ **NOT a clean comparison, stated before anyone quotes it:** Evo2 val n=747 vs GenomeOcean n=200
+(capped by `--max-val`), and GenomeOcean's val includes **41 records Evo2 dropped for length**.
+Directional only. The endpoint comparison at T5–T7 is prompt-paired and *is* clean.
+
+**Config recorded:** seq_len 10,240 · batch 1 (median record is 192 tokens against a 10,240 context,
+so padding would waste ~98% of every step) · grad_accum 16 (matching Evo2's effective batch) ·
+lr 5e-5 · 3 epochs. Class token `[CLS_TERPENE]` id **4096**, verified atomic at load, prepended
+after BOS and **masked from the loss** — it is supplied at generation, never predicted.
+⚠️ **No taxonomy conditioning** ([X4]): Evo2's text prefix is 122 UNK of 132 ids through this
+tokenizer. Declared confound, biases against GenomeOcean.
+
+**Next: T5** — 200 prompts, the same ones `[P7-A0]` used.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

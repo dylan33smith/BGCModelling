@@ -34,7 +34,7 @@ not dropped** (user, 2026-08-19) — see *Parked: RIPP* below for exactly what i
 |---|---|---|
 | **6** | **PKS** | ✅ **[P6-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.920). `max_orf_aa` 633 vs real 673. ⚠️ T3PKS-dominated substrate; ⚠️ 27.5% degenerate records. |
 | **7** | **TERPENE** | ✅ **[P7-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.980). ⚠️ `n_class_domains`>=2 is 0/200 — RIPP's single-marker limit reproduces. |
-| **8** | **TERPENE on GenomeOcean** | 🔄 **ACTIVE — the model-vs-method test.** T1 ✅ base `GenomeOcean-4B`, T2 ✅ substrate built (**+5.3% records; the 6.4x context buys almost nothing, which is the design**), T3 ✅ EOS asserted in code. **T4 fine-tune is next.** Pre-reg `docs/phase8_GENOMEOCEAN_preregistration.md`. |
+| **8** | **TERPENE on GenomeOcean** | 🔄 **ACTIVE — the model-vs-method test.** T1–T3 ✅. **T4 ✅ TRAINED** (2,112 steps = 3 epochs, 2h19m, best eval 4.2798; **1.2414 bits/nt vs Evo2's 1.2143 — parity**). **T5 generation is next.** Pre-reg `docs/phase8_GENOMEOCEAN_preregistration.md`. |
 | 5 | RIPP | ⏸️ **PARKED** — Level 2 achieved and defensible; open items listed below. |
 
 ⚠️ **[P6-A0] IS T3PKS-DOMINATED AND MUST BE DESCRIBED AS SUCH.** Of the 3,906 training records the
@@ -221,6 +221,7 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P6-AS** | **antiSMASH on PKS A0** | corrected rate · product type | 14 pos + 100 neg | **0.040** vs 0.000 controls, ceiling 0.980; **T3PKS 8/8, T1PKS 0/8** | ✅ confirmed; ★ only the easy type | 2026-08-20 |
 | **P7-AS** | **antiSMASH on TERPENE A0** | ″ | 14 pos + 100 neg | **0.065** vs 0.000, ceiling 1.000; **precursor 13/13, cyclase 0/13** | ✅ confirmed; ★ only the easy type | 2026-08-20 |
 | **P8-T2** | **GenomeOcean TERPENE substrate** | records kept vs Evo2 | 11,297 | **11,260 = 0.997 vs Evo2 0.943 → +602 (+5.3%)**; 4.974 nt/token, context 50,934 nt = 6.4x | ✅ **confound measured out: context cannot explain a P8 win** | 2026-08-22 |
+| **P8-T4** | **GenomeOcean TERPENE adapter** | training convergence | 11,260 rec | 2,112 steps = 3 ep, eval 4.5192→**4.2798**; **1.2414 bits/nt vs Evo2 1.2143** | ✅ trained; ★ **loss parity — representation was never the bottleneck** | 2026-08-22 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 
 **Provenance for the block above:**

@@ -326,7 +326,7 @@ applies to the **frame arm only**. Do not quote the weighted arm as a negative r
 
 | Run dir | Date | Contents | Status |
 |---|---|---|---|
-| `phase8_TERPENE_GO/` | 08-22 | **[P8-T2] GenomeOcean TERPENE substrate.** `data/train.jsonl` (11,260) + `data/val.jsonl` (788), built from `splits_class/TERPENE` **unchanged** — only the length filter differs. `substrate_report.json`: 4.974 nt/token, median 192 tok, context 10,240 tok = 50,934 nt, **+602 train records recovered vs Evo2 (+5.3%)**, 37 still over-length (max ~270 kb). Tokenizer auto-wrap BOS/EOS asserted. | ✅ substrate built |
+| `phase8_TERPENE_GO/` | 08-22 | **[P8-T2] GenomeOcean TERPENE substrate.** `data/train.jsonl` (11,260) + `data/val.jsonl` (788), built from `splits_class/TERPENE` **unchanged** — only the length filter differs. `substrate_report.json`: 4.974 nt/token, median 192 tok, context 10,240 tok = 50,934 nt, **+602 train records recovered vs Evo2 (+5.3%)**, 37 still over-length (max ~270 kb). Tokenizer auto-wrap BOS/EOS asserted. **[P8-T4]** `adapter_run/final_adapter` + `train_summary.json` — 2,112 steps = 3 epochs, 2h19m, 55.4M trainable (1.287%), best eval_loss **4.2798** = **1.2414 bits/nt** (Evo2 1.2143). Class token `[CLS_TERPENE]` id 4096, atomic, masked from loss. No taxonomy conditioning. | ✅ substrate + adapter |
 
 ⚠️ **Phase 8 opens on this track (`docs/phase8_GENOMEOCEAN_preregistration.md`, 2026-08-20).**
 Arm = fine-tuned `GenomeOcean-4B` on `splits_class/TERPENE`; `bgcFM` is a declared reference, not a
