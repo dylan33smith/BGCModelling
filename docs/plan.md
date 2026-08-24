@@ -21,9 +21,12 @@ limitation survived the model swap.**
 
 **★★ 2026-08-20 — THE LIMITATION IS THE SAME IN ALL THREE CLASSES, AND IT IS THE DATA.** antiSMASH
 confirms both new classes de novo (**PKS 0.040**, **TERPENE 0.065**, controls **0.000**, ceilings
-0.980 / 1.000). And in every class the model produces **only the simplest member and never the
-harder one**: PKS **T3PKS 8/8, T1PKS 0/8** (p=0.041) · TERPENE **precursor 13/13, cyclase 0/13**
-(p=0.0024) · RIPP `RiPP-like` 7/7, specific subclass 0/7 (p=6.4e-06). Three rule systems, one
+0.980 / 1.000). ⚠️ **"NEVER" IS RETRACTED — read the 2026-08-24 block above first.** In every class
+the model produces **only the simplest member and RARELY the harder one**: PKS **T3PKS 8/8, T1PKS
+0/8** (p=0.041) · TERPENE **precursor 13/13, cyclase 0/13** (p=0.0024) · RIPP `RiPP-like` 7/7,
+specific subclass 0/7 (p=6.4e-06). ⚠️ **All three zeros are at 7–13 detections.** The one that was
+powered up — TERPENE cyclase, Evo2 pooled to n=800 — went **0/13 → 3/48 = 0.062**. Treat the PKS
+and RIPP zeros as **untested at power**, not as established absences. Three rule systems, one
 ceiling on complexity — so it is **not** an artefact of antiSMASH's RiPP hierarchy. PKS producing
 zero T1PKS is its 59.3%-T3PKS training substrate reproducing itself. ⚠️ 8 and 13 detections are
 **quote the direction, not the rate** — the contrasts are significant, the magnitudes are not
@@ -240,6 +243,7 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P9-CYC** | **powered cyclase test** | harder-member rate | Evo2 n=800 | Evo2 **3/48 = 0.062** · GO 20/126 = 0.159 · real 0.440 | ⚠️ **p=0.132 n.s.; 'never' RETRACTED** | 2026-08-24 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 | **P8-AUDIT** | **refuted-claim audit across docs, code and cross-session auto-memory** | stale claims still asserted as fact outside `memory.md` | 16 sites | **16 corrected**; `memory.md` itself CLEAN. `hit_eos` had no `terms.md` entry — written. Auto-memory was the EOS leak (loads every session) | ⚠️ **corrections were reaching the ledger and not the docs people read** | 2026-08-24 |
+| **P8-AUDIT-2** | **propagate `f386df0` (the 2x2 + cyclase retraction) to the surfaces it missed** | stale claims left after a concurrent commit | 3 sites | `plan.md` 08-20 block still said "never"; `terms.md` power note had no worked example; PI artifact rebuilt | ⚠️ **the artifact went stale within the hour — it has no verifier** | 2026-08-24 |
 
 **Provenance for the block above:**
 `phase3_RIPP/adapter_run` (7,250 whole records, 3 ep / 1,350 steps, `loss_ce` 0.790→0.410) ·

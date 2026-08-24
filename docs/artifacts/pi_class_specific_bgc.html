@@ -123,16 +123,17 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
 
 <header>
   <div class="wrap">
-    <p class="eyebrow">Research update · 24 August 2026 · Evo2-1B → GenomeOcean-4B</p>
+    <p class="eyebrow">Research update · 24 August 2026 · Evo2-1B vs GenomeOcean-4B</p>
     <h1>Class-Specific BGC Generation</h1>
     <p class="claim">A class-specific LoRA puts class-appropriate biosynthetic machinery into
       <em>de novo</em> DNA on three independent compound classes — against controls that produce
-      exactly none. In every class the model makes only the simplest member.</p>
+      exactly none. Changing the model raises that rate 9.8×; <em>seeding</em> the old model erases
+      the gap and reverses it.</p>
     <div class="stamp">
       <span>substrate <b class="m">evo2_1b_base</b></span>
       <span>context <b class="m">8,192 nt</b></span>
       <span>RIPP · PKS · TERPENE</span>
-      <span class="ok">Phase 8 · GenomeOcean trained</span>
+      <span class="ok">Phase 8 · 2×2 complete</span>
       <span class="ok">docs verifier 29 / 0</span>
     </div>
   </div>
@@ -259,35 +260,50 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
  <div class="wrap"><div class="phase">
   <div class="num">Finding</div>
   <div>
-    <h2>Only ever the easy member</h2>
-    <p>Given a class, the model produces its simplest member and never the harder one — measured in
-      three classes with three unrelated antiSMASH rule systems.</p>
+    <h2>Rarely the harder member</h2>
+    <p>Given a class, the model overwhelmingly produces its simplest member. This read
+      <em>"never"</em> until 24 August, when the one contrast we powered up turned a zero into a
+      small non-zero — the correction is below the table.</p>
   </div>
  </div></div>
  <div class="wide">
   <div class="scroll"><table>
-    <caption>Detected products, generated vs real held-out cores. Denominators are small: the
-      <em>direction</em> is established in all three, the <em>rate</em> is not.</caption>
+    <caption>Rate of the harder member among detected sequences, generated vs real held-out cores.
+      ⚠️ Read the denominators: only the TERPENE row has been generated to power. The PKS and RIPP
+      zeros rest on 8 and 7 detections and are <em>untested</em>, not established.</caption>
     <thead><tr><th>Class</th><th>What the model made</th><th>Harder type</th>
       <th>Generated</th><th>Real cores</th><th>Fisher p</th></tr></thead>
     <tbody>
-      <tr><td>PKS</td><td>T3PKS — one ~350-aa chalcone synthase</td><td>T1PKS, modular megasynthase</td>
+      <tr><td>TERPENE <span class="hi">· powered</span></td><td>terpene-precursor gene</td><td>terpene cyclase rule</td>
+        <td class="hi">3/48 = 0.062</td><td>22/50 = 0.440</td><td>1.65e-05</td></tr>
+      <tr><td>PKS ⚠️ untested</td><td>T3PKS — one ~350-aa chalcone synthase</td><td>T1PKS, modular megasynthase</td>
         <td class="zero">0/8</td><td>20/49</td><td>0.041</td></tr>
-      <tr><td>TERPENE</td><td>terpene-precursor gene</td><td>terpene cyclase rule</td>
-        <td class="zero">0/13</td><td>22/50</td><td>0.0024</td></tr>
-      <tr><td>RIPP</td><td><code>RiPP-like</code> generic catch-all</td><td>any specific subclass</td>
+      <tr><td>RIPP ⚠️ untested</td><td><code>RiPP-like</code> generic catch-all</td><td>any specific subclass</td>
         <td class="zero">0/7</td><td>30/33</td><td>6.4e-06</td></tr>
     </tbody>
   </table></div>
  </div>
  <div class="wrap">
+  <div class="corr">
+    <span class="tag">Retracted — "never" was a small-sample artifact</span>
+    <span class="was">TERPENE: the model produces the precursor and never the cyclase — 0/13</span>
+    <span class="now">Pooling Evo2 <em>de novo</em> to <strong>n = 800</strong> (+600 records,
+      600/600 unique, no overlap with the original arm) raised detections from 13 to 48 and produced
+      <strong>3 cyclase calls = 0.062</strong>. The limitation is real — 0.062 against a real-core
+      <strong>0.440</strong>, <span class="m">p = 1.65e-05</span> — but it is
+      <strong>rarely, not never</strong>. Two of the three zeros above have not had this treatment,
+      so they are quoted as untested.</span>
+  </div>
   <p>The harder member is, in every case, the <strong>longer</strong> one — T1PKS at a median
     <span class="m">7,665 nt</span> against T3PKS at <span class="m">1,083</span>. The 1B's training
     budget is <span class="m">7,992 nt</span>, so <strong>half of all T1PKS records do not fit</strong>.
     The PKS adapter is 59.3% T3PKS by construction, and it reproduced its substrate exactly.</p>
-  <div class="note"><strong>This is why model and substrate are not yet separable.</strong> All three
-    classes share one context limit and one trimming rule, and in each the missing member is the one
-    that does not fit. "The model cannot" and "we never showed it one" predict the same result here.</div>
+  <div class="note"><strong>And the limitation survived the model swap.</strong> GenomeOcean makes
+    the cyclase at <span class="m">20/126 = 0.159</span> against Evo2's 0.062 — higher, but
+    <strong>not significantly</strong> (<span class="m">p = 0.132</span>), and both sit far under real
+    cores at 0.440. A 6.4× context and 4× the parameters did not lift the harder member. That makes
+    the ceiling look like a property of the <em>substrate</em> — one context limit, one trimming rule
+    — rather than of either model.</div>
  </div>
 </section>
 
@@ -327,32 +343,70 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
  <div class="wrap"><div class="phase">
   <div class="num">Phase 8</div>
   <div>
-    <h2>A second model, and a result before it generates</h2>
-    <p>Every finding above is confounded with Evo2-1B. GenomeOcean-4B is the control that separates
-      "the method" from "this model" — re-running <em>Phase 7's exact endpoint</em> on a different
-      architecture, tokenizer, context and pretraining corpus. It is now fine-tuned, and the training
-      curve alone answers something.</p>
-    <div class="metrics">
-      <div class="metric"><div class="v">1.2414</div><div class="k">GenomeOcean bits/nt · Evo2 <b class="m">1.2143</b> — parity</div></div>
-      <div class="metric"><div class="v">6.4×</div><div class="k">context — 50,934 nt vs Evo2's 7,992</div></div>
-      <div class="metric"><div class="v">+5.3%</div><div class="k">training records recovered by that context</div></div>
-      <div class="metric"><div class="v">0.878</div><div class="k">class probe, base GenomeOcean · chance 0.091</div></div>
-    </div>
-    <p><strong>The 6.4× context buys +5.3% — which is the design working, not a letdown.</strong>
-      TERPENE was chosen precisely <em>because</em> Evo2 was not context-limited on it, so a
-      GenomeOcean win there cannot be attributed to context. Had we picked PKS, a win would have been
-      uninterpretable between "better model" and "longer context".</p>
-    <div class="note"><strong>Recorded before generation, not after.</strong> All three models encode
-      compound class at <span class="m">0.878–0.91</span> against <span class="m">0.09</span> chance —
-      GenomeOcean base 0.878, its BGC-specialised <code>bgcFM</code> variant 0.894, Evo2 ~0.91. The
-      extra BGC pretraining buys <strong>+0.016</strong>, essentially nothing. Together with loss
-      parity after fine-tuning, that says <strong>the bottleneck has never been representation — it
-      is generation</strong>, and predicts a model swap alone may not move the endpoint.</div>
-    <p><code>bgcFM</code> is therefore the reference ceiling, not the arm: the comparison stays
-      fine-tune vs fine-tune on plain <code>GenomeOcean-4B</code>. ⚠️ At 4.25 B against 1.1 B this arm
-      is <strong>not parameter-matched</strong> and must never be reported as if it were.</p>
+    <h2>Seeding erases the model gap — and reverses it</h2>
+    <p>Every finding above was confounded with Evo2-1B. GenomeOcean-4B is the control that separates
+      "the method" from "this model", re-running <em>Phase 7's exact endpoint</em> on a different
+      architecture, tokenizer, context and pretraining corpus. Running the <strong>full 2×2</strong>
+      — both models × seeded and <em>de novo</em> — is what kept the answer from inverting.</p>
   </div>
  </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>All arms n = 200 generated, window 2,000 nt, <code>OBLIGATE_DOMAINS[TERPENE]</code>,
+      identical battery. Gate metrics marked <code>*</code>. Rates are over all 200 generated —
+      an empty generation is a miss, not an exclusion.</caption>
+    <thead><tr><th>Metric</th><th>Evo2 de novo</th><th>Evo2 seeded</th>
+      <th>GenomeOcean de novo</th><th>GenomeOcean seeded</th><th>real cores</th></tr></thead>
+    <tbody>
+      <tr><td>best_bio_bits &gt; 0</td><td>0.070</td><td class="hi">0.615</td>
+        <td class="hi">0.685</td><td>0.400</td><td>0.980</td></tr>
+      <tr><td>JOINT_PASS *</td><td>14/200</td><td>123/200</td><td>137/200</td>
+        <td class="void">80/139 ⚠️</td><td>49/50</td></tr>
+      <tr><td>containment * max</td><td>0.014</td><td>0.018</td><td>0.212</td>
+        <td>0.033</td><td>0.140</td></tr>
+      <tr><td>protein_aai * max</td><td>0.583</td><td>0.666</td><td>0.692</td>
+        <td>0.575</td><td>0.867</td></tr>
+      <tr><td>scored n</td><td>200</td><td>200</td><td>200</td>
+        <td class="void">139 of 200</td><td>50</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="metrics">
+    <div class="metric"><div class="v">3.4e-40</div><div class="k"><em>de novo</em> — GenomeOcean beats Evo2 <b>9.8×</b></div></div>
+    <div class="metric"><div class="v">2.5e-05</div><div class="k">seeded — <b>Evo2 beats GenomeOcean</b></div></div>
+    <div class="metric"><div class="v">6.0e-33</div><div class="k">seeding lifts Evo2 <b>8.8×</b></div></div>
+    <div class="metric"><div class="v">1.5e-08</div><div class="k">seeding <b>hurts</b> GenomeOcean</div></div>
+  </div>
+  <p><strong>"GenomeOcean is 9.8× better" is really "GenomeOcean <em>de novo</em> ≈ Evo2
+    <em>seeded</em>."</strong> The model gap is <strong>conditioning-dependent, not absolute</strong>.
+    GenomeOcean's real advantage is that it reaches seeded-level performance <em>without needing a
+    seed</em> — not that it is a better generator in general. Comparing seeded GenomeOcean against
+    <em>de novo</em> Evo2 would have inverted the conclusion, which is exactly what building the two
+    missing cells was for.</p>
+  <div class="note"><strong>Two denominator traps, both declared.</strong> <span class="m">61/200</span>
+    GenomeOcean seeded generations are <strong>empty</strong> — its EOS fires immediately after the
+    8-nt seed. The battery scored the 139 non-empty and reported 0.576; an empty generation is a
+    <em>miss</em>, so the arm rate is <span class="m">80/200 = 0.400</span>. And the seeded row is
+    <strong>not length-matched</strong>: Evo2 writes ~2,500 nt and fills the window, GenomeOcean's
+    seeded continuation has a median of 893 nt. That disadvantages GenomeOcean — the mirror of the
+    <em>de novo</em> row, where its working EOS stops it at 1,009 nt and only 43/200 filled the
+    window.</div>
+  <div class="corr">
+    <span class="tag">Corrected — what loss parity predicted</span>
+    <span class="was">All three models encode class equally, so a model swap alone may not move the endpoint</span>
+    <span class="now">It moved it <strong>9.8×</strong> <em>de novo</em>. Equal class probes
+      (0.878–0.91) and equal fine-tuned loss (1.2414 vs 1.2143 bits/nt) did <em>not</em> predict
+      equal generation. Representation parity says nothing about how well a model can be made to
+      <em>write</em> from that representation — which is the real content of "the bottleneck is
+      generation, not representation".</span>
+  </div>
+  <p>⚠️ At 4.25 B against 1.1 B this arm is <strong>not parameter-matched</strong>, and context,
+    tokenizer and pretraining corpus all differ at once. A win says "this model does better"; it does
+    not isolate which axis did it. TERPENE was chosen so that <em>context</em> at least is excluded —
+    94% of it already fits Evo2, and the 6.4× context bought only <span class="m">+5.3%</span> more
+    training records.</p>
+ </div>
 </section>
 
 <section>
@@ -364,12 +418,14 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
  </div></div>
  <div class="wrap">
   <div class="next">
-    <span class="id">X3 · running</span>
-    <h3>GenomeOcean on TERPENE</h3>
-    <p>Pre-registered before anything generated. The kill criterion is two-way: an indistinguishable
-      rate with still-zero cyclase detections makes the "easiest member" limit
-      <strong>method-attributable</strong> and releases the held X2 work; cyclase detections where
-      Evo2 had none make it <strong>model-attributable</strong> and aims X2 at the wrong cause.</p>
+    <span class="id">X3 · complete</span>
+    <h3>GenomeOcean on TERPENE — T1 to T9 done</h3>
+    <p>⚠️ <strong>The pre-registered kill criterion cannot be applied as written.</strong> It read
+      "cyclase detections where Evo2 had <em>none</em> ⇒ model-attributable". Evo2 has three. The
+      premise was false, and the honest reading is the one the criterion was not designed for:
+      <strong>the "easiest member" limitation survived the model swap</strong> — GenomeOcean is
+      higher (0.159 vs 0.062) but not significantly (<span class="m">p = 0.132</span>), and both sit
+      far under real cores. That releases the held X2 work.</p>
     <ul class="tasks">
       <li><span class="tid done">done</span><span><b>Leakage gate</b><span class="d">Containment
         <span class="m">0.0000</span> across 48 true + 48 mismatched. The gate that would have
@@ -392,14 +448,20 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
         epochs, 2 h 19 m, 55.4 M trainable (1.287%). Best eval <span class="m">4.2798</span> =
         <strong>1.2414 bits/nt</strong> against Evo2's 1.2143 — the first like-for-like loss
         comparison, and it is parity.</span></span></li>
-      <li><span class="tid warn">T5</span><span><b>Generate three arms, n=200</b><span class="d">Next.
-        The <b>same 200 prompts</b> as the Evo2 run, so the comparison is prompt-paired.</span></span></li>
-      <li><span class="tid">T6</span><span><b>Score through the identical pipeline</b><span class="d">Same
-        window, same ceiling, same gates, same antiSMASH config. Any pipeline change invalidates the
-        comparison.</span></span></li>
-      <li><span class="tid">T7</span><span><b>Report as a two-model table</b><span class="d">The
-        question is not only "higher rate" but <b>does it make the harder member</b> — where Evo2
-        read 0/13.</span></span></li>
+      <li><span class="tid done">T5</span><span><b>Generated, n=200 per arm</b><span class="d">GenomeOcean
+        <em>de novo</em> <b>137/200 = 0.685</b> against Evo2's 0.070. Novelty clean — 0/200 gate
+        failures.</span></span></li>
+      <li><span class="tid done">T6</span><span><b>Scored through the identical pipeline</b><span class="d">Same
+        window, ceiling, gates and antiSMASH config. antiSMASH-corrected <b>0.635</b>.</span></span></li>
+      <li><span class="tid done">T7</span><span><b>Two-model table reported</b><span class="d">And it
+        needed a second axis: the seeded cells. Without them "GenomeOcean wins 9.8×" would have gone
+        out unqualified.</span></span></li>
+      <li><span class="tid done">T9</span><span><b>The missing 2×2 cells</b><span class="d">Evo2
+        seeded (5 shards × 40, 200/200 unique) and GenomeOcean seeded. This is the step that changed
+        the conclusion.</span></span></li>
+      <li><span class="tid done">P9</span><span><b>Powered cyclase test</b><span class="d">Evo2
+        <em>de novo</em> pooled to <b>n=800</b>, 600/600 new records unique. Detections 13 → 48;
+        cyclase 0 → 3. The "never" claim retracted.</span></span></li>
       <li><span class="tid done">T8</span><span><b>Pre-registration filed</b><span class="d">Endpoints,
         arms, n, five declared confounds and the two-way kill criterion, all frozen before
         generation.</span></span></li>
@@ -441,16 +503,17 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
     </ul>
   </div>
 
-  <div class="next held">
-    <span class="id">X2 · held</span>
+  <div class="next">
+    <span class="id">X2 · released</span>
     <h3>Subclass interventions</h3>
-    <p>All held until GenomeOcean reports — it may reattribute the finding from the method to the
-      context limit, which would aim every one of these at the wrong cause.</p>
+    <p>These were held pending GenomeOcean, in case it reattributed the finding from the method to
+      the context limit. <strong>It did not</strong> — the harder-member ceiling holds in both models
+      — so the hold is lifted and X2b is the next real experiment.</p>
     <ul class="tasks">
       <li><span class="tid hold">X2a</span><span><b>Bigger denominators</b><span class="d">Not a
         blocker — all three contrasts are already significant. Turns a direction into a
         rate.</span></span></li>
-      <li><span class="tid hold">X2b</span><span><b>Seeded hard-subclass control</b><span class="d">Seed
+      <li><span class="tid warn">X2b</span><span><b>Seeded hard-subclass control</b><span class="d">Seed
         from a real T1PKS or cyclase exemplar. If seeded generation still yields zero, the limitation
         is real. The most informative cheap experiment on the board.</span></span></li>
       <li><span class="tid hold">X2c</span><span><b>Inverse-frequency weighting</b><span class="d">Do
@@ -474,7 +537,8 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
 <footer>
   <div class="wrap">
     <p>Provenance: <code>phase6_PKS</code>, <code>phase7_TERPENE</code>,
-      <code>phase5_classprobe</code>, <code>phase8_TERPENE_GO</code> · generations
+      <code>phase5_classprobe</code>, <code>phase8_TERPENE_GO</code> (<code>P8-A0s.jsonl</code>),
+      <code>phase7_TERPENE</code> (<code>A0s.jsonl</code>, <code>A0_extra.jsonl</code>) · generations
       <code>--junk-policy mask</code>, <code>--base-model evo2_1b_base</code> · antiSMASH 8.0.4 full
       mode, output dirs retained · every scored file carries <code>class_policy</code> and
       <code>integrity</code> blocks. Gate metrics marked <code>*</code>. Rates over all 200 records,

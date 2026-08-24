@@ -2467,4 +2467,43 @@ the identical battery at window 2,000 · antiSMASH full mode `--minlength 200`.
 
 ---
 
+## 2026-08-24 — [P8-AUDIT-2] The audit's own artifact went stale within the hour
+
+**Immediately after publishing the corrected PI artifact, a concurrent session committed `f386df0`
+and invalidated part of it.** Logged because it is the same failure the audit was about, caught in
+real time rather than weeks later.
+
+**What went stale, and how it was noticed.** The run sentinels — `logs/p8t5.status 0`,
+`p8t6.status 0` — showed Phase-8 T5/T6 had *already succeeded* while the artifact I had just pushed
+still read "T5 next". Reading `git log` then surfaced the cyclase retraction. ⇒ **Check the sentinels
+and `git log` before publishing anything that states current state**, not only before reporting a run.
+
+**Propagated (the concurrent session updated `memory.md` + `plan.md`; these were still stale):**
+- `plan.md` Current State — the **2026-08-20** block still asserted "only the simplest member and
+  **never** the harder one · cyclase **0/13**", sitting directly *below* the 08-24 block that
+  retracts it. Marked in place, and both remaining zeros relabelled **untested at power**.
+- `terms.md` `subclass_specificity` — its power note said "if a contrast is n.s., generate more"
+  but had **no worked example**. Added the cyclase case, which is the strongest one available: at
+  n=13 the answer was "never", at **n=800** it was **3/48 = 0.062**.
+- PI artifact — retitled *"Rarely the harder member"*, TERPENE row replaced with the powered
+  numbers, a retraction card added, and the whole Phase-8 section rebuilt around the 2x2.
+
+⚠️ **AND I HAD TO RETRACT ONE OF MY OWN ARTIFACT CLAIMS.** The version published an hour earlier read
+*"all three models encode class equally ⇒ a model swap alone may not move the endpoint"*, drawn from
+the probe parity (0.878–0.91) and the loss parity (1.2414 vs 1.2143 bits/nt). **It moved it 9.8x de
+novo.** ⇒ **Representation parity does not predict generation parity** — that is the actual content
+of "the bottleneck is generation, not representation", and I had used the phrase while drawing the
+opposite inference from it.
+
+**`t9.status 143` (SIGTERM) is BENIGN — verified, not assumed.** `t9.log` is 0 bytes (killed before
+output) but `t9fan.log` shows the fan-out that replaced it completed: `[shard 11..15] rc=0 40` each
+⇒ `[t9] evo2 seeded pooled 200 records`, matching the 200/200-unique provenance in `f386df0`. **A
+non-zero sentinel whose work was redone elsewhere still needs the second file read to say so.**
+
+⇒ **Standing lesson: a published artifact is a claim surface with no verifier.** `plan.md` and
+`terms.md` are checked by `tests/test_docs_contract.py`; the artifact is checked by nobody. It should
+be republished as part of the Wrap-Up Protocol, not as a separate courtesy.
+
+---
+
 <!-- APPEND NEW ENTRIES BELOW THIS LINE -->

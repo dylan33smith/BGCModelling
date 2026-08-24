@@ -398,6 +398,14 @@ Aliases:              names seen in old docs. Do not use them.
   against its own control at whatever n was generated**, with the exact test and denominator quoted.
   A significant 0/7-vs-30/33 (p≈1e-5) is a result; an underpowered null is not. **If a contrast is
   n.s., generate more rather than arguing from a threshold.**
+- ⛔ **AND A ZERO AT A SMALL DENOMINATOR IS NOT AN ABSENCE — worked example, 2026-08-24.** The
+  analogous TERPENE claim ("the model produces the precursor and **never** the cyclase", **0/13**,
+  p=0.0024) was **RETRACTED** when Evo2 de novo was pooled to **n=800**: detections rose 13 → 48 and
+  **3 cyclase calls appeared = 0.062**. The limitation is real — 0.062 against a real-core **0.440**,
+  p=1.65e-05 — but it is **"rarely", not "never"**. ⇒ **Never write "never" off a single-digit
+  detection count.** The RIPP **0/7** and PKS **0/8** zeros are **untested at power** and must be
+  described as such until they are pooled the same way. See `memory.md` 2026-08-24 and
+  `feedback-sample-size-reliability` — this is the same small-n trap that has now fired twice.
 - ⚠️ **A significant DIRECTION is not an estimated RATE.** At these denominators "the model never
   makes the harder subclass" is established; "it makes it x% of the time" is not.
 
