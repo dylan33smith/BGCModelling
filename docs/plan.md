@@ -10,6 +10,15 @@ one-row summary in the Phase Ledger for the rest of the phase; their full write-
 
 ## Current State
 
+**★★★ 2026-08-24 — SEEDING ERASES AND REVERSES THE MODEL GAP.** The 2x2 is complete. De novo,
+GenomeOcean beats Evo2 9.8x (0.685 vs 0.070, p=3e-40). **Seeded, Evo2 beats GenomeOcean** (0.615 vs
+0.400, p=2.5e-05) — seeding lifts Evo2 **8.8x** and *hurts* GenomeOcean (61/200 of its seeded
+generations are empty). ⇒ **GenomeOcean's real advantage is reaching seeded-level performance without
+a seed**, not being better in general. ⚠️ **And the cyclase claim is RETRACTED**: pooled to n=800,
+Evo2 makes the harder member 3/48 = 0.062 — rare, not never — and GenomeOcean's 0.159 is **not
+significantly higher (p=0.132)**. Both remain far below real cores (0.440). **The "easiest member"
+limitation survived the model swap.**
+
 **★★ 2026-08-20 — THE LIMITATION IS THE SAME IN ALL THREE CLASSES, AND IT IS THE DATA.** antiSMASH
 confirms both new classes de novo (**PKS 0.040**, **TERPENE 0.065**, controls **0.000**, ceilings
 0.980 / 1.000). And in every class the model produces **only the simplest member and never the
@@ -34,7 +43,7 @@ not dropped** (user, 2026-08-19) — see *Parked: RIPP* below for exactly what i
 |---|---|---|
 | **6** | **PKS** | ✅ **[P6-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.920). `max_orf_aa` 633 vs real 673. ⚠️ T3PKS-dominated substrate; ⚠️ 27.5% degenerate records. |
 | **7** | **TERPENE** | ✅ **[P7-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.980). ⚠️ `n_class_domains`>=2 is 0/200 — RIPP's single-marker limit reproduces. |
-| **8** | **TERPENE on GenomeOcean** | 🔄 **ACTIVE — the model-vs-method test.** T1–T3 ✅. **T4 ✅ TRAINED** (2,112 steps = 3 epochs, 2h19m, best eval 4.2798; **1.2414 bits/nt vs Evo2's 1.2143 — parity**). **T5 generation is next.** Pre-reg `docs/phase8_GENOMEOCEAN_preregistration.md`. |
+| **8** | **TERPENE on GenomeOcean** | ✅ **COMPLETE T1–T9.** ★ **The model gap is CONDITIONING-DEPENDENT**: de novo GO 0.685 vs Evo2 0.070 (p=3e-40), but **seeded Evo2 0.615 vs GO 0.400 — Evo2 wins** (p=2.5e-05). GO's advantage is reaching seeded-level performance **without a seed**. ⚠️ Cyclase claim **retracted**: Evo2 makes it 3/48 = 0.062, GO 20/126, **p=0.132 n.s.** |
 | 5 | RIPP | ⏸️ **PARKED** — Level 2 achieved and defensible; open items listed below. |
 
 ⚠️ **[P6-A0] IS T3PKS-DOMINATED AND MUST BE DESCRIBED AS SUCH.** Of the 3,906 training records the
@@ -226,6 +235,9 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P7-AS** | **antiSMASH on TERPENE A0** | ″ | 14 pos + 100 neg | **0.065** vs 0.000, ceiling 1.000; **precursor 13/13, cyclase 0/13** | ✅ confirmed; ★ only the easy type | 2026-08-20 |
 | **P8-T2** | **GenomeOcean TERPENE substrate** | records kept vs Evo2 | 11,297 | **11,260 = 0.997 vs Evo2 0.943 → +602 (+5.3%)**; 4.974 nt/token, context 50,934 nt = 6.4x | ✅ **confound measured out: context cannot explain a P8 win** | 2026-08-22 |
 | **P8-T4** | **GenomeOcean TERPENE adapter** | training convergence | 11,260 rec | 2,112 steps = 3 ep, eval 4.5192→**4.2798**; **1.2414 bits/nt vs Evo2 1.2143** | ✅ trained; ★ **loss parity — representation was never the bottleneck** | 2026-08-22 |
+| **P8-T5/T7** | **GenomeOcean TERPENE de novo** | `best_bio_bits`>0 @ w2000 | 200 | **137/200 = 0.685** vs Evo2 0.070, ceiling 0.980; antiSMASH-corrected **0.635** | ✅ 9.8x de novo, novelty clean (0/200 gate fails) | 2026-08-24 |
+| **P9-SEED** | **the 2x2: seeded arms both models** | ″ | 200/arm | **Evo2 seeded 0.615** (8.8x lift, p=6e-33) · **GO seeded 0.400** (seeding HURTS, p=1.5e-08) | ★ **seeded: Evo2 BEATS GO, p=2.5e-05** | 2026-08-24 |
+| **P9-CYC** | **powered cyclase test** | harder-member rate | Evo2 n=800 | Evo2 **3/48 = 0.062** · GO 20/126 = 0.159 · real 0.440 | ⚠️ **p=0.132 n.s.; 'never' RETRACTED** | 2026-08-24 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 | **P8-AUDIT** | **refuted-claim audit across docs, code and cross-session auto-memory** | stale claims still asserted as fact outside `memory.md` | 16 sites | **16 corrected**; `memory.md` itself CLEAN. `hit_eos` had no `terms.md` entry — written. Auto-memory was the EOS leak (loads every session) | ⚠️ **corrections were reaching the ledger and not the docs people read** | 2026-08-24 |
 

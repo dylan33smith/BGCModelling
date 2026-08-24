@@ -1918,7 +1918,11 @@ better predictor for TERPENE than for RIPP.
 | **TERPENE** | **terpene-precursor 13 — nothing else** | terpene-precursor 28 · **terpene 22** | **0/13 cyclase** vs 22/50 | **0.0024** |
 | RIPP (2026-08-19) | `RiPP-like` 7 — nothing else | lassopeptide, lanthipeptide i/iii/iv/v, thioamitides… | 0/7 specific vs 30/33 | 6.4e-06 |
 
-⇒ **In every class the model produces ONLY the simplest member and never the harder one.** T3PKS is
+[INCORRECT] - ⇒ **In every class the model produces ONLY the simplest member and never the harder one.**
+[CORRECTION - 2026-08-24]: **"never" was a small-sample artifact.** Pooling Evo2 TERPENE de novo to
+n=800 (48 detections instead of 13) yields **3 cyclase detections = 0.062** — rare, not absent. The
+limitation is real and both models are far below the real-core rate (0.440), but it is **"rarely",
+not "never"**, and GenomeOcean's higher rate (0.159) is **not significantly different (p=0.132)**. T3PKS is
 a single ~350-aa chalcone synthase; T1PKS is a modular megasynthase. `terpene-precursor` fires on
 precursor-synthesis genes; `terpene` requires a cyclase. `RiPP-like` is the generic catch-all.
 **Three independent classes, three different rule systems, the same ceiling on complexity.**
@@ -2399,6 +2403,67 @@ grading it — `Artifact action:"list"` shows the real update dates.**
 **Verifier:** `tests/test_docs_contract.py` **29 passed, 0 failed** after every edit. It also caught
 one of my own: result figures placed in `CLAUDE.md` Constraint 8, which the "zero findings" rule
 forbids — rewritten to point at `memory.md` instead.
+
+---
+
+## 2026-08-24 — ★★★ [P8-T5/T7 + T9] THE 2x2. Seeding erases the model gap, and reverses it.
+
+**The finding that matters: what looked like "GenomeOcean is 9.8x better" is really "GenomeOcean de
+novo ~ Evo2 SEEDED".** Building the two missing cells of the 2x2 is what exposed it.
+
+### The 2x2 — window 2,000 nt, `OBLIGATE_DOMAINS[TERPENE]`, all arms n=200 generated
+
+| arm | scored n | `best_bio_bits`>0 | `JOINT_PASS`* | `containment`* max | `protein_aai`* max |
+|---|---|---|---|---|---|
+| Evo2 de novo | 200 | 14/200 = **0.070** | 14/200 | 0.014 | 0.583 |
+| **Evo2 SEEDED** | 200 | 123/200 = **0.615** | 123/200 | 0.018 | 0.666 |
+| GenomeOcean de novo | 200 | 137/200 = **0.685** | 137/200 | 0.212 | 0.692 |
+| **GenomeOcean SEEDED** | 139 of 200 | 80/200 = **0.400** ⚠️ | 80/139 | 0.033 | 0.575 |
+| real cores (ceiling) | 50 | 49/50 = 0.980 | 49/50 | 0.140 | 0.867 |
+
+| contrast (Fisher, unpaired, /200) | p |
+|---|---|
+| Evo2 seeded vs Evo2 de novo | **5.97e-33** |
+| GenomeOcean seeded vs de novo | **1.53e-08** (seeding HURTS it) |
+| **de novo: GenomeOcean vs Evo2** | **3.38e-40** (GO wins) |
+| **seeded: Evo2 vs GenomeOcean** | **2.50e-05** (EVO2 wins) |
+
+⇒ ★ **Seeding lifts Evo2 8.8x, 0.070 -> 0.615** — Phase 3's RIPP seeding result reproduces on a new
+class and a new adapter.
+⇒ ★ **The model gap is CONDITIONING-DEPENDENT, not absolute.** De novo GenomeOcean wins 9.8x; seeded,
+**Evo2 wins**. GenomeOcean's real advantage is that it reaches seeded-level performance **without a
+seed** — not that it is better in general.
+⇒ **Seeding makes GenomeOcean WORSE** (0.685 -> 0.400). See the empty-generation failure below.
+
+⚠️ **DENOMINATOR CORRECTION, applied above:** **61/200 GenomeOcean seeded generations are EMPTY** —
+EOS fires immediately after the 8-nt seed. The battery scored the 139 non-empty and reported 0.576;
+**an empty generation is a MISS, not an exclusion**, so the arm rate is **80/200 = 0.400**. Seed pool
+diversity was also limited: **187 distinct 8-nt prefixes of 200**, because TERPENE cores are short
+and conserved.
+⚠️ The seeded row is **not length-matched**: Evo2 writes 2,500 nt of continuation and fills the
+window; GenomeOcean's seeded continuation has median 893 nt with 30.5% empty. That disadvantages
+GenomeOcean — the mirror of the de novo row, where the 2,000 nt window disadvantaged it for the
+opposite reason (its EOS works, so it stops at 1,009 nt and only 43/200 filled the window).
+
+### ★ AND THE CYCLASE CLAIM IS RETRACTED — Evo2 DOES make the harder member
+
+Evo2 de novo pooled to **n=800** (+600 new records, 600/600 unique, 0 overlap with the original arm):
+
+| arm | cyclase | detected | rate |
+|---|---|---|---|
+| Evo2 de novo (n=800) | **3** | 48 | **0.062** |
+| GenomeOcean de novo | 20 | 126 | 0.159 |
+| real cores | 22 | 50 | 0.440 |
+
+⇒ **GenomeOcean vs Evo2 cyclase: p = 0.132 — STILL not significant** (was 0.214 at Evo2 n=13).
+⇒ **Both are far below real cores**: Evo2 p=1.65e-05, GenomeOcean p=1.60e-04.
+⇒ **The pre-registered kill criterion's premise is FALSE.** It read "cyclase detections where Evo2
+had none ⇒ model-attributable". Evo2 has 3. **The "only the easiest member" limitation persists in
+BOTH models** — the model swap did not break it.
+
+**Provenance:** `phase7_TERPENE/A0s.jsonl` (5 shards x 40, distinct `--seed`, 200/200 unique),
+`A0_extra.jsonl` (3 x 200, 600/600 unique), `phase8_TERPENE_GO/P8-A0s.jsonl` · all scored through
+the identical battery at window 2,000 · antiSMASH full mode `--minlength 200`.
 
 ---
 

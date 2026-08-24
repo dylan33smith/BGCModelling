@@ -121,6 +121,69 @@ re-deriving is correct, because the model is the variable.
 **n = 200 per arm, on the SAME 200 prompts** from `splits_class/TERPENE/eval_prompts.jsonl` used by
 `[P7-A0]`, so the cross-model comparison is **prompt-paired** and a McNemar test is available.
 
+## 5.1 AMENDMENT 2026-08-22 — ⛔ §5's "prompt-paired / McNemar" CLAIM IS WITHDRAWN
+
+§5 above stands unedited and stated that n=200 on **the same 200 prompts** as `[P7-A0]` makes the
+cross-model comparison **prompt-paired**, with a McNemar test available. **That is impossible under
+this design and was wrong when written.**
+
+Evo2's 200 prompts are 200 distinct `(class, taxonomy)` pairs. **GenomeOcean cannot represent that
+prefix at all** — 122 UNK of 132 ids (§3.1, [X4]) — so its only conditioning is the atomic
+`[CLS_TERPENE]` token. **All 200 GenomeOcean generations therefore share ONE prompt** and differ
+only by sampling. There is nothing to pair *on*.
+
+⇒ **The comparison is UNPAIRED. McNemar is unavailable. Fisher's exact is the correct test**, on
+`[P8-A0]` vs `[P7-A0]` counts out of 200 each.
+⇒ **The within-Phase-8 comparisons are unaffected** — `[P8-A0]` vs `[P8-C1]` were always unpaired,
+both being unconditional-or-single-token draws.
+⇒ This costs statistical power, not validity. n=200 vs 200 with Evo2 at 14/200 remains adequately
+powered for a difference of the size Phase 7 measured.
+
+**A sixth unmatched axis, declared here:** **decoding parameters.** Evo2 used `temperature 1.0,
+top_k 4` — sensible over a 4-letter byte alphabet, meaningless over a 4,096-token BPE vocabulary.
+Phase 8 uses GenomeOcean's own upstream preset (`temperature 0.9, repetition_penalty 1.2,
+top_k off, top_p 1.0`), which is also what the existing zero-shot runs used. ⚠️ **`repetition_penalty
+1.2` is an intervention Evo2 never had** and it plausibly suppresses exactly the degenerate repeats
+that plagued Evo2. Report it as part of the config; do not read a degeneracy difference as a model
+difference.
+
+**Generation length:** `min_new_tokens = 0` — EOS is allowed to fire on its own, because a working
+stop signal is one of the things this model gets for free and forcing a minimum would suppress it.
+`max_new_tokens = 900` ≈ 4,500 nt, matching Phase 7's 4,000 nt generation. **Report the length
+distribution as its own row**, exactly as Phase 6/7 do, and state how many records fall below the
+2,000 nt scoring window.
+
+## 5.2 AMENDMENT 2026-08-24 — T9 ADDED: seeded arms, and a 2x2 that did not previously exist
+
+**Registered BEFORE the seeded arms generate.** The de novo comparison (T5–T7) stands as the primary
+and is unchanged.
+
+⚠️ **CORRECTING A MISREADING WORTH RECORDING: `[P7-A0]` IS DE NOVO, NOT SEEDED.** Its records carry
+no `seed_nt` / `seed_source` / `seed_accession` fields, and **no seeded TERPENE arm exists anywhere** —
+seeding was Phase-3 RIPP only (`S2-*`, `SF_seeded*`). Any table pairing "GenomeOcean + seed" against
+"Evo2" would therefore be comparing a seeded arm to a de novo one. **The honest design is a 2x2, and
+two of its four cells did not exist:**
+
+| | Evo2-1B | GenomeOcean-4B |
+|---|---|---|
+| **de novo** | `[P7-A0]` ✅ | `[P8-A0]` ✅ |
+| **seeded (L\*=8)** | **`[P7-A0s]` — NEW** | **`[P8-A0s]` — NEW** |
+
+**L\* = 8 nt, and it transfers with justification rather than by assumption.** L\*=8 was derived on
+RIPP start-codon entropy. Measured on 300 TERPENE held-out cores the profile matches: positional
+entropy **1.74 bits at position 0 rising to ~1.94–1.97 by positions 7–11** (RIPP: 1.53 → 1.98–1.99),
+and ATG-start rates 0.35 vs 0.41. **The seed stops carrying information at the same place in both
+classes**, so 8 nt is as defensible here as there.
+
+⚠️ **Seeded rates are scored on the CONTINUATION ONLY** and are not comparable to de novo rates —
+they are a different regime (Standing Constraint 9). The 2x2 is read **down columns** (does seeding
+lift this model) and **across rows** (does the model matter at this seeding level), never diagonally.
+
+⚠️ **GenomeOcean seeding is not mechanically identical to Evo2's.** An 8-nt seed is ~1.6 BPE tokens,
+so it does not land on a clean token boundary the way it does for a byte-level tokenizer. Seeded rows
+also have prompts of differing length and are left-padded with the pad token rather than truncated.
+Both are recorded per record (`seed_nt`, `seed_prefix`, `scored_span`).
+
 ## 6. ⚠️ CONFOUNDS DECLARED BEFORE THE RESULT
 
 1. **NOT parameter-matched — 4.25 B vs 1.1 B.** Never report this arm as if it were.
