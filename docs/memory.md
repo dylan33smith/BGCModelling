@@ -2430,9 +2430,11 @@ novo ~ Evo2 SEEDED".** Building the two missing cells of the 2x2 is what exposed
 
 ⇒ ★ **Seeding lifts Evo2 8.8x, 0.070 -> 0.615** — Phase 3's RIPP seeding result reproduces on a new
 class and a new adapter.
-⇒ ★ **The model gap is CONDITIONING-DEPENDENT, not absolute.** De novo GenomeOcean wins 9.8x; seeded,
-**Evo2 wins**. GenomeOcean's real advantage is that it reaches seeded-level performance **without a
-seed** — not that it is better in general.
+[INCORRECT] - ⇒ ★ **The model gap is CONDITIONING-DEPENDENT, not absolute.** De novo GenomeOcean wins 9.8x; seeded, **Evo2 wins**. GenomeOcean's real advantage is that it reaches seeded-level performance **without a seed** — not that it is better in general.
+[CORRECTION - 2026-08-24]: **"not better in general" is WRONG on the metric that matters.** Evo2
+seeded wins the *primary endpoint* (0.615 vs 0.400) but produces almost no hard subclass — cyclase
+**0.018 vs GenomeOcean's 0.159, p=1.79e-04**. And against their own training data (0.331) Evo2 seeded
+under-produces ~18x while GenomeOcean under-produces ~2x. **GenomeOcean is the better substrate.**
 ⇒ **Seeding makes GenomeOcean WORSE** (0.685 -> 0.400). See the empty-generation failure below.
 
 ⚠️ **DENOMINATOR CORRECTION, applied above:** **61/200 GenomeOcean seeded generations are EMPTY** —
@@ -2503,6 +2505,80 @@ non-zero sentinel whose work was redone elsewhere still needs the second file re
 ⇒ **Standing lesson: a published artifact is a claim surface with no verifier.** `plan.md` and
 `terms.md` are checked by `tests/test_docs_contract.py`; the artifact is checked by nobody. It should
 be republished as part of the Wrap-Up Protocol, not as a separate courtesy.
+
+---
+
+## 2026-08-24 — ★★★ [P8 COMPLETE] GenomeOcean IS the better substrate — but only against the RIGHT comparator
+
+**Two of my own claims are retracted here. Both were wrong for the same reason: I compared against
+the wrong Evo2 arm, and I never measured the reference distribution.**
+
+### ★ RETRACTION 1 — "GenomeOcean's advantage is narrower than it first looked"
+
+GenomeOcean de novo matches **Evo2 SEEDED** on the primary endpoint (0.685 vs 0.615), so **that** is
+the comparator, not Evo2 de novo. antiSMASH on the seeded arms (never run until now):
+
+| arm | cyclase (harder) | detected | rate |
+|---|---|---|---|
+| Evo2 de novo (n=800) | 3 | 48 | 0.062 |
+| **Evo2 SEEDED** | **2** | 109 | **0.018** |
+| **GenomeOcean de novo** | **20** | 126 | **0.159** |
+| **TRAINING DATA** | 49 | 148 | **0.331** |
+| real held-out cores | 22 | 50 | 0.440 |
+
+⇒ **GenomeOcean vs Evo2 SEEDED: p = 1.79e-04 — SIGNIFICANT, 8.8x.** The advantage is **not** narrow;
+it is large and it is on the metric that matters most.
+⇒ ★ **SEEDING MAKES EVO2'S SUBCLASS PROBLEM WORSE**: cyclase 0.062 -> **0.018** while the primary
+endpoint rises 0.070 -> 0.615. **Seeding buys quantity of detectable clusters, almost all easy-type.**
+
+### ★ RETRACTION 2 — the "is it the training data?" question (user) settles it: IT IS THE MODEL
+
+Measured the TERPENE **training** distribution directly (150 records, full antiSMASH): **49/148 =
+0.331 cyclase**, consistent with held-out cores at 0.440.
+
+| model | cyclase produced | vs its own training data (0.331) |
+|---|---|---|
+| GenomeOcean de novo | 0.159 | **p = 0.0012**, under-produces ~2x |
+| Evo2 seeded | 0.018 | **p = 1.97e-11**, under-produces ~18x |
+
+⇒ **NOT a data artifact.** The training set contains plenty of the hard type; **both models
+under-generate it**, and Evo2 by an order of magnitude more. That is a generation limitation, and it
+is the cleanest evidence that **GenomeOcean is the better substrate** — 2x off its data where Evo2 is
+18x off.
+
+### The seeded-arm failure: diagnosed, fixed, and the fix does NOT help the endpoint
+
+**61/200 GenomeOcean seeded generations were EMPTY** — EOS fired straight after the 8-nt seed. Two
+candidate causes tested separately rather than patched blind:
+
+| arm | empty | unique | PRIMARY /200 | corrected | cyclase |
+|---|---|---|---|---|---|
+| **GO de novo** | — | 200/200 | **0.685** | **0.635** | **20/126 = 0.159** |
+| GO seeded, original | **61/200** | 140 | 0.400 | — | — |
+| GO seeded, **min100** | **0/200** | **200/200** | 0.580 | 0.550 | 12/107 = 0.112 |
+| GO seeded, 50-nt seed | 47/200 | 154 | 0.420 | 0.434 | 17/75 = **0.227** |
+
+⇒ **It was NOT seed length** — a 6x longer seed moved 61 -> 47. **Nothing forbade an instant stop**;
+`min_new_tokens=100` gives 0 empty, 200/200 distinct.
+⇒ ⛔ **BUT THE FIX DOES NOT BEAT DE NOVO ON ANYTHING WE CARE ABOUT.** Primary **0.580 vs 0.685**
+(p=0.038), corrected 0.550 vs 0.635, cyclase **0.112 vs 0.159**, `n_class_domains>=2` 6/200 vs 10/200.
+On the *non-empty* denominator the fix is 0.580 vs the original's 0.576 — **almost all of its gain is
+recovering records that produced nothing, not producing better ones.**
+⇒ **For GenomeOcean, seeding is not worth it.** Opposite of Evo2, where seeding is an 8.8x lift on
+the primary — at the cost of its cyclase rate.
+⚠️ `min_new_tokens=100` produces longer records (`n_orfs` 1.26 -> 1.43) with **no more biosynthetic
+genes** (`n_bio_orfs` 1.04 -> 1.03) — the filler outcome predicted when forcing a minimum length.
+
+### Multi-gene structure: GenomeOcean does NOT deliver it (user challenge, answered on data)
+
+`n_class_domains>=2` is higher for GenomeOcean (10/200 vs Evo2 de novo 0/200), but **`n_bio_orfs` is
+1.04** — those domains are in ONE gene. Evo2 SEEDED is 1.11, real cores 1.12.
+⇒ **GenomeOcean's domain advantage is INTRA-GENIC.** Multi-gene structure is absent from every arm of
+every model, exactly as the strict-core analysis predicted. **`bio + transport` remains the only live
+route.**
+
+**Provenance:** `phase7_TERPENE/as_A0s_*.tsv`, `as_TRAINDIST.tsv`, `phase8_TERPENE_GO/as_P8-A0s_*.tsv`
+· all antiSMASH full mode `--minlength 200` · all rates over ALL 200 generated per arm.
 
 ---
 
