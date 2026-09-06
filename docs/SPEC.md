@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.2 — APPROVED. §4 (data) COMPLETE and verified 2026-09-06. §3, §5–§9 not built.
+**Status:** v2.3 — APPROVED. §4 (data) COMPLETE and verified 2026-09-06. §3, §5–§9 not built.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -391,27 +391,61 @@ runs early in Stage 1 rather than before the build; if the endpoint has not satu
 every class is data-starved **equally**, which is interpretable but bounds what the benchmark can
 claim, and is stated rather than discovered.
 
-### 4.5 The multi-gene axis — within-class, not across-class
+### 4.5 The multi-gene axis — measured INSIDE the benchmark dataset
 
-**Measured constraint [M]: multi-gene content and context fit are anti-correlated across classes.**
-ARYLPOLYENE (68% multi-gene, 88% ≤8kb) is the one candidate that breaks the pattern; every other
-high-multi-gene class is also long. Across-class comparison alone therefore risks confounding
-"multi-gene is harder" with "long is harder", and it additionally varies class identity, effective_n
-and hybrid rate simultaneously.
+**THE INVARIANT: every arm consumes `splits/<CLASS>/`, and nothing else.** There is one
+training dataset (§4.4.3) and one set of reference corpora. An arm that trained on a
+bespoke dataset would not be comparable to any other arm, which is the failure this whole
+design exists to prevent. Sub-experiments may *analyse* the benchmark's own output, but
+they may not substitute their own training data into the main grid.
 
-**Primary design: stratify WITHIN RIPP** on `core_gene_count`, the only class that is 54% multi-gene at
-89% context fit. Same class, same diversity structure, gene count varying.
+**The ladder is the primary multi-gene evidence.** The class set spans
+23.7 → 34.6 → 44.0 → 55.7 → 99.8% multi-gene [M], so degradation along it is the headline
+result and it costs nothing extra: it falls out of the K×K matrix the benchmark already
+produces.
+
+**Its weakness is attribution, not detection.** Across five classes, multi-gene rank and
+median-length rank correlate at ρ ≈ 0.70, and class identity, hybrid fraction and subclass
+structure vary alongside. With n = 5 classes, "multi-gene is harder" cannot be separated
+from "long is harder" at the class level.
+
+#### 4.5.1 The seeded regime resolves the confound WITHIN the benchmark dataset
+
+The `S1` arms seed each generation from a specific held-out record whose `core_gene_count`
+and `seq_len` are both known. So each generation carries **per-record covariates**, and the
+analysis is a per-generation model rather than a five-point class-level comparison:
 
 ```
-RIPP_single : core_gene_count == 1
-RIPP_multi  : core_gene_count >= 2
+on_target ~ seed_core_gene_count + seed_seq_len   (+ class as a factor)
 ```
 
-Both strata are split genome-disjoint and near-dup filtered independently, and **subsampled to
-equal record count and matched `seq_len` distribution** so gene count is the only varying factor.
-Across-class comparison — the §4.4.2 ladder at equal effective_n — is the **external-validity
-check**, never the primary contrast. Note the ladder percentages are *post-bound* values and differ
-substantially from unbounded ones (§4.4.1); only post-bound numbers may be quoted.
+n is the number of seeded generations, not 5. This is the **primary confound control**: it
+uses the benchmark's own dataset and its own output, adds no training run, and separates
+gene count from length at proper resolution. It is pre-specified here so that reporting it
+is planned rather than post-hoc.
+
+A second within-dataset analysis is free in every regime: among on-target generations,
+compare the **produced** `core_gene_count` distribution against the real-core distribution
+for that class. That asks "does it build multi-gene loci?" where the regression asks "is
+multi-gene harder to hit?"
+
+#### 4.5.2 The RIPP strata — a CONDITIONAL sub-experiment, off the critical path
+
+`strata/RIPP_single/` and `strata/RIPP_multi/` are built (§4.9) and matched on length, with
+`core_gene_count` 1 vs ≥2 as the only varying factor. They are **not part of the arm grid**
+and nothing in the main benchmark depends on them.
+
+**Gate:** run them only if the ladder (or §4.5.1) shows a multi-gene gradient that needs
+attributing in the **de novo** regime, where per-record seed covariates do not exist. If
+arms are flat across the ladder there is no effect to attribute and this is moot.
+
+**If it runs:** subsample both strata to the benchmark's per-class train size (979) so the
+result is directly comparable to every other number here. The full-size strata are retained
+as a better-powered secondary only.
+
+⚠ The strata overlap the main RIPP train set — same split side, drawn from the same pool —
+so strata results and main-benchmark RIPP results are **not independent samples** and must
+never be pooled or reported as replication.
 
 ### 4.6 Splitting
 
@@ -522,7 +556,7 @@ independently gave **93/3.5/3.5**; balancing on the union alone gave **~60/20/20
 components largest-first into the split whose per-class deficits they most reduce gives
 exactly 80/10/10, deterministically and with no RNG.
 
-**Within-RIPP strata (§4.5) [M]:** drawn from the FULL RIPP pool, not the equal-n
+**Within-RIPP strata (§4.5.2) [M] — built, but OFF the critical path:** drawn from the FULL RIPP pool, not the equal-n
 subsample, since length matching is already lossy. Matched single/multi = **14,793/14,793**
 train, 614/614 val, 801/801 test; median length 2,151 vs 2,101 nt; median `cds_count` 1 vs
 3; `core_gene_count` 1 vs ≥2. Split assignment is inherited from `record_split.json`, so a

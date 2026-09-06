@@ -67,8 +67,11 @@ Every class above ~65% multi-gene either fails the diversity gate or does not fi
 context. **Across-class comparison therefore cannot separate "multi-gene is harder" from
 "long is harder"**, and additionally varies class identity, effective_n, hybrid rate and
 subclass structure simultaneously.
-**Paper:** motivates within-class stratification as the primary structural design, with
-across-class as external validity only.
+**Paper:** the ladder detects a multi-gene effect but cannot attribute it. Attribution
+comes from the **seeded** regime, where each generation carries its seed's `core_gene_count`
+and `seq_len` as per-record covariates, so the confound is separated at generation
+resolution rather than across five class-level points (SPEC 4.5.1). Within-class
+stratification is a fallback for the de novo regime only.
 
 ### 2.3 Subclass frequency and gene count are the same variable in most classes `[design]`
 Spearman[log(product frequency), mean core-gene count], products with n≥20, 16 kb corpus:

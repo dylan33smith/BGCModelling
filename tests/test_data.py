@@ -212,3 +212,12 @@ def test_ripp_strata_are_length_matched_and_equal_sized():
         assert abs(s - m) / max(s, m) < 0.10, f"{part} median length {s} vs {m}"
         assert r["median_core_genes"]["single"] == 1
         assert r["median_core_genes"]["multi"] >= 2
+
+
+def test_one_dataset_invariant_is_documented():
+    """SPEC 4.5: every arm consumes splits/<CLASS>/ and nothing else. An arm with bespoke
+    training data is not comparable to any other arm."""
+    spec = Path(__file__).resolve().parents[1] / "docs" / "SPEC.md"
+    text = spec.read_text()
+    assert "THE INVARIANT" in text
+    assert "strata" in text and "not part of the arm grid" in text
