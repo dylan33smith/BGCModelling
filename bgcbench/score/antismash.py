@@ -75,10 +75,15 @@ def run(records: list[tuple[str, str]], workdir: Path | None = None,
     env["PATH"] = ENV_BIN + os.pathsep + env.get("PATH", "")
     with tempfile.TemporaryDirectory(dir=str(workdir) if workdir else None) as td:
         tmp = Path(td)
+        # OPAQUE POSITIONAL IDS. antiSMASH SANITISES record ids -- it silently strips
+        # colons, so "oracle::TERPENE::GCF_x.region2" comes back as
+        # "oracleTERPENEGCF_x.region2" and every join misses. Rather than enumerate which
+        # characters survive, submit ids we control completely and map back.
         fa = tmp / "in.fasta"
+        safe = {f"s{i:07d}": acc for i, (acc, _) in enumerate(records)}
         with open(fa, "w") as fh:
-            for acc, seq in records:
-                fh.write(f">{acc}\n{seq}\n")
+            for sid, (acc, seq) in zip(safe, records):
+                fh.write(f">{sid}\n{seq}\n")
         cmd = [ANTISMASH, "--minimal", "--genefinding-tool", FROZEN["genefinding_tool"],
                "--minlength", str(FROZEN["minlength"]), "--databases", FROZEN["databases"],
                "--cpus", str(cpus), "--output-dir", str(tmp / "out"), str(fa)]
@@ -98,7 +103,14 @@ def run(records: list[tuple[str, str]], workdir: Path | None = None,
                                    f"{FROZEN['version_expected']}; the frozen scoring "
                                    f"config no longer describes the instrument")
             for rec in doc.get("records", []):
-                acc = rec.get("id")
+                rid = rec.get("id")
+                acc = safe.get(rid)
+                if acc is None:
+                    raise RuntimeError(
+                        f"antiSMASH returned record id {rid!r}, which was not submitted. "
+                        f"Ids are opaque positional keys precisely so this cannot happen "
+                        f"silently."
+                    )
                 feats = rec.get("features", [])
                 regions, cds = [], []
                 for f in feats:

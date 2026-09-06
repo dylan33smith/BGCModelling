@@ -281,6 +281,8 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
         }
     return {"classes": report, "max_len": max_len, "common_n": common_n,
             "n_records_considered": len(records),
+            "mibig_excluded_records": n_excluded_records,
+            "mibig_exclusion_level": "cluster",
             "clustering": {"min_seq_id": clu.MIN_SEQ_ID, "coverage": clu.COVERAGE,
                            "cov_mode": clu.COV_MODE}}
 

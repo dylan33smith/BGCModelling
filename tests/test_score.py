@@ -188,3 +188,12 @@ def test_confusion_reports_not_applicable_rather_than_zero():
     m = endpoints.confusion({"RIPP": []}, ["RIPP", "NRPS"])
     assert m["RIPP"]["n"] == 0
     assert m["RIPP"]["RIPP"] is None and m["RIPP"]["NRPS"] is None
+
+
+def test_caller_ids_survive_antismash_sanitisation():
+    """antiSMASH strips colons from record ids, so 'oracle::X::y' returns as 'oracleXy'
+    and every verdict join misses. The totality check caught it (60 of 60 unmatched), but
+    the fix is to submit opaque positional ids and map back."""
+    out = antismash.run([("weird::id::with:colons", "ATG" + "ACGT" * 200 + "TAA")])
+    assert "weird::id::with:colons" in out, (
+        "caller-supplied id did not survive the round trip")
