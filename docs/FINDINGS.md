@@ -33,31 +33,25 @@ presenting exactly as "the model fails on short classes".
 **Paper:** methods must state `--minlength 1`, and this is a caution for anyone scoring
 extracted cores rather than genomes.
 
-### 1.2 Full dynamic range: ceiling ~1.0 against a measured floor of exactly 0 `[instrument]`
-Scored through the single invocation site at `--minlength 1`, on the built corpus
+### 1.2 Ceiling ~1.0 against a near-zero floor `[instrument]`
+Scored through the single invocation site at `--minlength 1`, on the rebuilt corpus
 (held-out cores as ceiling, 300 real non-BGC coding sequences per class as floor):
 
-| class | ceiling (on-target) | **false-positive rate** | real-core multi-gene | modal share | products |
-|---|---|---|---|---|---|
-| TERPENE | 1.000 | **0.000** (0/300) | 0.197 | 0.525 | 2 |
-| NRPS | 0.992 | **0.000** | 0.273 | 0.441 | 11 |
-| RIPP | 0.992 | **0.000** | 0.347 | 0.384 | **19** |
-| ARYLPOLYENE | 1.000 | **0.000** | 0.588 | 0.820 | 4 |
-| BETALACTONE | 0.991 | **0.000** | 0.991 | 0.948 | 5 |
+| class | ceiling (on-target) | FPR (detect) | **FPR (on-target)** | real-core multi-gene | modal share | products |
+|---|---|---|---|---|---|---|
+| TERPENE | 1.000 | 0.000 | 0.000 | 0.180 | 0.574 | 2 |
+| NRPS | 0.975 | 0.0033 | 0.000 | 0.254 | 0.371 | 10 |
+| RIPP | 0.992 | 0.0033 | **0.0033** (1/300) | 0.353 | 0.370 | **19** |
+| ARYLPOLYENE | 1.000 | 0.000 | 0.000 | 0.633 | 0.836 | 4 |
+| BETALACTONE | 1.000 | 0.000 | 0.000 | 1.000 | 0.909 | 5 |
 
-**Paper:** justifies the single-instrument design. Zero false positives across 1,500 real
-non-BGC coding sequences also **confirms `--minlength 1`** — going low costs no specificity.
-A Pfam-proxy ceiling measured earlier in this project's history was 0.440, which compresses
-every rate toward the floor; antiSMASH gives essentially the full range.
-
-### 1.5 Re-scoring an extracted core recovers FEWER core genes than the genome-context annotation `[instrument]`
-Multi-gene fraction, corpus annotation vs antiSMASH re-detection on the same held-out
-records: TERPENE 23.7% → **19.7%**, NRPS 34.6% → **27.3%**, RIPP 44.0% → **34.7%**,
-ARYLPOLYENE 55.7% → **58.8%**, BETALACTONE 99.8% → **99.1%**.
-Stripping genomic context loses some biosynthetic-gene calls, most in the short classes.
-**Paper:** the achievable ceiling for *producing* multi-gene output is the re-detected
-figure, not the corpus annotation. Scoring generations against the corpus number would
-understate the model by up to ~9 points.
+[CORRECTED 2026-09-06] An earlier version of this entry reported **0.000 for every class**.
+That was measured on splits built before the accession-collision fix (§4.5) and is wrong.
+RIPP carries **1 on-target false positive in 300**, so the floor is not exactly zero.
+**Paper:** the floor must be quoted as measured, not as zero. A treatment rate near 0.003
+is indistinguishable from RIPP's floor, which bears directly on the powering in §3.1.
+Ceilings 0.975–1.000 still give essentially full dynamic range, and `--minlength 1` still
+costs no specificity.
 
 ### 1.3 antiSMASH throughput is not the bottleneck `[instrument]`
 ~0.2 s/sequence at 8 CPUs in `--minimal` mode (60 sequences in 9–15 s; a 3-sequence probe
