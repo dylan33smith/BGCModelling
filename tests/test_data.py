@@ -195,3 +195,20 @@ def test_cluster_mode_is_connected_component():
     from bgcbench.data import cluster as clu
     assert clu.CLUSTER_MODE == 1
     assert clu.SENSITIVITY >= 7.0
+
+
+def test_ripp_strata_are_length_matched_and_equal_sized():
+    """SPEC 4.5: gene count must be the only varying factor. Unmatched strata would
+    measure length, which is the confound the design exists to remove."""
+    if not MANIFEST.exists():
+        return
+    doc = json.loads(MANIFEST.read_text())
+    strata = doc.get("_ripp_strata")
+    if not strata:
+        return
+    for part, r in strata.items():
+        assert r["matched"]["single"] == r["matched"]["multi"], f"{part} unequal"
+        s, m = r["median_len"]["single"], r["median_len"]["multi"]
+        assert abs(s - m) / max(s, m) < 0.10, f"{part} median length {s} vs {m}"
+        assert r["median_core_genes"]["single"] == 1
+        assert r["median_core_genes"]["multi"] >= 2

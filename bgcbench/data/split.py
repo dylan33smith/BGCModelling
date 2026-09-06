@@ -156,6 +156,24 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
         for cls in classes:
             have[cls][best] += counts[c][cls]
 
+    # Components holding no selected cluster still need an assignment, because analyses
+    # that draw from the FULL class pool (SPEC 4.5 stratification) must inherit the same
+    # train/val/test boundary -- otherwise a stratum record could sit in another corpus's
+    # test set. They cannot affect the balance of the selected clusters (their counts are
+    # zero), so the seedless hash is the right assignment for them.
+    for r in records:
+        c = uf.find(("clu", rep[r["accession"]]))
+        if c not in split_of_comp:
+            split_of_comp[c] = _assign(min(members.get(c, [rep[r["accession"]]])))
+
+    # cluster -> split, for EVERY cluster in the class union, not only selected ones
+    cluster_split = {rep[r["accession"]]: split_of_comp[uf.find(("clu", rep[r["accession"]]))]
+                     for r in records}
+    (out_dir).mkdir(parents=True, exist_ok=True)
+    (out_dir / "cluster_split.json").write_text(json.dumps(cluster_split))
+    record_split = {r["accession"]: cluster_split[rep[r["accession"]]] for r in records}
+    (out_dir / "record_split.json").write_text(json.dumps(record_split))
+
     # --- per class: take common_n clusters, honouring the global assignment ----------
     report: dict[str, dict] = {}
     out_dir.mkdir(parents=True, exist_ok=True)

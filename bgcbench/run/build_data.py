@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from bgcbench.data import manifest as mf
-from bgcbench.data import mibig, negative, split, tar_index
+from bgcbench.data import mibig, negative, split, stratify, tar_index
 from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map, validate
 
 ROOT = Path("/data2/ds85/bgcbench")
@@ -76,6 +76,18 @@ def main() -> int:
         print(f"  {cls:14s} genome_overlap={d['genome_overlap']} "
               f"neardup_fwd={d['neardup_fwd']} neardup_rc={d['neardup_revcomp']}",
               flush=True)
+
+    print("\n== within-RIPP multi-gene stratification (SPEC 4.5) ==", flush=True)
+    strat = stratify.build(SPLITS, ROOT / "strata", "RIPP",
+                           corpus_path=CORPUS, max_len=args.max_len,
+                           exclude=held)
+    for part, sr in strat.items():
+        print(f"  {part:6s} matched single/multi = {sr['matched']['single']}/"
+              f"{sr['matched']['multi']}  (available {sr['available']['single']}/"
+              f"{sr['available']['multi']})  medlen {sr['median_len']['single']}/"
+              f"{sr['median_len']['multi']}  medCDS {sr['median_cds']['single']}/"
+              f"{sr['median_cds']['multi']}", flush=True)
+    mf.update(MANIFEST, "_ripp_strata", strat)
 
     print("\n== negative controls ==", flush=True)
     NEG.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.1 — APPROVED. §4 (data) BUILT and verified 2026-09-06; §3, §5–§9 not yet built.
+**Status:** v2.2 — APPROVED. §4 (data) COMPLETE and verified 2026-09-06. §3, §5–§9 not built.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -521,6 +521,12 @@ because a record links by genome OR cluster, so a few are enormous. Hashing each
 independently gave **93/3.5/3.5**; balancing on the union alone gave **~60/20/20**. Placing
 components largest-first into the split whose per-class deficits they most reduce gives
 exactly 80/10/10, deterministically and with no RNG.
+
+**Within-RIPP strata (§4.5) [M]:** drawn from the FULL RIPP pool, not the equal-n
+subsample, since length matching is already lossy. Matched single/multi = **14,793/14,793**
+train, 614/614 val, 801/801 test; median length 2,151 vs 2,101 nt; median `cds_count` 1 vs
+3; `core_gene_count` 1 vs ≥2. Split assignment is inherited from `record_split.json`, so a
+stratum record can never sit in another corpus's test set.
 
 **Negative controls (§4.8): 300 per class, each from a DISTINCT genome**, length-matched to
 within ~0.5% of the class median. The first build drew all 300 from one genome — 300
