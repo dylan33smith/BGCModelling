@@ -1119,3 +1119,110 @@ these in minutes.
   `analyze_patch_generate.py` now ABORTS when the unpatched control detects nothing rather than
   printing a table of zeros. *Rule: a treatment arm can only be read against a control that is off
   the floor — check the control first, and make the analyzer refuse otherwise.*
+
+### antiSMASH silently rejects short records, and the floor is a per-REGIME choice
+
+**[Symptom]** `antismash_full.py` reports `ran 16/23` / `ran 22/200` — far fewer sequences run than
+were submitted, with no error. Detection rates computed on the survivors look plausible.
+
+**[Cause]** antiSMASH refuses records under `--minlength` (default **1,000 nt**). RIPP's
+`class_eval_policy.yaml` pinned `antismash_minlength: null` because Evo2 generated 4,000–8,000 nt
+and nothing was ever dropped. **GenomeOcean generates at the real length distribution** (median
+1,839 nt de novo, 592 nt for the un-fine-tuned base), so the same policy started rejecting 30% of
+positives and 89% of the floor arm. **14/50 real RIPP cores are under 1,000 nt too**, so the
+CEILING was mis-measured in the same direction.
+
+**[Proven fix]** Pass `--minlength 200` and re-run **every arm AND the real-core reference together**
+— a floor change alters ceiling and arm alike, so mixing them is a regime error (Standing
+Constraint 9). Real-core RIPP detection went **33 → 50/50** on that change alone. The script already
+prints `ran N/M`; **treat any `N < M` as a blocking result, not a footnote.**
+
+### `seed_generate.py` silently ran the 7B — [P3-B7] was only ever half-fixed
+
+**[Symptom]** Adapter load dies with dozens of `size mismatch ... copying a param with shape
+torch.Size([1920, 16]) ... the shape in current model is torch.Size([4096, 16])`. 1920/5120 are 1B
+dimensions; 4096/11008 are 7B.
+
+**[Cause]** `finetune_evo2_lora.EVO2_MODEL_NAME = os.environ.get("EVO2_BASE_MODEL", "evo2_7b_262k")`
+— **a MODULE-LEVEL constant with a 7B fallback**. `generate_bgc.py` got `require_explicit_substrate()`
+after the 2026-08-17 incident; **`seed_generate.py` never did**, and it imports the loader at module
+level (line 39), so `EVO2_MODEL_NAME` is bound the instant the module loads. Here it failed loudly
+only because the 1B adapter was shape-incompatible. **A base-model arm has no adapter to mismatch and
+would have run the 7B in silence.**
+
+**[Proven fix]** Guard at **module scope, BEFORE the loader import** — refuse if `EVO2_BASE_MODEL`
+is unset. ⚠️ **Setting `os.environ[...]` inside `main()` is a NO-OP** — the constant is already
+bound, so the "fix" would report the right substrate while running the wrong one. `--base-model` may
+therefore only *confirm* the env var; it raises on a mismatch. Invoke as
+`EVO2_BASE_MODEL=evo2_1b_base python evo2/scripts/seed_generate.py ...` and check the
+`[seed_generate] substrate = ...` line in the log.
+
+**[Generalises]** Any script importing from `finetune_evo2_lora` inherits the 7B default. Audit the
+rest of `evo2/scripts/` before trusting a substrate stamp.
+
+### Deduplicate on the SCORED WINDOW, not on the full sequence
+
+**[Symptom]** A pooled generation set passes your own uniqueness assertion, then
+`novelty_battery.py` refuses it: `EXACT-DUPLICATE RECORDS: 1 of 890 ... effective n is 889`.
+
+**[Cause]** The battery slices `sequence[:window]` **before** the duplicate audit, because the
+scored quantity is the window. Two records that differ only after position 2,000 are identical to
+the scorer. A dedup on the full sequence does not see them.
+
+**[Proven fix]** Dedup on `sequence[:window]` for the window you will score at. If you later score
+the same set at a second window, re-check — a set that is clean at 2,000 can be clean or dirty at
+4,000 independently.
+
+**[And the collision itself was NOT a fan-out bug]** `seed_generate.py` calls
+`torch.manual_seed(args.seed)` **inside** the generation loop, so output is deterministic given
+(prompt, `--seed`). The prompt is class tag + taxonomy + an 8-nt seed, and **175 of 544 RIPP val
+cores share their 8-nt prefix with another core** — so two cores that also share a taxonomic tag
+produce byte-identical records within one shard. Expected behaviour, not shard collision; varying
+`--seed` per shard was working (0 duplicates ACROSS shards, 890 → 889 from one within-shard pair).
+
+### Fan-out throughput is not a constant — the ledger figure did not reproduce
+
+**[Symptom]** `memory.md` records **432 seq/h at N=3** for 1B generation at 2.2 kb. The Phase-9
+Evo2 RIPP pooling measured **259 seq/h** at the same N, model and length.
+
+**[Cause]** ✅ **CONFIRMED host contention, not a fan-out defect.** `nvidia-smi
+--query-compute-apps` after the run showed **five processes from another user (`zhaodo`, ~31 GB)**
+with elapsed times spanning the whole Phase-9 window. The recorded 432 seq/h was measured on an
+**idle** H100; this run shared the card. GPU sat at 100% utilisation with 12.6 GB of ours, so by the
+documented rule (utilisation, not memory, is the stop signal) N=3 was still correct and more workers
+would only time-slice.
+
+**[Check it before sizing N]** `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` and
+resolve the PIDs with `ps -o user=,pid=,etime=,cmd=`. On a shared host, "100% utilisation" may be
+someone else's.
+
+**[Proven fix]** Treat the recorded curve as a starting point, not a constant; **re-measure per
+run** and size N from live utilisation. Do not quote 432 seq/h as a planning figure.
+
+### `load_best_model_at_end` silently restores a WORSE checkpoint than the summary reports
+
+**[Symptom]** `train_summary.json` reports `best_eval_loss=5.3284`, but the adapter on disk is the
+step-250 checkpoint whose eval was **5.3486**. The reported number does not describe the saved
+weights.
+
+**[Cause]** Two settings interact, and neither is wrong alone:
+* `eval_strategy="steps", eval_steps=50` but `save_strategy="steps", save_steps=250` — the trainer
+  evaluates 5× more often than it saves, so **the true optimum can fall between saves**. Here the
+  best eval was at step 400; checkpoints existed only at 250 and 500.
+* `load_best_model_at_end=True` restores the best **saved** checkpoint, while `state.best_metric`
+  keeps reporting the best **observed** value. `trainer_state.json` shows the split plainly:
+  `best_metric=5.3284` alongside `best_model_checkpoint=checkpoint-250`.
+* ⚠️ **`save_total_limit=2` is the second half of the trap.** Even when the optimum *is* a save
+  point, an EARLY optimum is deleted once two later checkpoints exist. Phase 8 and Phase 9 escaped
+  only because their best eval landed at/near the final step — **luck, not design.**
+
+**[Proven fix]** Align them: `save_steps == eval_steps`, so every eval is a restore candidate.
+`finetune_go_class.py` now forces this and prints
+`aligning save_steps to <n> so every eval is a restore candidate`. The summary additionally records
+`restored_checkpoint` and `restored_eval_loss` — read from the restored checkpoint's own
+`trainer_state.json` — beside `best_eval_loss_observed`, and warns when they differ. **Quote
+`restored_eval_loss`; it is the one that describes the weights you have.**
+
+**[Audit]** Phase 8 (best at 2112, checkpoints [2000, 2112]) and Phase 9 (best at 1500, checkpoints
+[1500, 1518]) were both verified CLEAN — their reported losses do describe their adapters. Only
+Phase 10 was affected, and it was re-run.

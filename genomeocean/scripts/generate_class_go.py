@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""[P8-T5] Generate TERPENE arms from GenomeOcean, for comparison with `[P7-A0]`.
+"""[gen_class_go] Generate TERPENE arms from GenomeOcean, for comparison with `[P7-A0]`.
 
 ⚠️ THE PROMPT IS ONE TOKEN, AND THAT BREAKS PAIRING
 ---------------------------------------------------
@@ -31,6 +31,16 @@ def main() -> int:
     ap.add_argument("--model", default=BASE)
     ap.add_argument("--adapter", default=None, help="LoRA dir; omit for the un-fine-tuned floor.")
     ap.add_argument("--class-token", default=None, help="e.g. [CLS_TERPENE]; omit for uncond.")
+    ap.add_argument("--cls", default=None,
+                    help="Class stamped into each record's `compound_class`. Defaults to the name "
+                         "inside --class-token. REQUIRED for an unconditional arm, whose records "
+                         "still belong to a class-specific comparison and must not inherit a "
+                         "stale label.")
+    ap.add_argument("--bucket-token", default=None,
+                    help="[P13] identity-bucket token (e.g. [ID_95_100]) appended AFTER the class "
+                         "token, matching the training prefix order. Omit for the [P10] path.")
+    ap.add_argument("--tag", default=None,
+                    help="Accession prefix, e.g. p9. Defaults to the --out stem.")
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--seed-from-jsonl", default=None,
                     help="[T9] Real cores to draw seed prefixes from (e.g. the TERPENE test split). "
@@ -52,6 +62,14 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
 
+    if args.cls is None:
+        if args.class_token:
+            args.cls = args.class_token.strip("[]").removeprefix("CLS_")
+        else:
+            raise SystemExit("FATAL: an unconditional arm has no class token to infer from. "
+                             "Pass --cls explicitly so records are not mislabelled.")
+    tag = args.tag or args.out.stem.split(".")[0]
+
     os.environ.setdefault("HF_HOME", "/data2/ds85/hf_cache")
     import torch
     from transformers import AutoModelForCausalLM, PreTrainedTokenizerFast
@@ -66,7 +84,7 @@ def main() -> int:
         model.resize_token_embeddings(len(tok))
         model = PeftModel.from_pretrained(model, args.adapter)
         model = model.merge_and_unload()
-        print(f"[P8-T5] adapter merged: {args.adapter}")
+        print(f"[gen_class_go] adapter merged: {args.adapter}")
     model.eval()
 
     seeds = None
@@ -76,19 +94,28 @@ def main() -> int:
         pool = [x for x in pool if len(x) >= args.seed_nt]
         _r.Random(args.seed).shuffle(pool)
         seeds = [pool[i % len(pool)][: args.seed_nt].upper() for i in range(args.n)]
-        print(f"[P8-T5] SEEDED: {args.seed_nt} nt prefixes from {args.seed_from_jsonl} "
+        print(f"[gen_class_go] SEEDED: {args.seed_nt} nt prefixes from {args.seed_from_jsonl} "
               f"({len(set(seeds))} distinct of {args.n})")
 
     prompt_ids = [tok.bos_token_id if tok.bos_token_id is not None else 1]
     if args.class_token:
         cid = tok.convert_tokens_to_ids(args.class_token)
         if cid is None or cid == tok.unk_token_id:
-            raise SystemExit(f"[P8-T5] FATAL: {args.class_token} is not in this tokenizer. "
+            raise SystemExit(f"[gen_class_go] FATAL: {args.class_token} is not in this tokenizer. "
                              f"The conditioning would silently be nothing.")
         prompt_ids.append(cid)
-        print(f"[P8-T5] prompt = BOS + {args.class_token}(id {cid})")
+        print(f"[gen_class_go] prompt = BOS + {args.class_token}(id {cid})")
     else:
-        print("[P8-T5] prompt = BOS only (unconditional floor)")
+        print("[gen_class_go] prompt = BOS only (unconditional floor)")
+
+    if args.bucket_token:
+        bid = tok.convert_tokens_to_ids(args.bucket_token)
+        if bid is None or bid == tok.unk_token_id:
+            raise SystemExit(f"[gen_class_go] FATAL: {args.bucket_token} is not in this tokenizer. "
+                             f"The fidelity conditioning would silently be nothing -- which is the "
+                             f"exact failure mode Gate T0 exists to prevent.")
+        prompt_ids.append(bid)
+        print(f"[gen_class_go] + bucket {args.bucket_token}(id {bid}); prompt_ids={prompt_ids}")
 
     n_id = tok.convert_tokens_to_ids("N")
     bad = [[n_id]] if n_id is not None and n_id != tok.unk_token_id else None
@@ -125,14 +152,15 @@ def main() -> int:
             junk = sum(1 for c in seq if c not in "ACGTN")
             recs.append({"sequence": seq, "length": len(seq), "hit_eos": hit_eos,
                          "n_count": seq.count("N"), "n_junk_chars": junk,
-                         "accession": f"p8_{len(recs):04d}",
-                         "compound_class": "TERPENE",
+                         "accession": f"{tag}_{len(recs):04d}",
+                         "compound_class": args.cls,
                          "decoding": {"temperature": args.temperature, "top_p": args.top_p,
                                       "top_k": args.top_k,
                                       "repetition_penalty": args.repetition_penalty,
                                       "max_new_tokens": args.max_new_tokens,
                                       "min_new_tokens": args.min_new_tokens},
                          "adapter": args.adapter, "class_token": args.class_token,
+                         "bucket_token": args.bucket_token,
                          "seed_nt": (args.seed_nt if seeds is not None else 0),
                          "seed_prefix": batch_seeds[bi],
                          "scored_span": ("continuation_only" if seeds is not None else "full")})
@@ -147,10 +175,10 @@ def main() -> int:
         for r in recs:
             fh.write(json.dumps(r) + "\n")
     L = sorted(r["length"] for r in recs)
-    print(f"[P8-T5] {len(recs)} records, {uniq} unique · median {L[len(L)//2]} nt · "
+    print(f"[gen_class_go] {len(recs)} records, {uniq} unique · median {L[len(L)//2]} nt · "
           f"hit_eos {sum(r['hit_eos'] for r in recs)}/{len(recs)} · "
           f"junk chars {sum(r['n_junk_chars'] for r in recs)} · {time.time()-t0:.0f}s")
-    print(f"[P8-T5] wrote {args.out}")
+    print(f"[gen_class_go] wrote {args.out}")
     return 0
 
 

@@ -168,8 +168,12 @@ nucleotide-novel (T3.1) **AND** protein-novel (T3.2) **AND** distinct from other
 **Why this is separate from everything above, and why it is the number to report:** an arm can post
 30% on-class and 100% novel while the on-class ones are exactly the non-novel ones. Marginal rates
 cannot detect that; only the per-record intersection can. This is the analogue of the phage paper's
-**302 candidates from hundreds of thousands** — the count of sequences that survive *every* filter
+**302 candidates from ~11,000 generations** — the count of sequences that survive *every* filter
 at once, which is the only number that describes what you could actually take forward.
+⚠️ **CORRECTED 2026-08-27 — this previously read "302 candidates from hundreds of thousands."** The
+source (bioRxiv 2025.09.12.675911v1, Methods) reports ~10,000 Evo1-SFT + ~1,000 Evo2-SFT generations,
+i.e. a **~36:1** funnel, not ~1000:1. The analogy to `JOINT_PASS` is unaffected — the *ratio* is not
+what the analogy rests on — but do not quote the old scale. See `memory.md` 2026-08-27.
 
 ---
 

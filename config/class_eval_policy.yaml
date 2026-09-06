@@ -1,3 +1,18 @@
+# WINDOWS ARE RETIRED (user, 2026-08-24). `window_nt: null` == score the FULL sequence.
+#
+# The fixed prefix was an EVO2-ERA ARTEFACT. Evo2 had no working EOS in our pipeline and ran to its
+# token cap, so arms differed in length for reasons that had nothing to do with capability; a frozen
+# prefix was the only way to compare them. GenomeOcean stops itself at the learned length
+# distribution -- median 1,839 nt de novo against real RIPP cores' 1,931 -- so the window now
+# truncates the REFERENCE and not the arm. Measured 2026-08-24: widening RIPP 2,000 -> 4,000 moved
+# the real-core primary 0.440 -> 0.680 while the GenomeOcean arm moved 0.128 -> 0.133, i.e. the
+# window was inflating the model's share of ceiling from 20% to 29%.
+#
+# ⚠️ EVERY PHASE 3-9 NUMBER WAS SCORED AT A WINDOW AND IS NOT COMPARABLE TO A FULL-LENGTH NUMBER.
+# Historical windows, for reproducing an old row only: RIPP 2000, PKS 4000, TERPENE 2000.
+# Standing Constraint 9 applies -- this is a regime change, so references must be re-derived, not
+# carried over.
+
 # Per-class evaluation policy — which metrics mean what, for WHICH class.
 #
 # WHY THIS FILE EXISTS (2026-08-20)
@@ -27,7 +42,7 @@
 # before writing it down. Do not inherit another class's policy -- that is Standing Constraint 9.
 
 RIPP:
-  window_nt: 2000
+  window_nt: null                    # FULL SEQUENCE (was 2000 until 2026-08-24)
   antismash_minlength: null          # antiSMASH default (1,000 nt)
   reference: "phase5_classprobe/real_RIPP_ceiling50_w2000.json"
   metrics:
@@ -46,7 +61,7 @@ RIPP:
     max_orf_aa:           {status: diagnostic, note: "structural only, never quoted as capability"}
 
 PKS:
-  window_nt: 4000                    # held-out median core 3,707 nt; 2,000 would truncate most
+  window_nt: null                    # FULL SEQUENCE (was 4000 until 2026-08-24)
   antismash_minlength: null
   reference: "phase5_classprobe/real_PKS_fit50_w4000.json"
   metrics:
@@ -81,7 +96,7 @@ PKS:
     max_orf_aa:           {status: secondary,  note: "real cores 673 aa. PROMOTED from diagnostic: a T1PKS needs one long correct reading frame, so truncation/frameshift is a real PKS failure mode with no RIPP analogue."}
 
 TERPENE:
-  window_nt: 2000
+  window_nt: null                    # FULL SEQUENCE (was 2000 until 2026-08-24)
   antismash_minlength: 200           # antiSMASH REFUSES records <1,000 nt; median core is 960
   reference: "phase5_classprobe/real_TERPENE_fit50_w2000.json"
   metrics:

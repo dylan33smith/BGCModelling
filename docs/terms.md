@@ -324,6 +324,12 @@ Aliases:              names seen in old docs. Do not use them.
   class-specific regime it is **0.519**, i.e. chance (see THE LADDER).
 
 ### `n_bio_orfs`  [evaluation]
+- ⛔ **QUOTE THE CEILING FROM THE ARM'S OWN SUBCLASS, NEVER THE CLASS-LEVEL SAMPLE (2026-09-01).**
+  The widely-quoted **1.454** is the RIPP **class-level 50-core** figure. Per subclass, real held-out
+  cores carry **1.79–3.38** — azole **3.378**, lassopeptide **2.833**, PKS T1PKS **2.767**. Using the
+  class figure for a subclass arm **halves the apparent multi-gene gap** and did so in the `[P13]`
+  report before correction. Each run dir already carries `realtest_full_<PARENT>.json` with the right
+  number; use it.
 - **Is:** Number of **distinct ORFs** carrying ≥1 biosynthetic domain hit.
 - **Computed by:** `ladder_audit.py:one` → `len({orf_index for hits})`.
 - **CHANGES MEANING WITH:** the Pfam subset; the gene caller.
@@ -386,11 +392,32 @@ Aliases:              names seen in old docs. Do not use them.
   Producing a subclass call is therefore strictly harder than producing a detection.
 - **CHANGES MEANING WITH:** antiSMASH version and rule set; `--minimal` (which still emits products,
   but the analysis modules that refine them do not run).
-- **Valid vs:** real cores through the identical path.
+- **Valid vs:** real cores through the identical path — **including the same `--minlength`**.
+- **TWO READINGS, BOTH REPORTED** (added 2026-08-24, `[P9]`): antiSMASH emits `RRE-containing`, which
+  is a **domain rule** (the RiPP recognition element) and not a chemistry assignment. **strict** =
+  a named chemistry only (lanthipeptide-class-i…v, lassopeptide, ranthipeptide, thiopeptide,
+  sactipeptide, microviridin, azole-containing-RiPP, thioamitides, triceptide, redox-cofactor,
+  cyclic-lactone-autoinducer); **lenient** = anything that is not bare `RiPP-like`, so
+  `RRE-containing` counts. Off-class products on a multi-product region (`terpene-precursor`,
+  `arylpolyene`, `nucleoside`, `T2PKS`, `oligosaccharide`) are excluded from both before judging.
+  Quote both or neither — strict alone understates, lenient alone overstates.
+- ⚠️ **THE CEILING IS REGIME-DEPENDENT AND WAS RE-DERIVED 2026-08-24.** The **0.909 (30/33)** figure
+  was measured at antiSMASH's default 1,000 nt floor, which rejects **14/50 real RIPP cores**. At
+  `--minlength 200` all 50 run and all 50 detect, and the ceiling is **0.500 strict / 0.740 lenient
+  (n=50)**. `phase5_classprobe/as_real_RIPP_ml200.tsv`. **Never read an `ml200` arm against the
+  0.909 reference.**
 - **Status:** **The honest measure of the remaining gap** (adopted 2026-08-19; pre-registered as a
-  declared secondary, §9.2 — the primary endpoint is unchanged). Real cores **0.909** (30/33
-  detected sequences carry a specific subclass); **our best arm 0.000** — every detection is
-  `RiPP-like`. Supersedes `n_class_domains ≥ 2`, `bio_span_frac` and the precursor panels, all of
+  declared secondary, §9.2 — the primary endpoint is unchanged).
+  [INCORRECT] -
+  Real cores **0.909** (30/33 detected sequences carry a specific subclass); **our best arm 0.000** —
+  every detection is `RiPP-like`.
+  [CORRECTION - 2026-08-24]: at a matched `--minlength 200` floor the ceiling is **0.500 strict /
+  0.740 lenient (25 and 37 of 50)**, and **our best arm is NO LONGER ZERO** — GenomeOcean de novo
+  scores **1/13 = 0.077 strict, 3/13 = 0.231 lenient**, including a genuine `ranthipeptide`, the
+  first specific RiPP chemistry this project has generated. ⛔ **But 1/13 vs Evo2's 0/7 is p=1.0** —
+  the contrast is UNDERPOWERED, so "GenomeOcean does better on subclass" is NOT established. Evo2's
+  RIPP detections were measured in the pre-`ml200` regime and must be re-run before any model-vs-model
+  subclass claim. Supersedes `n_class_domains ≥ 2`, `bio_span_frac` and the precursor panels, all of
   which were indirect proxies for this and each failed validation.
 - ⚠️ **POWER: report the TEST, not a fixed denominator.** [WITHDRAWN 2026-08-20] An earlier version
   of this entry set an arbitrary ">=15 detections" floor. That was the wrong instrument: generation
@@ -408,6 +435,82 @@ Aliases:              names seen in old docs. Do not use them.
   `feedback-sample-size-reliability` — this is the same small-n trap that has now fired twice.
 - ⚠️ **A significant DIRECTION is not an estimated RATE.** At these denominators "the model never
   makes the harder subclass" is established; "it makes it x% of the time" is not.
+
+### `aai_to_ref`  [dataset] [method]
+- **Is:** Coverage-weighted proteome identity of a record to a single frozen REFERENCE record —
+  "how much of the reference's proteome does this record reproduce, weighted by identity", in [0,1].
+  The axis the `[ID_*]` conditioning buckets are cut on (`docs/phase13_IDENTITY_BUCKET_preregistration.md`).
+  ```
+  aai_to_ref = Σ_refprot ( best_fident × alnlen / tlen ) × tlen  /  Σ_refprot tlen
+  ```
+- **Computed by:** `scripts/build_identity_buckets.py --metric protein` — `novelty_battery.translate_orfs`
+  (`min_aa=30`) then MMseqs2 `easy-search -e 1e-3 -s 5.7`, matching the `protein_aai` search config.
+- ⚠️ **DELIBERATELY NOT `protein_aai`.** `protein_aai` is the **max over a record's ORFs** — one
+  shared enzyme scores high. Template fidelity has to be a **proteome-coverage** statement, so this
+  sums over the reference's proteins instead. **Never substitute one for the other**; `protein_aai`
+  stays the novelty gate, `aai_to_ref` is a conditioning axis and is **not a gate**.
+- **CHANGES MEANING WITH:** the reference record (re-derive the medoid whenever the split changes),
+  `min_aa`, and the MMseqs sensitivity. ⛔ **Not comparable to `containment` (k=21) or to a published
+  ANI** — different instrument, different denominator.
+- **Valid vs:** the same reference and the same ORF/search settings only.
+- **Status:** **ACTIVE, Phase 13.** ⚠️ **The nucleotide analogue `ani_to_ref` is RETIRED for BGC use
+  and the reason matters:** on AZOLE_CONTAINING_RIPP its median was **0.0000** — 76.5% of records had
+  zero alignable nucleotide identity to the DNA medoid — failing Gate T0 (top bucket n=3 vs ≥30) with
+  a degenerate quintile fallback (cuts `[0.0, 0.0, 0.0, 0.2021]`). Dynamic range was demonstrated, so
+  that zero is real. ⇒ ★ ***Microviridae* is a taxonomic FAMILY with a canonical member; an
+  "azole-containing RiPP" is a CHEMICAL annotation over genomically unrelated clusters.** The phage
+  paper's conditioning axis does not exist in our data at the nucleotide level. On protein it does,
+  but **bimodally**: 40 records ≥0.95, 115 at 0.80–0.95, **16 across the whole 0.50–0.80 middle**,
+  628 below 0.50. See `memory.md` 2026-08-27.
+
+### `adapter_advantage`  [evaluation] [diagnostic]
+- **Is:** Teacher-forced per-nucleotide likelihood difference on the SAME real held-out sequences,
+  in bits/nt. Two forms, both reported: **vs BASE** (what fine-tuning bought) and **vs the WRONG
+  adapter** (what is target-SPECIFIC rather than generic corpus adaptation). Positive = the named
+  adapter finds those sequences more likely. Answers *"does the model KNOW what a real target looks
+  like?"* — a question no generation metric can reach, because generation confounds knowing with
+  sampling.
+- **Computed by:** `genomeocean/scripts/score_likelihood_go.py` — one forward pass, NLL over the
+  SEQUENCE tokens only (BOS + class-token prefix masked, so the adapter is not credited for a prompt
+  the base never sees). Paired per record; report paired t and the win count, never a pooled point
+  estimate alone.
+- ⚠️ **QUOTE IT PAIRED AND ON MATCHED SEQUENCES.** Comparing bits/nt across DIFFERENT sequence sets
+  is not interpretable — one corpus can be more predictable than another for reasons unrelated to
+  the model. **The "adapter prefers its own output over real biology" reading is NOT supported by
+  this instrument** and must not be quoted; only same-sequence contrasts are valid.
+- **CHANGES MEANING WITH:** the reference model, the class token supplied, and the target length —
+  bits/nt averages architecture signal over every nucleotide, so a long diffuse target dilutes it.
+  ⚠️ **Dilution cancels in the right-vs-wrong-adapter form** (both adapters score identical
+  sequences) but NOT in the vs-base form.
+- **Valid vs:** the same sequence set, same prefix convention.
+- **Status:** **ACTIVE, Phase 13.** Measured 2026-08-27: azole **+0.0352 vs base** (t(44)=2.49,
+  28/45 records) and **+0.0553 vs the wrong adapter** (t(44)=4.24, 35/45); cyclactone **+0.1341 vs
+  base** (t(33)=5.95) and **+0.1559 vs the wrong adapter** (t(33)=7.83, **34/34**). ⇒ **Both adapters
+  learned real target-specific structure, but azole's is ~3x weaker and far patchier.** Combined
+  with a 1.43-nat train/eval gap, that is **memorisation without generalisation** — a data problem,
+  not an adapter-capacity one. See `memory.md` 2026-08-27.
+
+### `train_frac_distinct`  [dataset] [diagnostic]
+- **Is:** Fraction of a training split's records that survive MMseqs2 clustering at a stated
+  nucleotide identity — `n_clusters / n_seqs`. The companion count `n_clusters` is the split's
+  **effective number of distinct architectures** at that threshold. Measures how much of a split is
+  near-duplicate, i.e. **how many genuinely different examples the model actually sees.**
+- **Computed by:** `mmseqs easy-cluster <split>.fna out tmp --min-seq-id <ID> -c 0.5 --cov-mode 0`
+  on the `sequence` field of `train.jsonl`; `n_clusters` = records in `*_rep_seq.fasta`.
+- **CHANGES MEANING WITH:** ⚠️ **`--min-seq-id`, and the difference is large.** The same split reads
+  0.877 at 0.99 and 0.610 at 0.80 (AZOLE_CONTAINING_RIPP). **Always quote the threshold** — an
+  unlabelled `frac_distinct` is not a number. Also changes with `-c` / `--cov-mode`; this project
+  uses `-c 0.5 --cov-mode 0`, matching the `splits_class` near-dup criterion (`id>=0.8 cov>=0.5`).
+- **Valid vs:** the same threshold and coverage settings only. ⛔ **NOT comparable to a published
+  dedup retention rate unless that paper's threshold and coverage match** — the phage paper's 94.9%
+  (15,246 → 14,466) is a 99%-identity retention and may only be compared to our 0.99 row.
+- **Status:** **DIAGNOSTIC — measured 2026-08-27, and it explains nothing.** Across the five [P11]
+  RIPP subclasses, **r(`train_frac_distinct`@0.80, own-subclass rate) = +0.228** and
+  **r(`n_clusters`@0.80, own-subclass rate) = +0.007**, against **r(log10 target nt, rate) = −0.933**
+  on the same five points. ⇒ **Within-target training redundancy does NOT explain the length
+  gradient**, and AZOLE (0.610) is very slightly *more* redundant than CYCLIC_LACTONE_AUTOINDUCER
+  (0.645) — the opposite of the "our long targets are more heterogeneous" hypothesis. Recorded so
+  the confound is not re-proposed. See `memory.md` 2026-08-27.
 
 ### THE TWO-PASS DETECTION ARCHITECTURE  [evaluation] [method]
 - **Is:** Pfam gate first (cheap, Stage A), antiSMASH second (gold standard, Stage B). **Calibrated
@@ -441,6 +544,69 @@ Aliases:              names seen in old docs. Do not use them.
   (`bio_span_frac` inverted at 0.173) and the **class probe** 0.337 (anti-correlated, saturated at
   P(RIPP) ≈ 0.997 despite 0.933 balanced accuracy). Nothing we own separates a real cluster from a
   Pfam-passing near-miss. antiSMASH is the only arbiter we have.
+
+### EXPERIMENT ID CONVENTION  [method]
+- **Is:** The single naming scheme for every experiment, task and intervention referenced in the
+  docs. Adopted 2026-08-24 (user) to replace **five** competing schemes that had accumulated:
+  `P3-B7` (a bug), `P5-REGEN` (a task), `P6-A0` (a generation arm), `P8-T4` (a phase subtask) and
+  `X1a`/`X2c` (an orphan series with no phase at all) all occupied the same slot and meant
+  different kinds of thing.
+
+  **FORM: `P<phase>-<KIND>-<slug>`**, or **`INF-<KIND>-<slug>`** for cross-cutting infrastructure
+  that belongs to no phase.
+
+  | field | rule |
+  |---|---|
+  | `P<phase>` | the phase number the work RUNS in. `INF` if it is tooling that spans phases. |
+  | `<KIND>` | **exactly one of six**, uppercase — see the table below. This is the field that was missing and it is what makes an ID self-describing. |
+  | `<slug>` | lowercase, hyphenated, names the thing. Not a letter. `azole`, not `A0`. |
+
+  | KIND | means | example |
+  |---|---|---|
+  | `DAT` | build or filter a dataset / substrate | `P10-DAT-drop-generic` |
+  | `TRN` | train an adapter | `P10-TRN-azole` |
+  | `GEN` | produce generations | `P10-GEN-azole` |
+  | `EVL` | score, antiSMASH, novelty battery | `P10-EVL-azole` |
+  | `ANL` | analysis over data we already have — **no new compute on the model** | `P10-ANL-subclass-dist` |
+  | `FIX` | a bug or an infrastructure change | `INF-FIX-hit-eos` |
+
+- **Why the KIND field:** it makes the ID answer "what would this cost me?" without a lookup. `ANL`
+  is free, `GEN` is GPU-hours, `TRN` is a training run. Three of this project's planning errors were
+  mis-estimates of exactly that.
+- ⚠️ **HISTORICAL IDs ARE FROZEN.** `memory.md` is a permanent ledger and its entries keep the IDs
+  they were written with — renaming them would break every cross-reference and violate the in-place
+  correction rule. **The new scheme applies to all NEW and QUEUED work only.** The table below is
+  the bridge; use it to read old entries, never to rewrite them.
+
+  | old ID | new ID | state |
+  |---|---|---|
+  | `[X1a]` constrained decoding | `INF-FIX-constrained-decoding` | done |
+  | `[X1b]` train the real EOS | `INF-FIX-eos-token` | done |
+  | `[X1g]` token-id-aware generation | `INF-FIX-token-ids` | done |
+  | `[X1e]` `hit_eos` must test the token id | `INF-FIX-hit-eos` | **open** |
+  | `[X1f]` per-row early stopping | `INF-FIX-per-row-stop` | **open** |
+  | `[X1i]` snip-and-replace | `INF-GEN-snip-replace` | **open** |
+  | `[X1c]` filter prematurely-ended sequences | `INF-GEN-filter-short` | **open** |
+  | `[X1d]` / `[X1h]` degeneracy needs its own gate | `INF-EVL-degeneracy-gate` | **open** |
+  | `[X2a]` bigger denominators | — | **done twice**, `P9-POOL` / `P9-EVO2POOL`; do not re-run as a rescue |
+  | `[X2b]` seeded hard-subclass control | `P10-GEN-seeded-subclass` | **open** |
+  | `[X2c]` inverse-frequency upweighting | `P10-TRN-invfreq` | queued |
+  | `[X2d]` subclass-conditioned adapters | `P10-TRN-azole`, `P10-TRN-cla` | **running** |
+  | `[X3]` GenomeOcean on TERPENE | — | done; it became **Phase 8** |
+  | `[X4]` is the taxonomy prefix doing anything | `INF-ANL-taxonomy-prefix` | backlog |
+  | `[P10-DATA]` | `P10-ANL-subclass-dist` | done |
+  | `[P10-A]` | `P10-TRN-azole` + `P10-TRN-cla` | running |
+  | `[P10-B]` | `P10-TRN-multitoken` | queued |
+  | `[P10-C]` | `P10-DAT-drop-generic` | queued |
+  | `[P10-D]` | `P10-TRN-invfreq` | queued |
+
+- ⚠️ **RUN DIRECTORY AND FILE NAMES ARE A SEPARATE CONVENTION** (`CLAUDE.md`, Filesystem Naming) and
+  are **NOT** renamed by this. Existing artefacts keep their paths — renaming them would orphan every
+  provenance line already written. New run dirs stay `<phase>_<TARGET>[_<arm>]`.
+- **Enforced by:** `tests/test_docs_contract.py` — any NEW-style ID in `plan.md` must match
+  `P\d+-(DAT|TRN|GEN|EVL|ANL|FIX)-[a-z0-9-]+` or `INF-(...)-[a-z0-9-]+`; legacy IDs are allowed only
+  in the Phase Ledger and in the bridge table above.
+- **Status:** **MANDATORY for all new work from 2026-08-24.**
 
 ### THE TWO MEASUREMENT STAGES  [evaluation] [method]
 - **Is:** Every Phase-3 arm is measured **twice, on two different denominators**, because a metric
@@ -477,8 +643,25 @@ Aliases:              names seen in old docs. Do not use them.
   quoted over all sequences is not a weaker result — it is a different and usually wrong quantity.**
 - **Valid vs:** Stage A against Stage A, Stage B against Stage B. **Every Stage-B number needs a
   real-core reference on the same denominator** (e.g. `protein_aai` 0.496 generated vs 0.641 real).
-- **Status:** **MANDATORY for every Phase-3 arm from 2026-08-18.** Label every reported number with
-  its stage and its n.
+- ★ **REPORTING RULE, 2026-08-24 (user decision).** **Report the Stage-A RATE of positives, and then
+  report EVERY OTHER METRIC AT STAGE B ONLY.** The project will apply **post-generation filtering**
+  (`plan.md`, `[P5-FILTER]` — selection, never ranking), so negatives are discarded before anything
+  downstream sees them. A Stage-A ladder value therefore answers a question nobody asks, and it
+  answers it badly: because a negative contributes 0 to `n_bio_orfs`, `n_bio_domains`, `frac` and
+  `bio_span_frac` **by construction**, the Stage-A column is the hit rate wearing a different name.
+  Measured 2026-08-24: GenomeOcean TERPENE `bio_span_frac` **0.641 over all records vs 0.934 among
+  positives**; RIPP `n_bio_orfs` **0.160 vs 1.031**.
+- ⚠️ **AND STAGE B CHANGES WHAT SOME METRICS MEAN — three now SATURATE and must not be read as
+  capability.** Among positives, `frac` **1.20**, `co_orient` **1.10** and `bio_span_frac` **1.07**
+  of the real-core value: generated positives are *more* purely biosynthetic than real cores,
+  because a real core carries non-biosynthetic content and a generation is essentially one clean
+  gene. **Above 1.00 here is a symptom of single-gene output, not of quality.** The Stage-B metrics
+  that still discriminate are the ones with real headroom — `n_bio_orfs`, `n_bio_domains`,
+  `n_class_domains`, `n_orfs`, `max_orf_aa`.
+- ⚠️ **The real-core reference must ALSO be Stage B on its own positives** (22/50 for RIPP, 49/50 for
+  TERPENE), never all 50. Quote the ratio to that reference (**B/ceiling**) alongside the raw value.
+- **Status:** **MANDATORY for every Phase-3 arm from 2026-08-18**; **Stage-B-only reporting for
+  non-primary metrics from 2026-08-24.** Label every reported number with its stage and its n.
 
 ### THE PHASE-3 REPORTING SET  [evaluation] [method]
 - **Is:** The fixed block of numbers that **every** Phase-3 intervention MUST report, so that any

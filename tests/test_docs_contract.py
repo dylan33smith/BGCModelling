@@ -850,6 +850,44 @@ def check_obligate_domains_classes(F):
 
 # ═══════════════════════════════════════════════════════════════════════════
 
+def check_experiment_id_convention(F):
+    """New-style experiment IDs must match P<phase>-<KIND>-<slug> or INF-<KIND>-<slug>.
+
+    Five schemes had accumulated (P3-B7 a bug, P5-REGEN a task, P6-A0 an arm, P8-T4 a subtask,
+    X1a an orphan with no phase) all occupying one slot and meaning different things. The
+    convention was adopted 2026-08-24; `terms.md` holds the definition and the old->new bridge.
+
+    Legacy IDs are NOT an error -- memory.md is a permanent ledger and plan.md's Phase Ledger
+    cross-references it. This checks only that anything written in the NEW form is well-formed,
+    and that the bridge table exists so legacy IDs stay readable.
+    """
+    cat = "plan"
+    if "plan.md" not in F or "terms.md" not in F:
+        return
+    terms = read(F["terms.md"])
+    if "EXPERIMENT ID CONVENTION" not in terms:
+        fail(cat, "experiment IDs follow the convention",
+             "terms.md has no EXPERIMENT ID CONVENTION entry -- the bridge table is what keeps "
+             "legacy IDs readable")
+        return
+    KINDS = "DAT|TRN|GEN|EVL|ANL|FIX"
+    txt = read(F["plan.md"])
+    # anything shaped like a new-style id: P<n>-<WORD>-... or INF-<WORD>-...
+    # KIND is EXACTLY three uppercase letters, so legacy ids whose second field is longer
+    # (P4-WIDE-dn, P8-AUDIT-2) are not candidates and are correctly left alone.
+    cand = re.findall(r"\b(?:P\d+|INF)-[A-Z]{3}-[A-Za-z0-9-]+", txt)
+    good = re.compile(rf"^(?:P\d+|INF)-(?:{KINDS})-[a-z0-9]+(?:-[a-z0-9]+)*$")
+    bad = sorted({c for c in cand if not good.match(c)})
+    if bad:
+        fail(cat, "experiment IDs follow the convention",
+             f"{len(bad)} malformed: {bad[:6]} -- KIND must be one of {KINDS} and the slug "
+             f"lowercase-hyphenated (terms.md)")
+    else:
+        n = len({c for c in cand})
+        ok(cat, "experiment IDs follow the convention",
+           f"{n} new-style id(s), all well-formed; legacy ids bridged in terms.md")
+
+
 CHECKS = [
     check_all_files_present, check_history_preserved, check_bugs_content_carried,
     check_load_bearing_claims, check_governor_size, check_governor_has_no_findings,
@@ -865,6 +903,7 @@ CHECKS = [
     check_manipulation_check_required, check_novelty_guard_present,
     check_correction_format, check_memory_append_marker,
     check_code_keys_documented, check_obligate_domains_classes,
+    check_experiment_id_convention,
 ]
 
 

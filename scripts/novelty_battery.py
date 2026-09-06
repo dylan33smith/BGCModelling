@@ -23,8 +23,8 @@ what the Phase-3 seeding arms introduce.
 T6.1  JOINT PASS RATE
 An arm can post 30% on-class and 100% novel while the on-class records are precisely the non-novel
 ones. Marginal rates cannot see that; only the per-record intersection can. This is the analogue of
-the phage paper's "302 candidates from hundreds of thousands" — the count that survives every
-filter AT ONCE, which is the only number describing what could actually be taken forward.
+the phage paper's "302 candidates from ~11,000 generations" (corrected 2026-08-27 from "hundreds
+of thousands" — see memory.md) — the count that survives every filter AT ONCE, which is the only number describing what could actually be taken forward.
 """
 from __future__ import annotations
 
@@ -223,17 +223,31 @@ def main() -> int:
     ap.add_argument("--gen", type=Path, required=True, help="generations jsonl")
     ap.add_argument("--train", type=Path, required=True, help="the class TRAIN jsonl")
     ap.add_argument("--cls", default="RIPP")
-    ap.add_argument("--window", type=int, default=2000)
-    ap.add_argument("--db-fasta", type=Path,
-                    default=Path("/data2/ds85/bgcmodel_data/splits_class/RIPP/train_proteins.fa"))
+    ap.add_argument("--window", type=int, default=0,
+                    help="Scored prefix in nt. **0 = FULL SEQUENCE, and that is now the default** "
+                         "(user, 2026-08-24). The 2,000 nt window was an Evo2-era artefact: Evo2 "
+                         "ran to its token cap with no working EOS, so a fixed prefix was the only "
+                         "way to compare arms of wildly different length. GenomeOcean stops itself "
+                         "at the learned distribution, so the window now truncates the REFERENCE "
+                         "and not the arm -- it measured real cores at 0.440 and full-length at "
+                         "0.680 while the model arm did not move. Pass an explicit value ONLY to "
+                         "reproduce a historical w2000/w4000 row.")
+    ap.add_argument("--db-fasta", type=Path, default=None,
+                    help="Protein DB generations are novelty-scored AGAINST. Defaults to "
+                         "splits_class/<CLS>/train_proteins.fa, DERIVED FROM --cls. It used to "
+                         "hard-default to RIPP's, which meant a TERPENE or PKS arm scored without "
+                         "this flag silently measured novelty against the WRONG class's proteome — "
+                         "and RIPP's file exists, so it would not have errored.")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
 
-    gens = [json.loads(l).get("sequence", "")[: args.window] for l in args.gen.open()]
+    # window 0 == full sequence; slicing with None is a no-op slice
+    _w = args.window if args.window and args.window > 0 else None
+    gens = [json.loads(l).get("sequence", "")[:_w] for l in args.gen.open()]
     gens = [g for g in gens if g]
     train = [json.loads(l)["sequence"] for l in args.train.open()]
     print(f"[battery] {len(gens)} generations, {len(train):,} training records, "
-          f"window {args.window} nt\n")
+          f"window {args.window if _w else 'FULL (no truncation)'}\n")
 
     # on-class + nucleotide containment (existing instruments, re-used not reimplemented)
     from concurrent.futures import ProcessPoolExecutor
@@ -263,6 +277,15 @@ def main() -> int:
         kg = kmers(g)
         nt_cont.append(max((len(kg & t) / len(kg) for t in tk if kg), default=0.0))
 
+    # Derive the novelty reference from --cls unless explicitly given, and refuse a mismatch.
+    if args.db_fasta is None:
+        args.db_fasta = Path(f"/data2/ds85/bgcmodel_data/splits_class/{args.cls}/train_proteins.fa")
+        print(f"[battery] novelty DB derived from --cls: {args.db_fasta}")
+    elif f"/{args.cls}/" not in str(args.db_fasta):
+        raise SystemExit(
+            f"[battery] FATAL: --db-fasta {args.db_fasta} does not belong to --cls {args.cls!r}. "
+            f"Generations would be scored for novelty against the wrong class's proteome. "
+            f"Pass the matching file or omit --db-fasta to derive it.")
     db = build_protein_db(args.train, args.db_fasta)
     aai = protein_novelty(gens, db)
     policy = load_class_policy(args.cls)

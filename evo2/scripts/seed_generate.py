@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,17 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# [P3-B7] MUST run BEFORE the import below. `finetune_evo2_lora.EVO2_MODEL_NAME` is a
+# MODULE-LEVEL constant reading EVO2_BASE_MODEL with a **7B fallback**, so it is bound the instant
+# `evo2_inference` is imported. An unset env var silently generates from the wrong model and only
+# fails if the adapter happens to be shape-incompatible -- 150 control generations were discarded
+# to exactly this on 2026-08-17 (bugs.md). Setting os.environ later in main() would be a NO-OP.
+if not os.environ.get("EVO2_BASE_MODEL"):
+    raise SystemExit(
+        "[seed_generate] FATAL: no substrate. Set EVO2_BASE_MODEL (e.g. evo2_1b_base) BEFORE "
+        "invoking this script -- it is read at import time and defaults to the 7B. "
+        "See bugs.md [P3-B7]. Refusing to guess.")
+
 from evo2_inference import load_evo2_wrapper_for_inference  # noqa: E402
 from generate_bgc import (  # noqa: E402
     _gen_sequences,
@@ -152,6 +164,11 @@ def _install_generated_only_steer_hook(model, layer: int, unit_vec, *,
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--adapter", type=Path, default=None, help="LoRA ckpt/run dir; omit for base Evo2.")
+    ap.add_argument("--base-model", default=None,
+                    help="Evo2 substrate, e.g. evo2_1b_base. REQUIRED unless EVO2_BASE_MODEL is set. "
+                         "[P3-B7] the shared loader DEFAULTS TO THE 7B, so an unset substrate "
+                         "silently generates from the wrong model whenever the adapter happens to "
+                         "be shape-compatible. Refusing to guess.")
     ap.add_argument("--from-jsonl", type=Path, required=True, help="Real cores to draw seeds from (e.g. val).")
     ap.add_argument("--classes", nargs="+", default=["NRPS", "PKS", "TERPENE"])
     ap.add_argument("--per-class", type=int, default=10)
@@ -224,6 +241,15 @@ def main() -> int:
         ap.error(f"--steer-layer must be an int or a comma list of ints, got {args.steer_layer!r}")
     if not steer_layers:
         ap.error("--steer-layer is empty")
+
+    # [P3-B7] The substrate was resolved AT IMPORT (see the module-level guard) -- it cannot be
+    # changed here, because `EVO2_MODEL_NAME` is already bound. So --base-model may only CONFIRM it.
+    if args.base_model and args.base_model != os.environ["EVO2_BASE_MODEL"]:
+        raise SystemExit(
+            f"[seed_generate] FATAL: --base-model {args.base_model!r} contradicts EVO2_BASE_MODEL "
+            f"{os.environ['EVO2_BASE_MODEL']!r}, which was ALREADY BOUND at import. Setting the "
+            "env var is the only way to choose the substrate; re-run with it set correctly.")
+    print(f"[seed_generate] substrate = {os.environ['EVO2_BASE_MODEL']}", file=sys.stderr)
 
     args.out_jsonl.parent.mkdir(parents=True, exist_ok=True)
     adapter = args.adapter

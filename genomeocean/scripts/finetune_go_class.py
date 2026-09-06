@@ -54,16 +54,39 @@ def main() -> int:
     ap.add_argument("--save-steps", type=int, default=500)
     ap.add_argument("--eval-steps", type=int, default=250)
     ap.add_argument("--max-val", type=int, default=200)
+    ap.add_argument("--early-stopping-patience", type=int, default=3,
+                    help="Stop after N consecutive evals with no improvement. 0 disables. "
+                         "Default 3: the cyclactone adapter peaked at epoch 3.6 of 10 and the "
+                         "remaining 6.4 epochs were pure waste the restore then had to undo.")
+    ap.add_argument("--bucket-field", default=None,
+                    help="[P13] record key holding an identity-bucket token (e.g. id_bucket). "
+                         "When set, that token is inserted AFTER the class token and masked from "
+                         "the loss, exactly as the class token is. Omit for the [P8]/[P10] path.")
+    ap.add_argument("--early-stopping-threshold", type=float, default=0.0,
+                    help="Minimum eval_loss improvement that counts as progress.")
     args = ap.parse_args()
 
     os.environ.setdefault("HF_HOME", "/data2/ds85/hf_cache")
     import torch
     from peft import LoraConfig, get_peft_model
-    from transformers import (AutoModelForCausalLM, PreTrainedTokenizerFast, Trainer,
-                              TrainingArguments)
+    from transformers import (AutoModelForCausalLM, EarlyStoppingCallback,
+                              PreTrainedTokenizerFast, Trainer, TrainingArguments)
 
     CLASS_TOKEN = f"[CLS_{args.cls}]"
     args.out.mkdir(parents=True, exist_ok=True)
+
+    # ⚠️ `load_best_model_at_end=True` can only restore a checkpoint that was SAVED. With
+    # save_steps > eval_steps the true best eval may fall between saves, and the trainer silently
+    # restores the best SAVED one instead -- while `best_metric` still reports the unsaved optimum.
+    # That mismatch shipped an adapter whose loss was 5.3486 under a summary claiming 5.3284.
+    if args.early_stopping_patience > 0:
+        print(f"[finetune] early stopping ON: patience {args.early_stopping_patience} evals "
+              f"(= {args.early_stopping_patience * args.eval_steps} steps) without an eval_loss "
+              f"improvement > {args.early_stopping_threshold}.")
+    if args.save_steps != args.eval_steps:
+        print(f"[finetune] save_steps {args.save_steps} != eval_steps {args.eval_steps}; "
+              f"aligning save_steps to {args.eval_steps} so every eval is a restore candidate.")
+        args.save_steps = args.eval_steps
 
     tok = PreTrainedTokenizerFast.from_pretrained(args.model)
     vocab_before = len(tok)
@@ -74,6 +97,20 @@ def main() -> int:
                          f"the Evo2 failure mode and makes the tag a silent no-op.")
     cls_id = ids_probe[0]
     print(f"[P8-T4] {CLASS_TOKEN} is atomic, id {cls_id}; vocab {vocab_before} -> {len(tok)}")
+
+    # ── [P13] identity-bucket token ─────────────────────────────────────────────
+    bucket_ids = {}
+    if args.bucket_field:
+        btoks = sorted({json.loads(l)[args.bucket_field]
+                        for l in (args.data / "train.jsonl").open()})
+        tok.add_special_tokens({"additional_special_tokens": btoks})
+        for bt in btoks:
+            probe = tok.encode(bt + "ATGCATGC", add_special_tokens=False)
+            if tok.convert_ids_to_tokens([probe[0]])[0] != bt:
+                raise SystemExit(f"[P13] FATAL: {bt} was shredded by the tokenizer -- a silent "
+                                 f"no-op, which is exactly the failure Gate T0 exists to prevent.")
+            bucket_ids[bt] = probe[0]
+        print(f"[P13] bucket tokens atomic: {bucket_ids}; vocab -> {len(tok)}")
 
     # ── data ────────────────────────────────────────────────────────────────────
     class DS(torch.utils.data.Dataset):
@@ -89,11 +126,17 @@ def main() -> int:
             seq = self.recs[i]["sequence"]
             # tokenizer auto-wraps BOS ... EOS; the class token goes AFTER BOS.
             body = tok(seq)["input_ids"]
-            ids = [body[0], cls_id] + body[1:]
+            prefix = [cls_id]
+            if args.bucket_field:
+                # [P13] bucket token sits AFTER the class token, so the class token's position and
+                # meaning are byte-identical to the [P10] arm and the bucket is the ONLY delta.
+                prefix.append(bucket_ids[self.recs[i][args.bucket_field]])
+            ids = [body[0]] + prefix + body[1:]
             ids = ids[: args.seq_len]
             labels = list(ids)
             labels[0] = -100          # BOS: never a target
-            labels[1] = -100          # class token: supplied at generation, never predicted
+            for k in range(1, 1 + len(prefix)):
+                labels[k] = -100      # conditioning tokens: supplied at generation, never predicted
             return {"input_ids": torch.tensor(ids), "labels": torch.tensor(labels),
                     "attention_mask": torch.ones(len(ids), dtype=torch.long)}
 
@@ -143,8 +186,31 @@ def main() -> int:
         return {k: v.unsqueeze(0) for k, v in feats[0].items()}
 
     trainer = Trainer(model=model, args=targs, train_dataset=train_ds,
-                      eval_dataset=val_ds, data_collator=collate)
+                      eval_dataset=val_ds, data_collator=collate,
+                      callbacks=([EarlyStoppingCallback(
+                          early_stopping_patience=args.early_stopping_patience,
+                          early_stopping_threshold=args.early_stopping_threshold)]
+                          if args.early_stopping_patience > 0 else None))
     trainer.train()
+
+    # Report what was SAVED. `state.best_metric` is the best OBSERVED value and is not necessarily
+    # the loss of the restored weights -- record both, and the checkpoint they came from.
+    st = trainer.state
+    restored = getattr(st, "best_model_checkpoint", None)
+    restored_loss = None
+    if restored:
+        import json as _json
+        _ts = Path(restored) / "trainer_state.json"
+        if _ts.exists():
+            _h = [h for h in _json.loads(_ts.read_text()).get("log_history", [])
+                  if "eval_loss" in h]
+            if _h:
+                restored_loss = _h[-1]["eval_loss"]
+    if restored_loss is not None and st.best_metric is not None \
+            and abs(restored_loss - st.best_metric) > 1e-9:
+        print(f"[finetune] ⚠️ best OBSERVED eval {st.best_metric:.6f} was never saved; the restored "
+              f"checkpoint is {Path(restored).name} at {restored_loss:.6f}. Reporting the RESTORED "
+              f"value -- it is the one that describes these weights.")
 
     final = args.out / "final_adapter"
     model.save_pretrained(str(final))
@@ -155,15 +221,20 @@ def main() -> int:
         "model": args.model, "seq_len": args.seq_len, "epochs": args.epochs,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum, "lr": args.lr,
         "lora_r": args.lora_r, "lora_alpha": args.lora_alpha,
+        "bucket_field": args.bucket_field, "bucket_ids": bucket_ids,
         "trainable_params": trainable, "total_params": total,
         "n_train": len(train_ds), "n_val": len(val_ds),
         "global_step": trainer.state.global_step,
-        "best_eval_loss": min((h["eval_loss"] for h in hist), default=None),
+        "best_eval_loss_observed": min((h["eval_loss"] for h in hist), default=None),
+        "restored_checkpoint": (Path(restored).name if restored else None),
+        "restored_eval_loss": restored_loss,
         "eval_history": hist,
     }, indent=1))
-    print(f"[P8-T4] DONE step={trainer.state.global_step} "
-          f"best_eval_loss={min((h['eval_loss'] for h in hist), default=None)}")
-    print(f"[P8-T4] adapter -> {final}")
+    print(f"[finetune] DONE step={trainer.state.global_step} "
+          f"restored={Path(restored).name if restored else None} "
+          f"restored_eval_loss={restored_loss} "
+          f"best_observed={min((h['eval_loss'] for h in hist), default=None)}")
+    print(f"[finetune] adapter -> {final}")
     return 0
 
 

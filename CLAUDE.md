@@ -19,6 +19,8 @@
 * `data.md` — **read before touching data, runs or paths.** Datasets, schemas, splits, run registry.
 * `memory.md` — **never read on startup; `grep` it.** Chronological ledger of results + decisions.
 * `bugs.md` — **`grep` by symptom.** `[Symptom] → [Proven fix]`, indexed by subject.
+* `paper.md` — **FRAMING ONLY, zero results** (7th doc, user-authorised 2026-08-24). Every
+  claim in it must cite a `memory.md` entry; a claim with no ledger entry is not a claim.
 
 ## Standing Constraints (hard rules; rationale lives in `memory.md`)
 
@@ -27,9 +29,10 @@
    protein-level reconstruction, so it can pass a memorising arm on its own.
 2. **Live datasets: `splits_core/`, `splits_class/<CLASS>/`, `splits_class_wide/<CLASS>/`** —
    DEPRECATED (`data.md`) is off-limits; `splits_combined/` leaked (94.6% genome overlap).
-3. **The 1B is the Phase-3 testing substrate**; the 7B confirms. Testing does not fan out across
-   models. ⚠️ `evo2_1b_base` context is **8,192 — a hard model limit**, not a config choice; it
-   constrains substrate design (see `data.md`).
+3. **GenomeOcean-4B is THE substrate for all new work** (user, 2026-08-24). `evo2_1b_base` is
+   retained ONLY as the comparison case until the final picture is drawn — never as the default,
+   never as the arm a new phase opens on. Testing does not fan out across models. ⚠️ Evo2's context
+   is **8,192, a hard model limit**; GenomeOcean's is **10,240 tokens ≈ 50,934 nt** (`data.md`).
 4. **Pre-registered endpoints do not change mid-phase** (`docs/phase3_preregistration.md`).
 5. **A null is interpretable only if the test was powered AND the intervention verified to have
    landed** — otherwise the result is "uninformative", not "negative".
@@ -37,9 +40,8 @@
 7. **Never MIX antiSMASH and `class_markers` proxy numbers in one comparison** — the proxy inflates
    substantially (`terms.md`). This is not a reason to skip antiSMASH: **run it, report it as its
    own row.**
-8. **`correct_class` under a class-specific adapter is MEASURED and NON-ZERO** (rewritten
-   2026-08-24; "UNMEASURED" 2026-08-18 and "~0 de novo" before it are both superseded — rates in
-   `memory.md` 2026-08-20). "~0" held for LABEL conditioning; adapter routing changed it.
+8. **`correct_class` under a class-specific adapter is MEASURED and NON-ZERO** — "UNMEASURED" and
+   "~0 de novo" are both superseded; "~0" held for LABEL conditioning only (`memory.md`).
 
 9. **A validation holds only in the REGIME it was measured in.** Any discrimination score,
    threshold or calibration must be re-derived when the scoring set, window, seed length, substrate
@@ -64,10 +66,10 @@ to be comparable across them.
 
 1. **Report THE PHASE-3 REPORTING SET in full, every time** (`terms.md`) — every metric, every arm,
    including the ones that did not move. Never omit a row; print `n/a` with a reason.
-2. **Label every number with its MEASUREMENT STAGE and n** (`terms.md`, THE TWO MEASUREMENT STAGES).
-   **Stage A** = all generated sequences (selection). **Stage B** = positives only
-   (characterisation). Quoting a Stage-B metric over all sequences yields a different, usually wrong
-   quantity — that error produced a retraction. Every Stage-B number needs a real-core reference.
+2. **PRIMARY = the Stage-A RATE of positives. EVERY other metric is STAGE B — positives only**
+   (`terms.md`; user, 2026-08-24). Post-generation filtering discards negatives, and a Stage-A
+   ladder value only re-measures the hit rate. Label stage and n; every Stage-B number needs a
+   real-core reference **on its own positives**, quoted as a ratio to it.
 3. **Row labels are the exact `terms.md` identifier** — snake_case, no prose synonyms. Not "bio
    bits" — `best_bio_bits`.
 4. **Order rows by importance:** primary endpoint → novelty gates → cluster structure → context →
@@ -87,8 +89,28 @@ to be comparable across them.
    under different configs in one sentence without saying so; quoting an 8 kb-window `n_orfs`
    beside a 2 kb-window table is exactly the confusion this prevents. Prefer adding the number to
    the table over explaining it in text.
-9. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
+9. **EXPLAIN WHAT YOU DID, AND HOW IT DIFFERS FROM WHAT WAS DONE BEFORE.** Every results report
+   opens with a plain-language **METHOD** paragraph — what was actually built or changed, in
+   sequence — followed by **WHAT'S DIFFERENT**: an explicit contrast against the closest prior arm,
+   naming the run dir it is being contrasted with and every knob that moved (substrate, data,
+   conditioning, adapter config, generation path, scoring). A number is uninterpretable when the
+   reader has to infer the intervention from the table. ⛔ **"Same recipe as before" is not
+   acceptable** — state the recipe and state the delta, every time, even when the delta is one flag.
+10. Two arms are comparable only if their `scoring` stamps match on Pfam subset, window, substrate,
    generation path and regime. Emit with `scripts/novelty_battery.py`; never hand-assemble.
+   ⚠️ **THE SCORING WINDOW IS RETIRED (2026-08-24) — score the FULL sequence.** It was an Evo2-era
+   fix for a model with no working EOS; with GenomeOcean it truncates the REFERENCE, not the arm.
+   **Every Phase 3–9 number was windowed and is NOT comparable to a full-length one** — re-derive
+   the reference, never carry it over.
+
+## IMPORTANT: Experiment ID Convention
+
+**`P<phase>-<KIND>-<slug>`**, or **`INF-<KIND>-<slug>`** for cross-phase tooling. `<KIND>` is exactly
+one of **`DAT` `TRN` `GEN` `EVL` `ANL` `FIX`**, so an ID says what the work is and what it costs
+without a lookup; `<slug>` is lowercase-hyphenated (`azole`, never `A0`). This replaced five
+colliding schemes. ⚠️ **`memory.md` IDs are FROZEN** — the ledger is permanent, so the new scheme
+covers **new and queued work only**; read old entries through the bridge table in `terms.md`, never
+rewrite them. Run directories and filenames are the SEPARATE convention below and are not renamed.
 
 ## IMPORTANT: Filesystem Naming Convention
 
@@ -122,20 +144,16 @@ lost a 698 MB run dir to a case collision and ~6,600 training records to a manif
   Poll the sentinel (`0` = success); never report a run finished without reading it:
   `tmux new-session -d -s <n> '<cmd> > logs/<n>.log 2>&1; echo $? > logs/<n>.status'`
 * **Read synchronous results.** After a fast command, read and summarize the output unprompted.
-* **Fan out when the batched path is gated.** Generation is one-sequence-at-a-time (vortex batching
-  is gated, `bugs.md`), leaving the H100 far under-utilised. Run N *sequential* processes on disjoint
-  units: semantics are unchanged, so outputs are identical. **N is not a constant — MEASURE IT.**
-  Fan-out helps only while utilisation is below ~100%; past saturation, extra workers time-slice and
-  aggregate throughput FALLS. Verify by counting outputs over ~3 min against the previous N, and
-  re-measure whenever model, sequence length, batch shape or host changes (`memory.md` has the
-  measured curve). `scripts/fanout.sh <N> <claim_dir> <unit_file> '<cmd with {}>'` — atomic `mkdir`
-  claims, one tmux session + sentinel per worker; write `<out>.partial` and `mv` on success.
-  **Not for throughput/memory benchmarks** — contention is what invalidates those.
-* **Any fan-out or workflow MUST assert its own completeness and fail loudly.** A script that
-  filters results and reports a count cannot distinguish "found nothing" from "ran nothing" — an
-  all-agents-failed workflow returned a clean-looking zero (`bugs.md`). Assert
-  `results.length === expected` and throw; before trusting an empty result, count
-  `"type":"result"` lines in `journal.jsonl`.
+* **Fan out when the batched path is gated** (Evo2 generation is one-at-a-time). N *sequential*
+  processes on disjoint units — semantics unchanged, outputs identical. **N is not a constant —
+  MEASURE IT**; fan-out helps only below ~100% utilisation, and past saturation throughput FALLS.
+  Re-measure whenever model, length, batch shape or host changes, and **check whose load it is**
+  (shared host — `nvidia-smi --query-compute-apps`). `scripts/fanout.sh <N> <claim_dir> <unit_file>
+  '<cmd with {}>'`; give each shard a **distinct `--seed`** or they write identical output.
+  **Not for throughput/memory benchmarks.**
+* **Any fan-out MUST assert its own completeness and fail loudly.** A script that filters results
+  and reports a count cannot tell "found nothing" from "ran nothing" (`bugs.md`). Assert the
+  expected count and throw.
 * ⚠️ **Never `pkill -f <pattern>` where the pattern can match your own command line.** `pkill -f
   seed_generate.py` issued from a shell whose command string contains that text kills the issuing
   shell. Kill by PID from `ps -eo pid,cmd`.

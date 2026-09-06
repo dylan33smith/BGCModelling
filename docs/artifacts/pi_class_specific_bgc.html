@@ -108,6 +108,7 @@ li::marker{color:var(--accent)}
 .tasks .tid.done{color:var(--good)}
 .tasks .tid.hold{color:var(--muted)}
 .tasks .tid.warn{color:var(--signal)}
+.tasks .tid.run{color:var(--signal);font-weight:600}
 .tasks b{font-weight:600;display:block;margin-bottom:2px}
 .tasks span.d{color:var(--muted);font-size:.86rem;line-height:1.5}
 .next.held{opacity:.72}
@@ -123,18 +124,24 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
 
 <header>
   <div class="wrap">
-    <p class="eyebrow">Research update · 24 August 2026 · Evo2-1B vs GenomeOcean-4B</p>
+    <p class="eyebrow">Research update · 1 September 2026 · GenomeOcean-4B · eleven targets, three classes</p>
     <h1>Class-Specific BGC Generation</h1>
     <p class="claim">A class-specific LoRA puts class-appropriate biosynthetic machinery into
       <em>de novo</em> DNA on three independent compound classes — against controls that produce
-      exactly none. Changing the model raises that rate 9.8×; <em>seeding</em> the old model erases
-      the gap and reverses it.</p>
+      exactly none. Conditioned on a whole compound class it reaches ~2% of the specificity real
+      clusters have. Conditioned on a <em>single simple subclass</em> it reaches
+      <strong>100%</strong>.</p>
     <div class="stamp">
       <span>substrate <b class="m">evo2_1b_base</b></span>
       <span>context <b class="m">8,192 nt</b></span>
       <span>RIPP · PKS · TERPENE</span>
       <span class="ok">Phase 8 · 2×2 complete</span>
-      <span class="ok">docs verifier 29 / 0</span>
+      <span class="ok">Phase 9 · RIPP complete</span>
+      <span class="ok">Phase 10 · ceiling reached</span>
+      <span class="ok">Phase 11 · length boundary</span>
+      <span class="ok">Phase 12 · replicated ×3</span>
+      <span class="ok">Phase 13 · fidelity dial</span>
+      <span class="ok">docs verifier 30 / 0</span>
     </div>
   </div>
 </header>
@@ -343,7 +350,7 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
  <div class="wrap"><div class="phase">
   <div class="num">Phase 8</div>
   <div>
-    <h2>Seeding erases the model gap — and reverses it</h2>
+    <h2>Seeding erases the model gap</h2>
     <p>Every finding above was confounded with Evo2-1B. GenomeOcean-4B is the control that separates
       "the method" from "this model", re-running <em>Phase 7's exact endpoint</em> on a different
       architecture, tokenizer, context and pretraining corpus. Running the <strong>full 2×2</strong>
@@ -353,45 +360,67 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
  <div class="wide">
   <div class="scroll"><table>
     <caption>All arms n = 200 generated, window 2,000 nt, <code>OBLIGATE_DOMAINS[TERPENE]</code>,
-      identical battery. Gate metrics marked <code>*</code>. Rates are over all 200 generated —
-      an empty generation is a miss, not an exclusion.</caption>
+      identical battery; antiSMASH 8.0.4 full mode <code>--minlength 200</code>. Gate metrics marked
+      <code>*</code>. Rates are over all 200 generated — an empty generation is a miss, not an
+      exclusion. The GenomeOcean seeded column is the <b>repaired</b> arm
+      (<code>min_new_tokens = 100</code>); the original had 61/200 empty and is withdrawn.</caption>
     <thead><tr><th>Metric</th><th>Evo2 de novo</th><th>Evo2 seeded</th>
       <th>GenomeOcean de novo</th><th>GenomeOcean seeded</th><th>real cores</th></tr></thead>
     <tbody>
       <tr><td>best_bio_bits &gt; 0</td><td>0.070</td><td class="hi">0.615</td>
-        <td class="hi">0.685</td><td>0.400</td><td>0.980</td></tr>
+        <td class="hi">0.685</td><td class="hi">0.580</td><td>0.980</td></tr>
+      <tr><td><b>antiSMASH-corrected</b></td><td>0.065</td><td class="hi">0.545</td>
+        <td class="hi">0.635</td><td class="hi">0.550</td><td>1.000</td></tr>
       <tr><td>JOINT_PASS *</td><td>14/200</td><td>123/200</td><td>137/200</td>
-        <td class="void">80/139 ⚠️</td><td>49/50</td></tr>
+        <td>116/200</td><td>49/50</td></tr>
       <tr><td>containment * max</td><td>0.014</td><td>0.018</td><td>0.212</td>
         <td>0.033</td><td>0.140</td></tr>
       <tr><td>protein_aai * max</td><td>0.583</td><td>0.666</td><td>0.692</td>
         <td>0.575</td><td>0.867</td></tr>
-      <tr><td>scored n</td><td>200</td><td>200</td><td>200</td>
-        <td class="void">139 of 200</td><td>50</td></tr>
+      <tr><td>empty generations</td><td>0</td><td>0</td><td>0</td>
+        <td>0 <span class="m">(was 61)</span></td><td>0</td></tr>
+      <tr><td>scored n</td><td>200</td><td>200</td><td>200</td><td>200</td><td>50</td></tr>
     </tbody>
   </table></div>
  </div>
  <div class="wrap">
   <div class="metrics">
     <div class="metric"><div class="v">3.4e-40</div><div class="k"><em>de novo</em> — GenomeOcean beats Evo2 <b>9.8×</b></div></div>
-    <div class="metric"><div class="v">2.5e-05</div><div class="k">seeded — <b>Evo2 beats GenomeOcean</b></div></div>
+    <div class="metric"><div class="v">0.541</div><div class="k">seeded — <b>no difference</b> between the models</div></div>
     <div class="metric"><div class="v">6.0e-33</div><div class="k">seeding lifts Evo2 <b>8.8×</b></div></div>
-    <div class="metric"><div class="v">1.5e-08</div><div class="k">seeding <b>hurts</b> GenomeOcean</div></div>
+    <div class="metric"><div class="v">0.038</div><div class="k">seeding <b>hurts</b> GenomeOcean</div></div>
   </div>
-  <p><strong>"GenomeOcean is 9.8× better" is really "GenomeOcean <em>de novo</em> ≈ Evo2
-    <em>seeded</em>."</strong> The model gap is <strong>conditioning-dependent, not absolute</strong>.
-    GenomeOcean's real advantage is that it reaches seeded-level performance <em>without needing a
-    seed</em> — not that it is a better generator in general. Comparing seeded GenomeOcean against
+  <p><strong>Three of the four cells land in one band.</strong> antiSMASH-corrected, Evo2 seeded
+    (<span class="m">0.545</span>), GenomeOcean seeded (<span class="m">0.550</span>) and GenomeOcean
+    <em>de novo</em> (<span class="m">0.635</span>) are the same performance. <strong>The only outlier
+    is Evo2 <em>de novo</em> at <span class="m">0.065</span>.</strong> So "GenomeOcean is 9.8× better"
+    is really <strong>"GenomeOcean <em>de novo</em> ≈ everybody's seeded"</strong> — the model gap is
+    <strong>conditioning-dependent, not absolute</strong>, and GenomeOcean's advantage is that it
+    reaches the seeded band <em>without needing a seed</em>. Comparing seeded GenomeOcean against
     <em>de novo</em> Evo2 would have inverted the conclusion, which is exactly what building the two
     missing cells was for.</p>
-  <div class="note"><strong>Two denominator traps, both declared.</strong> <span class="m">61/200</span>
-    GenomeOcean seeded generations are <strong>empty</strong> — its EOS fires immediately after the
-    8-nt seed. The battery scored the 139 non-empty and reported 0.576; an empty generation is a
-    <em>miss</em>, so the arm rate is <span class="m">80/200 = 0.400</span>. And the seeded row is
-    <strong>not length-matched</strong>: Evo2 writes ~2,500 nt and fills the window, GenomeOcean's
-    seeded continuation has a median of 893 nt. That disadvantages GenomeOcean — the mirror of the
-    <em>de novo</em> row, where its working EOS stops it at 1,009 nt and only 43/200 filled the
-    window.</div>
+  <div class="note"><strong>The repair, and what it does not buy.</strong> The original seeded arm had
+    <span class="m">61/200</span> empty generations — EOS fired immediately after the 8-nt seed.
+    Nothing forbade an instant stop; <code>min_new_tokens = 100</code> gives <span class="m">0</span>
+    empty and 200/200 distinct. But it is a <strong>stoppage fix, not a capability fix</strong>: on
+    the <em>non-empty</em> denominator the repaired arm is 0.580 against the original's 0.576. It
+    recovers records that produced nothing rather than producing better ones — and it costs the
+    harder member, cyclase <span class="m">0.159 → 0.112</span>. A 6× longer seed was tested
+    separately and moved the empties only 61 → 47, so seed length was never the cause.</div>
+  <div class="note"><strong>The tie is GenomeOcean's best case.</strong>
+    <code>min_new_tokens = 100</code> was applied to the GenomeOcean seeded arm <em>only</em> —
+    Evo2's seeded arm ran with no minimum. GenomeOcean was handed a constraint Evo2 never got and
+    still did not win. The direction is therefore safe; an exactly matched contrast would need Evo2
+    re-run under the same floor.</div>
+  <div class="corr">
+    <span class="tag">Retracted — the reversal was an artefact</span>
+    <span class="was">Seeded, Evo2 <b>beats</b> GenomeOcean, 0.615 vs 0.400, p = 2.5e-05 — the model
+      gap <em>reverses</em> under seeding</span>
+    <span class="now">That 0.400 was the arm with <b>61/200 empty generations</b>. Repaired, it is
+      <b>0.580</b>, and 0.615 vs 0.580 is <b>p = 0.541 — no difference at all</b>. Seeding
+      <em>erases</em> the gap; it does not reverse it. "Seeding hurts GenomeOcean" survives but
+      weakens from p = 1.5e-08 to <b>p = 0.038</b>. The <em>de novo</em> 9.8× is untouched.</span>
+  </div>
   <div class="corr">
     <span class="tag">Corrected — what loss parity predicted</span>
     <span class="was">All three models encode class equally, so a model swap alone may not move the endpoint</span>
@@ -406,6 +435,481 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
     not isolate which axis did it. TERPENE was chosen so that <em>context</em> at least is excluded —
     94% of it already fits Evo2, and the 6.4× context bought only <span class="m">+5.3%</span> more
     training records.</p>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 10</div>
+  <div>
+    <h2>Conditioning works. The limit is what you ask for.</h2>
+    <p>Every result above says the model makes only the <em>simplest</em> member of whatever class it
+      is given. The obvious explanation was that "RIPP" is too coarse a thing to ask for — the model
+      is never told <em>which</em> RiPP to build, and antiSMASH's generic <code>RiPP-like</code> rule
+      fires on weaker evidence than any specific one. So we tested that at its limit: one dedicated
+      adapter per subclass, trained on that subclass alone, each measured against
+      <strong>its own</strong> real-core ceiling.</p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Stage B — of the sequences antiSMASH detects, how many carry the subclass the model was
+      conditioned on. Scored at <b>full length</b> (the 2,000 nt window was retired the same day) and
+      antiSMASH 8.0.4 full mode, <code>--minlength 200</code>. Each arm is read against the ceiling
+      measured on real held-out cores of <em>its own</em> subclass, not a shared one.</caption>
+    <thead><tr><th>Metric</th><th>cyclactone</th><th>azole</th><th>class-level RIPP</th></tr></thead>
+    <tbody>
+      <tr><td>training records</td><td>664</td><td>799</td><td>8,129</td></tr>
+      <tr><td>training median length</td><td class="hi">715 nt</td><td class="void">6,293 nt</td><td>1,931 nt</td></tr>
+      <tr><td>generated median length</td><td class="hi">708 nt <span class="m">(0.99×)</span></td>
+        <td class="void">3,390 nt <span class="m">(0.54×)</span></td><td>1,839 nt <span class="m">(0.95×)</span></td></tr>
+      <tr><td>detections</td><td>124/197</td><td>63/158</td><td>87/128</td></tr>
+      <tr><td><b>called its OWN subclass</b></td><td class="hi"><b>124/124 = 1.000</b></td>
+        <td class="void">1/63 = 0.016</td><td>2/87 = 0.023</td></tr>
+      <tr><td>its ceiling (real cores)</td><td>36/36 = 1.000</td><td>45/45 = 1.000</td><td>—</td></tr>
+      <tr><td>fell back to generic <code>RiPP-like</code></td><td class="hi">0/124 = 0.000</td>
+        <td>62/63 = 0.984</td><td>85/87 = 0.977</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="metrics">
+    <div class="metric"><div class="v">1.000</div><div class="k">cyclactone — <b>at its ceiling</b>, p = 1.0</div></div>
+    <div class="metric"><div class="v">2.6e-49</div><div class="k">the two subclass arms differ</div></div>
+    <div class="metric"><div class="v">8.2e-30</div><div class="k">azole below <em>its</em> ceiling</div></div>
+    <div class="metric"><div class="v">8.8×</div><div class="k">the length gap between them</div></div>
+  </div>
+  <p><strong>The two arms are matched on everything except length.</strong> 664 records against 799;
+    8.2% of the training set against 9.8%. The <em>larger, more frequent</em> subclass is the one that
+    fails. What separates them is that cyclactone is a single short peptide the model reproduces at
+    <span class="m">0.99×</span> its true length, while azole is multi-domain machinery the model
+    writes at <span class="m">0.54×</span> — half.</p>
+  <div class="note"><strong>Not memorisation — and this is the load-bearing check.</strong> A 1.000 on
+    short conserved peptides is exactly where copying would masquerade as success. Measured against
+    real held-out cores through the same battery, the generated sequences are <em>more</em> novel than
+    genuine unseen biology on both gates: containment <span class="m">0.247</span> vs
+    <span class="m">0.456</span>, and protein-identity failures <span class="m">2/200</span> vs the
+    real cores' <span class="m">2/36</span>.</div>
+  <div class="corr">
+    <span class="tag">Corrected — within the same day</span>
+    <span class="was">Subclass conditioning does not work; the granularity hypothesis is refuted</span>
+    <span class="now">That was written on the azole arm alone, before cyclactone finished.
+      <strong>Granularity works.</strong> The azole null is a null about <em>azole</em> — a long,
+      multi-domain target — not about conditioning. Target complexity is what binds.</span>
+  </div>
+  <div class="note"><strong>Two instruments failed, and one nearly hid the result.</strong> The Pfam
+    endpoint is <strong>blind to cyclactone</strong> — real cores of it score
+    <span class="m">2/36</span> where azole scores <span class="m">45/45</span> — so its
+    Stage-A rate of 0/200 measured the instrument, not the model. Had antiSMASH been run only on
+    Pfam-positives, the obvious design, it would have run on <strong>zero records and returned
+    nothing</strong>. And azole is the first arm where the novelty gates bite: 25 of its 26 failures
+    are endpoint hits, so its honest rate is <span class="m">0.133</span>, not 0.158.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 11</div>
+  <div>
+    <h2>Target length predicts what you get</h2>
+    <p>Two subclasses are a contrast, not a law. Three more adapters — same recipe, same training
+      scale — fill the gap between the one that worked and the one that did not.</p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Five subclass-conditioned adapters, 495–799 training records each, n = 200 generated per
+      arm, scored full length. Each is read against the ceiling from real held-out cores of
+      <em>its own</em> subclass. Wilson 95% intervals.</caption>
+    <thead><tr><th>Subclass</th><th>target nt</th><th>length fidelity</th><th>detect rate</th>
+      <th>own-subclass rate</th><th>95% CI</th></tr></thead>
+    <tbody>
+      <tr><td>cyclactone</td><td class="hi">715</td><td>0.99×</td><td>0.620</td>
+        <td class="hi"><b>1.000</b></td><td>0.970 – 1.000</td></tr>
+      <tr><td>ranthipeptide</td><td>1,624</td><td>1.11×</td><td>0.165</td>
+        <td class="hi">0.636</td><td>0.466 – 0.778</td></tr>
+      <tr><td>redox-cofactor</td><td>2,191</td><td>1.24×</td><td>0.075</td>
+        <td>0.200</td><td class="void">0.070 – 0.452</td></tr>
+      <tr><td>lassopeptide</td><td>2,738</td><td>0.85×</td><td>0.060</td>
+        <td>0.417</td><td class="void">0.193 – 0.680</td></tr>
+      <tr><td>azole</td><td class="void">6,293</td><td class="void">0.54×</td><td>0.065</td>
+        <td class="void"><b>0.031</b></td><td>0.008 – 0.105</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="metrics">
+    <div class="metric"><div class="v">−0.933</div><div class="k">r, log target length vs own-subclass rate</div></div>
+    <div class="metric"><div class="v">8.8×</div><div class="k">length span covered</div></div>
+    <div class="metric"><div class="v">1.9e-48</div><div class="k">the two extremes differ</div></div>
+    <div class="metric"><div class="v">1.2e-09</div><div class="k">even <em>adjacent</em> points differ</div></div>
+  </div>
+  <p><strong>The failure mode degrades in three stages, and that is more informative than the rate.</strong>
+    At <span class="m">715 nt</span> the model never misses. Between
+    <span class="m">1.6</span> and <span class="m">2.7 kb</span> its misses are
+    <code>RRE-containing</code> — the RiPP recognition element — or a <em>different genuine</em>
+    subclass: wrong chemistry, but chemistry. Only at <span class="m">6.3 kb</span> does it collapse
+    to the bare generic rule, <span class="m">62/63</span>. Competence does not fade smoothly to
+    zero; it passes through a regime where the model still writes real RiPP chemistry and simply
+    writes the wrong one.</p>
+  <div class="note"><strong>The curve is not monotonic, and the middle is unresolved.</strong>
+    Lassopeptide sits above redox-cofactor despite being the longer target. Both rest on 12 and 15
+    detections, their intervals overlap almost entirely, and Fisher gives
+    <span class="m">p = 0.398</span>. The extremes carry the result; the middle fills in the shape
+    and should not be read as an ordering.</div>
+  <p><strong>What it buys is a selection rule.</strong> Sub-kilobase subclasses are solved. Past
+    roughly 3 kb the method produces RiPP-like DNA but not the chemistry it was asked for. That
+    predicts which of the <strong>43</strong> RiPP subclasses are worth a training run
+    <em>before</em> spending one — which is a different kind of result from any single rate on this
+    page.</p>
+  <div class="corr">
+    <span class="tag">Corrected — inconsistent denominators</span>
+    <span class="was">The length effect is on specificity, not on detectability</span>
+    <span class="now">That compared azole's detection rate among <em>Pfam-positives</em> against the
+      other arms' rate over <em>all</em> records. On a uniform denominator detection falls too —
+      <span class="m">0.620 → 0.165 → 0.075 → 0.060 → 0.065</span>. <strong>Both axes degrade with
+      target length.</strong></span>
+  </div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 11b</div>
+  <div>
+    <h2>It is not that it stops too early</h2>
+    <p>Azole was the only subclass that undershot its target length — <span class="m">0.54×</span> —
+      and the only one that collapsed to the generic rule. Those co-occurring is suggestive, and the
+      direction is testable: force it past its own stopping point and see whether the chemistry
+      arrives. The reading was fixed before the run. <em>Moves ⇒ the limit is length control, and
+      fixable. Stays ⇒ the limit is compositional, and much deeper.</em></p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Same adapter, same class token, same seed. <code>min_new_tokens</code> raised to force
+      generation past the training median. antiSMASH full mode on all 200. Wilson 95% intervals.</caption>
+    <thead><tr><th>Arm</th><th>median nt</th><th>vs target</th><th>detect rate</th>
+      <th>own-subclass</th><th>95% CI</th><th>bare <code>RiPP-like</code></th></tr></thead>
+    <tbody>
+      <tr><td>azole, natural</td><td>3,390</td><td class="void">0.54×</td><td>0.065</td>
+        <td class="void">2/65 = 0.031</td><td>0.008 – 0.105</td><td>62/65</td></tr>
+      <tr><td>azole, <b>forced long</b></td><td>9,512</td><td>1.51×</td><td>0.085</td>
+        <td class="void">1/17 = 0.059</td><td class="void">0.010 – 0.270</td><td>16/17</td></tr>
+      <tr><td>real azole cores</td><td>6,293</td><td>1.00×</td><td>45/45</td>
+        <td class="hi">45/45 = 1.000</td><td>0.921 – 1.000</td><td>0/45</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="metrics">
+    <div class="metric"><div class="v">0.507</div><div class="k">forced vs natural — <b>no change</b></div></div>
+    <div class="metric"><div class="v">2.8×</div><div class="k">more sequence, same failure</div></div>
+    <div class="metric"><div class="v">6.2e-14</div><div class="k">still below its ceiling</div></div>
+    <div class="metric"><div class="v">16/17</div><div class="k">still the generic rule</div></div>
+  </div>
+  <p><strong>The limit is compositional capacity, not length control.</strong> The model does not fail
+    because it stops writing too early. It fails because it cannot assemble the domain combination the
+    subclass requires — and giving it nearly three times as much sequence does not change that. The
+    collapse is identical at <span class="m">0.54×</span> and at <span class="m">1.51×</span> of
+    target length.</p>
+  <div class="note"><strong>The extra 6 kb is not empty — it is filler.</strong> The primary endpoint
+    rose (<span class="m">0.133 → 0.175</span>) and so did detection
+    (<span class="m">0.065 → 0.085</span>). So the model fills the space with recognisable
+    biosynthetic material and <em>no</em> subclass chemistry. That is the same shape as an earlier
+    TERPENE result where forcing a minimum length produced longer records with no more biosynthetic
+    genes. Two classes, two mechanisms, one lesson: <strong>length buys filler, not structure.</strong></div>
+  <div class="note"><strong>And there is no second stopping point.</strong> Suppressing EOS dropped
+    <code>hit_eos</code> from <span class="m">837/1000</span> to <span class="m">112/200</span> — once
+    pushed past its decision at ~3,390 nt the model does not find a later natural stop, it runs to the
+    cap. Its stopping behaviour is a single decision, not a preference it recovers from.</div>
+  <div class="note"><strong>Two limits on this result, stated rather than buried.</strong> The forced
+    arm has <span class="m">17</span> detections, so a jump to the ceiling is excluded but a
+    <em>modest</em> improvement is not — settling that needs n = 1000. And
+    <code>min_new_tokens</code> pins a floor, not a target: the model overshot to 1.51×. The strict
+    claim is that length is not the lever anywhere between <span class="m">0.54×</span> and
+    <span class="m">1.51×</span>, not that it fails at exactly 1.0×.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 12</div>
+  <div>
+    <h2>The replication that corrected the metric</h2>
+    <p>The length result above came from subclasses of <em>one</em> compound class. Six more adapters
+      — two in TERPENE, four in PKS — tested whether it generalises. It did not, in the form we had
+      written down, and finding out why produced a better claim.</p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Eleven subclass-conditioned adapters across three compound classes, each read against the
+      ceiling from real held-out cores of <em>its own</em> subclass. Full-length scoring; antiSMASH
+      full mode on every generated record, never only on the pre-filtered positives.</caption>
+    <thead><tr><th>Class</th><th>Subclass</th><th>target nt</th><th>detection rate</th>
+      <th>own-subclass, of detections</th></tr></thead>
+    <tbody>
+      <tr><td>TERPENE</td><td>precursor</td><td class="hi">903</td><td class="hi">0.790</td><td class="hi">1.000</td></tr>
+      <tr><td>RIPP</td><td>cyclactone</td><td class="hi">715</td><td class="hi">0.620</td><td class="hi">1.000</td></tr>
+      <tr><td>PKS</td><td>T3PKS</td><td class="hi">1,149</td><td class="hi">0.515</td><td class="hi">1.000</td></tr>
+      <tr><td>TERPENE</td><td>terpene (cyclase)</td><td>1,866</td><td>0.315</td><td>0.841</td></tr>
+      <tr><td>RIPP</td><td>ranthipeptide</td><td>1,624</td><td>0.165</td><td>0.636</td></tr>
+      <tr><td>PKS</td><td>T1PKS</td><td class="void">7,594</td><td>0.105</td><td>0.905</td></tr>
+      <tr><td>RIPP</td><td>redox-cofactor</td><td>2,191</td><td>0.075</td><td>0.200</td></tr>
+      <tr><td>RIPP</td><td>azole</td><td class="void">6,293</td><td>0.065</td><td class="void">0.031</td></tr>
+      <tr><td>RIPP</td><td>lassopeptide</td><td>2,738</td><td>0.060</td><td>0.417</td></tr>
+      <tr><td>PKS</td><td>T2PKS</td><td class="void">5,123</td><td class="void">0.025</td><td>1.000 <span class="m">n=5</span></td></tr>
+      <tr><td>PKS</td><td>hglE-KS</td><td class="void">11,734</td><td class="void">0.010</td><td>1.000 <span class="m">n=2</span></td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="corr">
+    <span class="tag">Corrected — the metric was class-dependent</span>
+    <span class="was">Own-subclass rate falls with target length, r = −0.933</span>
+    <span class="now">Across all eleven arms in three classes that becomes <b>r = −0.186</b>. PKS
+      holds 0.905–1.000 out to <b>11,734 nt</b> where RIPP collapses at 6,293. The cause is the
+      <em>denominator</em>: antiSMASH has a generic catch-all for RiPPs and effectively none for
+      TERPENE, so a RIPP failure is still <em>detected</em> and stays in the denominator, while a
+      TERPENE or PKS failure leaves it. The metric was partly measuring the annotation vocabulary.</span>
+  </div>
+  <p><strong>What survives is cleaner and it replicates.</strong> The effect is on
+    <em>detectability</em>, not specificity: the rate at which the model produces a detectable cluster
+    of the requested subclass falls sharply with target length — <span class="m">r = −0.822</span>
+    pooled (p = 0.002), <span class="m">−0.783</span> partial after controlling for training-set size,
+    and within class <span class="m">−0.834</span> for RIPP and <span class="m">−0.938</span> for PKS.
+    Three classes, not one. <strong>And short targets are solved outright in all three</strong> —
+    TERPENE, RIPP and PKS each reach <span class="m">1.000</span> of detections carrying the
+    conditioned chemistry.</p>
+  <div class="metrics">
+    <div class="metric"><div class="v">−0.822</div><div class="k">detection vs log target length</div></div>
+    <div class="metric"><div class="v">−0.783</div><div class="k">partial, controlling training size</div></div>
+    <div class="metric"><div class="v">1.000</div><div class="k">at ceiling in <b>all three</b> classes</div></div>
+    <div class="metric"><div class="v">11</div><div class="k">targets characterised</div></div>
+  </div>
+  <div class="note"><strong>One open contradiction, stated rather than smoothed.</strong> RIPP's azole
+    collapses to <span class="m">0.031</span> at 6,293 nt, but PKS T1PKS reaches
+    <span class="m">0.905</span> at 7,594 nt. Both long, opposite outcomes. Either azole is
+    RIPP-specific, or something other than length separates them.</div>
+  <div class="note"><strong>Three arms carry no weight.</strong> T2PKS and hglE-KS rest on 5 and 2
+    detections, and hglE-KS generated at <span class="m">0.29×</span> its target length — the worst
+    fidelity on record.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Phase 13</div>
+  <div>
+    <h2>The fidelity dial works. It does not buy the chemistry.</h2>
+    <p>The bacteriophage paper generated coherent multi-gene 5.4 kb genomes. It did so under a
+      conditioning signal we never had: a trained token meaning <em>"be 95–100% identical to
+      &Phi;X174"</em>. Its viable designs came back <span class="m">93.0–98.8%</span> identical to a
+      training sequence. Every arm on this page sits at the opposite extreme, because that dial did
+      not exist in our conditioning. <strong>So we built it.</strong></p>
+    <p>A second token, marking each training record's identity to a frozen reference, inserted after
+      the class token — on the azole adapter's <em>exact</em> training records, with byte-identical
+      hyperparameters and byte-identical decoding. <strong>The bucket token is the only thing that
+      differs</strong> between this and the Phase-10 azole arm.</p>
+    <div class="corr">
+      <span class="tag">The first attempt failed, and the failure is the finding</span>
+      <span class="was">Bucket the records by DNA identity, exactly as the phage paper did</span>
+      <span class="now"><strong>76.5% of azole clusters have zero alignable nucleotide identity</strong>
+        to the reference — the top bucket held 3 records against the 30 required.
+        <em>Microviridae</em> is a taxonomic <strong>family</strong> with a canonical member, so
+        "identity to &Phi;X174" is a real axis. An "azole-containing RiPP" is a <strong>chemical
+        annotation over genomically unrelated clusters</strong>. Their conditioning axis does not
+        exist in our data at the level they used it. Re-cut on protein identity, it does — but
+        <strong>bimodally</strong>: 40 records near-identical, 628 unrelated, 16 in between.</span>
+    </div>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Metrics are rows, arms are columns. Same adapter throughout; the only difference between
+      columns is which identity-bucket token was in the prompt. n = 200 per arm, antiSMASH full mode
+      on all 200, full-length scoring. <span class="void">Greyed columns are underpowered by
+      declaration — 14 and 2 training records — and carry no claim.</span></caption>
+    <thead><tr><th>metric</th><th>95–100%</th><th>80–95%</th><th class="void">70–80%</th>
+      <th class="void">50–70%</th><th>&lt;50%</th><th>Phase&nbsp;10</th><th>real cores</th></tr></thead>
+    <tbody>
+      <tr><td>training records behind token</td><td>40</td><td>115</td><td class="void">14</td>
+        <td class="void">2</td><td>623</td><td>&mdash;</td><td>&mdash;</td></tr>
+      <tr><td><b>own-subclass rate</b></td><td class="void">0.005</td><td class="void">0.010</td>
+        <td class="void">0.000</td><td class="void">0.005</td><td class="void">0.000</td>
+        <td class="void">0.002</td><td class="hi">1.000</td></tr>
+      <tr><td><b>detection rate</b></td><td class="hi">0.185</td><td class="hi">0.280</td>
+        <td class="void">0.020</td><td class="void">0.015</td><td class="void">0.010</td>
+        <td>0.065</td><td class="hi">1.000</td></tr>
+      <tr><td>joint pass rate</td><td>0.385</td><td class="hi">0.460</td><td class="void">0.160</td>
+        <td class="void">0.140</td><td>0.060</td><td>0.133</td><td>&mdash;</td></tr>
+      <tr><td>protein identity, max</td><td class="warn">1.000</td><td class="warn">1.000</td>
+        <td class="void">1.000</td><td class="void">0.990</td><td class="ok">0.542</td>
+        <td>0.979</td><td>0.641</td></tr>
+      <tr><td>records at &ge;0.98 (paraphrase)</td><td class="warn">2</td><td class="warn">3</td>
+        <td class="void">4</td><td class="void">2</td><td class="ok">0</td><td>&mdash;</td>
+        <td>&mdash;</td></tr>
+      <tr><td>DNA novelty failures</td><td class="ok">0</td><td class="ok">0</td><td class="void">0</td>
+        <td class="void">0</td><td class="ok">0</td><td class="ok">0</td><td>&mdash;</td></tr>
+      <tr><td>genes carrying biosynthesis</td><td>1.067</td><td>1.093</td><td class="void">1.136</td>
+        <td class="void">1.086</td><td>1.000</td><td>1.101</td><td class="hi">3.378 <span class="m">(was 1.454)</span></td></tr>
+      <tr><td>median length</td><td>4,536</td><td>4,835</td><td class="void">3,402</td>
+        <td class="void">3,719</td><td>3,333</td><td>3,390</td><td>6,293</td></tr>
+      <tr><td>length vs target</td><td>0.72&times;</td><td>0.77&times;</td><td class="void">0.54&times;</td>
+        <td class="void">0.59&times;</td><td>0.53&times;</td><td>0.54&times;</td><td>1.00&times;</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="metrics">
+    <div class="metric"><div class="v">28&times;</div><div class="k">detection swing across the dial — <b>p = 1.8e-16</b></div></div>
+    <div class="metric"><div class="v">4.3&times;</div><div class="k">more on-class DNA than Phase 10</div></div>
+    <div class="metric"><div class="v">0.144</div><div class="k">own-subclass vs Phase 10 — <b>no change</b></div></div>
+    <div class="metric"><div class="v">54/56</div><div class="k">still the generic rule</div></div>
+  </div>
+  <p><strong>The dial lands, and it lands hard.</strong> Detection goes from
+    <span class="m">0.010</span> at the low-fidelity end to <span class="m">0.280</span> at the high
+    end — a 28-fold swing inside a single adapter. It is not a length artefact: the elevation holds
+    in <em>every</em> length stratum, including sequences under 3 kb
+    (<span class="m">0.175</span> vs <span class="m">0.011</span>). And it steers novelty exactly as
+    designed — five records reach protein-level paraphrase at the high end, zero at the low end.</p>
+  <div class="note"><strong>But read that 28× the way Phase 12 taught us to.</strong> Almost all of
+    it is the generic <code>RiPP-like</code> call — <span class="m">36/37</span> and
+    <span class="m">54/56</span> — which is precisely the annotation escape hatch Phase 12 identified.
+    So the dial did <em>not</em> move subclass competence; it moved the catch-all.
+    <strong>That makes the flat azole rate more damning, not less</strong>: maximum template fidelity
+    bought 28× more of the thing that does not count, and none of the thing that does.</div>
+  <p><strong>And the chemistry does not move.</strong> Pooled across the two well-supported
+    high-fidelity buckets, the azole rate is <span class="m">3/400 = 0.0075</span> against Phase 10's
+    <span class="m">0.002</span> — <span class="m">p = 0.144</span>. Against its own ceiling,
+    <span class="m">p = 1.4e-58</span>. The model wrote 4.3&times; as much RiPP-like DNA and
+    <span class="m">zero</span> additional genes: 1.093 against a <b>3.378</b> ceiling, unchanged from
+    Phase 10's 1.101. <strong>More fidelity buys volume and length, not structure.</strong></p>
+  <div class="claim">Azole's boundary is not a conditioning artefact, and there is no fidelity price
+    at which <em>its</em> chemistry can be bought. We turned the dial the phage paper used, all the
+    way up, and the target chemistry stayed where it was.</div>
+  <div class="corr">
+    <span class="tag">Narrowed — Phase 12 corrected the law this rested on</span>
+    <span class="was">The <em>compositional boundary</em> is not a conditioning artefact</span>
+    <span class="now">This phase was written against Phase 11's length law, which Phase 12 then
+      corrected — that law was measured on a metric whose denominator is class-dependent, and
+      <b>PKS T1PKS reaches 0.905 at 7,594 nt</b>, a longer target than azole.
+      <b>The result here is untouched</b>: its primary was own-subclass over <em>all</em> generated
+      records, never among detections, so it never used the retracted metric. What narrows is the
+      scope — <b>this is a claim about azole</b>, which may be RIPP-specific, not about a general
+      compositional limit.</span>
+  </div>
+  <div class="note"><strong>Three limits, stated rather than buried.</strong> The pooled interval
+    tops out at <span class="m">0.022</span> against a ceiling of 1.000 — a jump to the ceiling is
+    excluded, a <em>modest</em> rise to around 2% is not; n = 1000 per bucket would settle it. The
+    no-bucket control is off-distribution, since every training record carried a bucket token, so
+    the load-bearing comparison is high-versus-low bucket <em>within</em> this adapter, which is
+    internally controlled. And <strong>DNA novelty never fired once</strong> — zero failures, zero
+    warnings, in all six arms — while protein novelty degraded to paraphrase. That is the blind spot
+    the two-gate rule exists for, caught in the act.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Context</div>
+  <div>
+    <h2>Against the phage paper</h2>
+    <p>The obvious comparison is Hie <em>et al.</em>, who generated whole bacteriophage genomes with
+      the same class of model and validated them in a wet lab. It is worth setting out precisely,
+      because the surface reading — <em>they made coherent 5.4 kb multi-gene genomes and we cannot</em>
+      — is not what the two papers actually show.</p>
+  </div>
+ </div></div>
+ <div class="wide">
+  <div class="scroll"><table>
+    <caption>Read from the paper's Methods directly rather than from a summary. Success rows use
+      different instruments — wet-lab viability against antiSMASH annotation — and are comparable in
+      <em>direction</em> only.</caption>
+    <thead><tr><th>Axis</th><th>Hie et al. — phage</th><th>This work</th></tr></thead>
+    <tbody>
+      <tr><td><b>question asked</b></td><td><em>Can</em> a genome language model design a working genome?</td>
+        <td><b>Where</b> does it stop working, and <b>what</b> stops it?</td></tr>
+      <tr><td>targets</td><td>one — &Phi;X174</td><td class="hi">eleven, across three compound classes</td></tr>
+      <tr><td>target size</td><td>5,386 nt, 11 genes</td><td class="hi">715 – 11,734 nt</td></tr>
+      <tr><td>conditioning</td><td class="hi">family token <b>+ "95–100% identical to &Phi;X174"</b></td>
+        <td>class token, then subclass token</td></tr>
+      <tr><td>fine-tuning</td><td class="hi">full-parameter SFT of a 7B, 16–32 × H100</td>
+        <td>LoRA r=16 — <b>1.287%</b> of a 4B, one H100</td></tr>
+      <tr><td>unique training examples</td><td class="hi">14,266</td><td>794 · 661</td></tr>
+      <tr><td>genome-equivalents seen</td><td class="hi">608,392</td><td>7,940 · 6,610</td></tr>
+      <tr><td>generations per target</td><td class="hi">~11,000</td><td>1,000 · 200</td></tr>
+      <tr><td><b>novelty stance</b></td><td>soft preference, &lt;95% AAI, on a shortlist</td>
+        <td class="hi">hard per-record gates — DNA <em>and</em> protein — on everything</td></tr>
+      <tr><td><b>output identity to training</b></td><td class="void"><b>93.0–98.8% nucleotide-identical</b></td>
+        <td class="hi">max containment <b>0.247</b> — more novel than real held-out cores</td></tr>
+      <tr><td>broad classifier's role</td><td>geNomad <b>descriptive, never a gate</b></td>
+        <td>Pfam was a gate — corrected, it was blind to one subclass</td></tr>
+      <tr><td>ground truth</td><td class="hi">wet lab — 302 built, <b>16 viable</b></td>
+        <td class="void">computational only</td></tr>
+    </tbody>
+  </table></div>
+ </div>
+ <div class="wrap">
+  <div class="claim">Their prompt asked for a near-copy of one named genome, and that is what came
+    back. The 11-gene, 5.4 kb coherence is largely <em>inherited from the template</em>, not composed.
+    Our gates run per record on everything generated. These are different tasks.</div>
+  <p><strong>Three defences that do not work — checked rather than assumed.</strong></p>
+  <ul>
+    <li><strong>"Their target was shorter."</strong> It was not — <span class="m">5,386 nt</span>
+      against our azole's <span class="m">6,293</span>. Length is not why they win; their target is
+      the smaller one.</li>
+    <li><strong>"They trained on near-duplicates."</strong> False. Their set is <em>more</em> diverse
+      at the matched threshold — <span class="m">94.9%</span> distinct against our azole's
+      <span class="m">87.7%</span>.</li>
+    <li><strong>"We just need to generate far more."</strong> Their funnel is
+      <span class="m">~36:1</span>, not the ~1000:1 this project had on record. Our 1,000-record azole
+      pool is already about a <em>ninth</em> of their entire per-target sampling budget.</li>
+  </ul>
+  <div class="note"><strong>And we ran their strongest tool against ourselves.</strong> Phase 13
+    ported their fidelity dial onto azole — same records, same hyperparameters, same decoding, the
+    identity token the only difference. Detection swung <span class="m">28×</span>; the target
+    chemistry did not move (<span class="m">p = 0.144</span>). <strong>The boundary is not a
+    conditioning artefact.</strong> ⚠️ And their conditioning axis does not fully exist in our data:
+    <em>Microviridae</em> is a taxonomic family with a canonical member, while an "azole-containing
+    RiPP" is a chemical annotation over genomically unrelated clusters —
+    <span class="m">76.5%</span> of them share <em>zero</em> alignable nucleotide identity.</div>
+ </div>
+</section>
+
+<section>
+ <div class="wrap"><div class="phase">
+  <div class="num">Correction</div>
+  <div>
+    <h2>Three findings that weaken what we can claim</h2>
+    <p>Recorded together because each cuts against the results above, and each was found by checking
+      rather than by being challenged.</p>
+  </div>
+ </div></div>
+ <div class="wrap">
+  <div class="corr">
+    <span class="tag">Corrected — the multi-gene reference was too low all along</span>
+    <span class="was">Real cores carry n_bio_orfs 1.454; our generations reach 1.03–1.38</span>
+    <span class="now">1.454 is the <em>class-level</em> 50-core sample. Measured <b>per subclass</b>,
+      real cores carry <b>1.79–3.38</b> biosynthetic genes — azole <b>3.378</b>, T1PKS
+      <b>2.767</b>. <strong>The multi-gene gap is roughly twice what has been reported</strong>:
+      1.10 against 3.378, not against 1.45.</span>
+  </div>
+  <div class="corr">
+    <span class="tag">Corrected — the long-target successes are fragments</span>
+    <span class="was">Subclass conditioning reaches its ceiling on targets up to 11.7 kb</span>
+    <span class="now">The genes themselves are short. Across eleven arms the longest generated ORF is
+      a median <b>0.82×</b> the real one, and for the two large PKS targets it is
+      <b>0.63–0.65×</b> — a 1,525-aa megasynthase where the real enzyme is 2,332 aa. antiSMASH still
+      calls it T1PKS, because the signature is present.</span>
+  </div>
+  <div class="note"><strong>And antiSMASH is a signature detector, not a cluster validator.</strong>
+    It calls genes, runs HMM profiles against the predicted proteins, and fires a rule when the
+    required domains are present within a distance cutoff. A detection means <em>the signature is
+    there</em> — never that the cluster is complete or functional. <strong>The defensible claim is
+    "generates a gene carrying the subclass's defining signature", not "generates the
+    subclass."</strong> Every rate on this page inherits that limit.</div>
  </div>
 </section>
 
@@ -469,6 +973,93 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
   </div>
 
   <div class="next">
+    <span class="id">Phase 9 · complete</span>
+    <h3>GenomeOcean on RIPP — the shape replicates, the magnitude does not</h3>
+    <p>RIPP was chosen because it has <strong>many</strong> subclasses where TERPENE's split is
+      binary. The 2×2 structure reproduced <em>exactly</em>; the rates did not.</p>
+    <ul class="tasks">
+      <li><span class="tid done">done</span><span><b>Loss parity replicates</b><span class="d">
+        <span class="m">1.4462</span> bits/nt against Evo2's <span class="m">1.4573</span> — this
+        time GenomeOcean is marginally <em>better</em>. Both models find RIPP harder than TERPENE
+        (~1.45 vs ~1.23), and bits/nt is the one quantity that <em>is</em> comparable across
+        classes.</span></span></li>
+      <li><span class="tid done">done</span><span><b>The 2×2 reproduced</b><span class="d">GO
+        <em>de novo</em> beats Evo2 <em>de novo</em> (0.115 vs 0.027, <span class="m">p=0.0020</span>),
+        <b>ties Evo2 seeded</b> (p=0.471) and <b>gains nothing from a seed</b> (p=0.873) — the same
+        four verdicts as TERPENE, on a class the conclusion was not derived from.</span></span></li>
+      <li><span class="tid warn">⚠</span><span><b>But magnitude does not transfer</b><span class="d">
+        <b>4.3×</b> not 9.8×, and <b>26% of its ceiling</b> not 70%. "GenomeOcean roughly reaches the
+        ceiling" was a TERPENE-only claim.</span></span></li>
+      <li><span class="tid done">done</span><span><b>Powered to n=1,000</b><span class="d">800 new
+        records at a different seed, zero overlap asserted, 1000/1000 distinct. Primary replicated
+        (0.131 vs 0.115); detections 13 → <b>87</b>.</span></span></li>
+      <li><span class="tid warn">⚠</span><span><b>antiSMASH floor was silently dropping records</b>
+        <span class="d">The 1,000 nt default rejected <b>7/23</b> positives, <b>178/200</b> of the
+        floor arm — and <b>14/50 real cores</b>, so the ceiling was wrong too. GenomeOcean generates
+        at the <em>real</em> length distribution where Evo2 wrote 4–8 kb. Everything re-derived at
+        <code>--minlength 200</code>; real-core detection 33 → <b>50/50</b>.</span></span></li>
+    </ul>
+  </div>
+
+  <div class="next">
+    <span class="id">Finding · RIPP</span>
+    <h3>One chemistry out of eleven</h3>
+    <p>The subclass test was the point of the phase. Powered up, it went the <em>other</em> way.</p>
+    <div class="corr">
+      <span class="tag">Corrected — small-sample inflation</span>
+      <span class="was">GenomeOcean reaches subclass specificity 1/13 = 0.077 strict, 3/13 = 0.231 lenient</span>
+      <span class="now">At <b>87 detections</b> it is <b>2/87 = 0.023</b> strict and
+        <b>10/87 = 0.115</b> lenient — about a third. The gap against the ceiling
+        (0.500 / 0.740) is now <b>decisive, p = 1.7e-11</b>, superseding the earlier
+        "underpowered, uninformative" reading.</span>
+    </div>
+    <p>The sharper result is <strong>richness</strong>. Across 87 detections GenomeOcean produced
+      exactly <strong>one</strong> chemistry — <code>ranthipeptide</code>, twice. Real cores span
+      <strong>eleven</strong>: azole-containing-RiPP, lanthipeptide classes i/ii/iii/v, lassopeptide,
+      microviridin, thioamitides, triceptide, redox-cofactor, cyclic-lactone-autoinducer. So it is
+      not "produces subclasses rarely" — it is <strong>produces one and misses the other ten</strong>.</p>
+    <div class="note"><strong>The model-vs-model question is still open, and it is Evo2's n.</strong>
+      2/87 against Evo2's 0/7 is <span class="m">p = 1.0</span>; with seven detections nothing could
+      reach significance. A detection-matched Evo2 arm is generating now.</div>
+  </div>
+
+  <div class="next">
+    <span class="id">Method · positives only</span>
+    <h3>The model swap buys frequency, not quality</h3>
+    <p>Reporting changed: the primary is the <em>rate</em> of positives, and every other metric is
+      now read <strong>among positives only</strong>, because post-generation filtering discards the
+      rest. A negative contributes 0 to the biosynthetic metrics by construction, so the
+      all-records column was re-measuring the hit rate under another name —
+      <code>bio_span_frac</code> reads <span class="m">0.641</span> over all records and
+      <span class="m">0.934</span> among positives.</p>
+    <p>Read that way, on TERPENE where it is best powered, <strong>GenomeOcean sits at 0.90–1.05 of
+      the real-core value on every structural metric, and Evo2's positives are close behind.</strong>
+      The 9.8× model gap is almost entirely a gap in <em>how often</em> a positive appears, not in
+      what one looks like. The single real quality difference: Evo2 calls <strong>2.0×</strong> as
+      many genes as a real core, filler from writing 2.5–8 kb where a real core is ~1 kb.</p>
+    <div class="note"><strong>Two caveats, both recorded.</strong> <code>frac</code>,
+      <code>co_orient</code> and <code>bio_span_frac</code> <em>saturate</em> among positives
+      (1.20 / 1.10 / 1.07 of ceiling) — above 1.00 there is a symptom of single-gene output, not of
+      quality. And the 2,000 nt window flatters the arm on the <em>primary</em>: widened to 4,000 the
+      ceiling rises 0.440 → 0.680 while GenomeOcean stays flat, so its share of ceiling falls from
+      <b>29% to 20%</b>.</div>
+  </div>
+
+  <div class="next">
+    <span class="id">Closed · bio + transport</span>
+    <h3>The one intervention aimed at multi-gene structure cannot deliver it</h3>
+    <p><code>bio + transport</code> was the standing candidate for multi-gene content, needing a
+      185 GB re-stream. Measuring the dataset <em>before</em> building it killed it: across
+      <span class="m">27,176</span> RIPP regions the span adds transporters and 3.9× the length
+      but <strong>zero</strong> biosynthetic genes — in <span class="m">0.000</span> of the 15,704
+      regions that have a transporter.</p>
+    <p>The reason is structural: the strict span runs from the first biosynthetic gene to the last,
+      so it <strong>already contains every biosynthetic gene in the region</strong>. Widening to
+      transport pads the ends. It remains legitimate for generating a <em>complete</em> BGC with its
+      exporter — but that is a different goal, and the plan's framing of it was wrong.</p>
+  </div>
+
+  <div class="next">
     <span class="id">X1 · alongside</span>
     <h3>Generation correctness and speed</h3>
     <p>One missing capability — <strong>seeing the sampled token ids</strong> — blocked all of these.
@@ -504,7 +1095,56 @@ footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);f
   </div>
 
   <div class="next">
-    <span class="id">X2 · released</span>
+    <span class="id">Phase 13 · next</span>
+    <h3>The next question is data, not parameters</h3>
+    <p>Two candidate explanations for azole were live: the model never learned what an azole cluster
+      is, or it learned fine and its sampling lands elsewhere. Teacher-forcing real held-out clusters
+      through the adapter — the first measurement here that is not a generation metric —
+      <strong>settled it against sampling</strong>. What is left points at training-set size, which
+      is the one axis where the phage comparison is most lopsided.</p>
+    <ul class="tasks">
+      <li><span class="tid done">done</span><span><b>The fidelity dial, built and swept</b><span class="d">Their
+        identity-bucket conditioning ported onto azole. Detection moves <b>28×</b> across the dial;
+        the subclass rate does not move at all.</span></span></li>
+      <li><span class="tid done">done</span><span><b>Redundancy ruled out</b><span class="d">The
+        obvious confound — that our long targets are simply more heterogeneous than one viral family
+        — is dead. Across the five RIPP subclasses, effective distinct training examples correlate
+        with the rate at <span class="m">r = +0.007</span>. Azole is the <em>most</em> redundant and
+        the <em>worst</em> performing.</span></span></li>
+      <li><span class="tid done">done</span><span><b>Not a sampling problem</b><span class="d">The
+        azole adapter beats the base model on real held-out azole by only
+        <span class="m">+0.035</span> bits/nt, better on <b>28 of 45</b> records; cyclactone's beats
+        the wrong adapter on <b>34 of 34</b>. If azole failed only because its sampler wanders, it
+        would still <em>model</em> real clusters well. It does not. <b>Guided decoding, beam search
+        and rejection sampling are closed off.</b></span></span></li>
+      <li><span class="tid warn">⚠</span><span><b>Memorisation without generalisation</b><span class="d">A
+        <span class="m">1.43</span>-nat train/eval gap with eval <em>rising</em> after step 400, while
+        gaining almost nothing on held-out records. That is a <b>data</b> limit, not a capacity one —
+        and it points at <b>14,266</b> phage training examples against our <b>794</b>.</span></span></li>
+      <li><span class="tid">control</span><span><b>Azole at <code>lora_r</code> 64 and 128</b><span class="d">⚠️
+        <b>Re-scoped to a referee-facing control, not a hypothesis test.</b> We are <em>past</em> the
+        LoRA diminishing-returns knee, not short of it — and the arm that <b>works</b> (cyclactone)
+        overfits hardest of the three. Fit quality does not separate success from failure here at
+        all.</span></span></li>
+      <li><span class="tid warn">⚠</span><span><b>Re-scope the overgeneration plan</b><span class="d">Their
+        funnel is <b>~36:1</b>, not the ~1000:1 this project had recorded — ~11,000 generations to
+        302 candidates. Our 1,000-record azole pool is already a ninth of their entire per-target
+        budget, so "generate far more" is not the lever it looked like.</span></span></li>
+    </ul>
+  </div>
+
+  <div class="next held">
+    <span class="id">dropped</span>
+    <h3>Inverse-frequency weighting — answered without running it</h3>
+    <p>Queued on the theory that rare subclasses are under-produced because they are rare. The two
+      Phase-10 arms falsify it: azole is the <em>larger and more frequent</em> subclass
+      (<span class="m">799</span> records, 9.8%) and it fails, while cyclactone
+      (<span class="m">664</span>, 8.2%) reaches its ceiling. Matched on volume and frequency,
+      opposite outcomes.</p>
+  </div>
+
+  <div class="next">
+    <span class="id">X2 · superseded</span>
     <h3>Subclass interventions</h3>
     <p>These were held pending GenomeOcean, in case it reattributed the finding from the method to
       the context limit. <strong>It did not</strong> — the harder-member ceiling holds in both models

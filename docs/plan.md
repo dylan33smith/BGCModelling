@@ -4,17 +4,194 @@
 one-row summary in the Phase Ledger for the rest of the phase; their full write-up goes to
 `memory.md` at completion. At phase close the ledger collapses to one line and the board resets.
 
-**Last updated:** 2026-08-24
+**Last updated:** 2026-09-01
 
 ---
 
 ## Current State
 
-**★★★ 2026-08-24 — SEEDING ERASES AND REVERSES THE MODEL GAP.** The 2x2 is complete. De novo,
-GenomeOcean beats Evo2 9.8x (0.685 vs 0.070, p=3e-40). **Seeded, Evo2 beats GenomeOcean** (0.615 vs
-0.400, p=2.5e-05) — seeding lifts Evo2 **8.8x** and *hurts* GenomeOcean (61/200 of its seeded
-generations are empty). ⇒ **GenomeOcean's real advantage is reaching seeded-level performance without
-a seed**, not being better in general. ⚠️ **And the cyclase claim is RETRACTED**: pooled to n=800,
+**★★★★ 2026-09-01 — IT IS NOT LENGTH. IT IS HOW MANY GENES THE TARGET'S RULE REQUIRES.**
+Across 11 subclass arms in 3 classes, **two orthogonal effects with two different predictors**:
+**rule gene-count → specificity** (r = **−0.895**, p = 0.0002; partial −0.891) and **target length →
+detectability** (r = **−0.822**, p = 0.0019; partial for specificity **+0.028**, i.e. nothing).
+⇒ Mean specificity by genes the rule needs: **1 gene → 0.958** · 2 → 0.684 · 3 → **0.115**.
+★ **hglE-KS settles it**: the LONGEST target (11,734 nt), one-domain rule, specificity **1.000**.
+★★ **THE SINGLE-GENE CEILING IS NOW DIRECTLY OBSERVED, not inferred.** **62/65** azole detections
+carry a **YcaO** domain — the azole rule's anchor — and get called `RiPP-like` because the *partner*
+gene is missing. On a matched denominator the two arms make their anchor at a comparable rate
+(**T1PKS 9.5%** of generations carry the full signature vs **azole 6.2%** carry YcaO); the entire
+outcome difference is **whether the anchor ALONE satisfies the rule**.
+⛔ **THREE CORRECTIONS THAT WEAKEN OUR CLAIMS, recorded together:**
+(1) the real-core `n_bio_orfs` reference has been **too low all project** — per-subclass real cores are
+**1.79–3.38**, not 1.454, so the multi-gene gap is **~2× larger** than reported;
+(2) our long-target "successes" are **fragments** — T1PKS and hglE-KS generate their longest gene at
+**0.63–0.65** of the real one, a truncated megasynthase that still trips the rule;
+(3) **antiSMASH is a SIGNATURE DETECTOR, not a cluster validator** — a detection means the required
+domains are present, never that the cluster is complete. ⇒ **"Generates the subclass" is not
+supportable; "generates a gene carrying the subclass's defining signature" is.**
+⚠️ **Every subclass finding is GenomeOcean-4B ONLY** (Evo2 was class-level, phases 3–9).
+⚠️ `paper.md` is flagged **under revision** — its hypothesis predates this.
+
+
+**★★★★ 2026-08-27 — IT IS NOT A SAMPLING PROBLEM, AND THE RANK HYPOTHESIS IS DEAD.**
+`[P13-EVL-likelihood]` teacher-forced real held-out clusters through the adapters — the first
+measurement in this project that is not a generation metric. **The azole adapter beats BASE on real
+azole by only +0.0352 bits/nt (t(44)=2.49, better on 28/45 records); cyclactone's beats base by
++0.1341 and beats the WRONG adapter on 34/34.**
+⇒ ⛔ **If azole failed only because its sampler goes elsewhere, it would still MODEL real azole well.
+It does not.** Decoding interventions — guided decoding, beam search, rejection sampling — are not
+the fix; that branch of the backlog is closed.
+⇒ ✅ **Conditioning still lands at the likelihood level** — each adapter is the best model of its own
+target, both significantly. Azole's is **~3x weaker and patchier** (35/45 vs 34/34).
+⇒ ★★★ **THE DIAGNOSIS IS MEMORISATION WITHOUT GENERALISATION:** a **1.43-nat train/eval gap** (train
+3.906 vs eval 5.331, eval *rising* after step 400) while gaining almost nothing on held-out records.
+**That is a DATA limit, not an adapter-capacity limit** — and it points straight back at 14,266
+phage training examples vs our **794** for a target of the same size.
+⇒ ⛔ **`P13-TRN-lorarank` RE-SCOPED to a control.** We are **past** the LoRA knee, not short of it,
+and **the arm that WORKS (cyclactone) overfits hardest of the three** — fit quality does not separate
+success from failure here at all. ⚠️ Premise correction: the subclass adapters are **GenomeOcean-4B
+(4.31 B)**, not Evo2-1B; 1.287% = 55.4 M trainable.
+
+**★★★★ 2026-08-27 — THE PHAGE PAPER'S FIDELITY DIAL WORKS, AND IT DOES NOT BUY THE CHEMISTRY.**
+`[P13-TRN-azolebucket]` ported their `+∼` identity-bucket conditioning onto azole — a second atomic
+token after the class token, on `[P10]`'s exact records and byte-identical hyperparameters and
+decoding, so **the bucket token is the only delta**.
+⇒ ★ **The dial LANDS, hard:** `antismash_detection_rate` **0.280** at `[ID_80_95]` vs **0.010** at
+`[ID_00_50]` — **p=1.78e-16, a 28x swing inside one adapter** — and **4.3x `[P10]`'s 0.065**
+(p=3.9e-16). `JOINT_PASS` 0.133 → 0.460. Length fidelity 0.54x → **0.77x**.
+⇒ ⛔ **NOT a length artefact** — the elevation holds in EVERY length stratum (<3 kb 0.175 vs 0.011,
+p=2.5e-04; 3–4.5 kb 0.212 vs 0.029, p=0.025; >4.5 kb 0.355 vs 0.000, p=2.2e-10).
+⇒ ★ **It controls NOVELTY as designed:** `protein_aai` ≥0.98 **5/400** high-fidelity vs **0/400**
+low. ⚠️ **`containment` never fires — 0 FAIL, 0 even at WARN, in all six arms.** DNA novelty stays
+clean while protein novelty degrades: **Standing Constraint 1's blind spot, observed live.**
+⇒ ⛔ **AND THE TARGET CHEMISTRY DOES NOT MOVE.** Pooled high-fidelity **3/400 = 0.0075** vs `[P10]`
+2/1000 = 0.002, **p=0.144 n.s.**; against its own ceiling **p=1.4e-58**. Collapse to bare generic
+`RiPP-like` persists **36/37 and 54/56**. `n_bio_orfs` 1.093 vs `[P10]` 1.101 against a **1.454** ⚠️[too low — real azole cores are **3.378**]
+ceiling — **4.3x the on-class DNA bought ZERO extra genes.**
+⇒ ★★★ **AZOLE's boundary survives its most serious challenge: it is not a conditioning artefact,
+and there is no fidelity price at which its chemistry can be bought.**
+⚠️ **CORRECTED 2026-08-27 — this read "the `[P11]` compositional boundary" until `[P12-TRN-secondclass]`
+(parallel session, same day) corrected `[P11]` itself.** That law was measured on
+`own_subclass|detected`, whose denominator is class-dependent — RIPP has the generic `RiPP-like`
+escape hatch, TERPENE and PKS have none — and over 11 arms it reads **r = -0.186**, with **PKS T1PKS
+at 0.905 on a 7,594 nt target.** ✅ **This phase's result is untouched**: its primary was
+`own_subclass_rate_all`, denominated on ALL generated records, never on detections.
+⛔ **But one reading of it weakens:** the 28x detection swing is almost entirely generic `RiPP-like`
+(36/37, 54/56) — the very escape hatch `[P12]` flags. Do not sell it as moving subclass competence.
+**It makes the flat azole rate more damning, not less: the dial bought 28x more of what does not count.**
+⚠️ Power: CI upper 0.022 vs a 1.000 ceiling — a jump to ceiling is excluded, **a modest rise to ~2%
+is not.** ⚠️ `p13_nobucket` is off-distribution and itself below `[P10]` (p=0.0115), so the
+load-bearing contrast is **high-vs-low bucket within this adapter**, which is internally controlled.
+⚠️ **Gate T0 FAILED on DNA first** — `ani_to_ref` median **0.0000**, 76.5% of azole records have zero
+alignable nucleotide identity to the medoid. ⇒ ***Microviridae* is a taxonomic FAMILY; an
+"azole-containing RiPP" is a CHEMICAL annotation over unrelated clusters.** Their axis does not exist
+in our data at the nucleotide level; on protein it does, but **bimodally** (40/115/14/2/628).
+
+**★★★ 2026-08-27 — THE PHAGE PAPER SOLVED A DIFFERENT PROBLEM, AND TWO OF OUR ELIMINATIONS ARE
+NARROWER THAN THEY READ.** `[P13-ANL-phagegap]` read Hie et al. Methods directly. Their prompt was
+**`+∼`**, where `∼` is a trained token meaning **"95–100% nucleotide identity to ΦX174"**, and their
+viable designs are **93.0–98.8% identical to a TRAINING sequence** (67–392 mutations each) under a
+*soft* <95%-AAI preference applied to a curated shortlist. ⇒ **Their multi-gene 5.4 kb coherence is
+largely INHERITED FROM A TEMPLATE, not composed** — and our `containment` ≥0.95 gate, applied
+per-record to everything, is a different task. ⚠️ **Azole (6,293 nt) is LONGER than ΦX174 (5,386
+nt)** — length is not why they win.
+⇒ The engineering gaps, in order: **18.0x more unique training examples** (14,266 vs 794) and
+**76.6x more genome-equivalents seen** (608,392 vs 7,940); **full-parameter SFT of a 7B on 16–32
+H100s vs LoRA r=16 at 1.287% trainable**; **a template-fidelity dial we do not have**; 11x more
+generations per target.
+⛔ **HYPOTHESIS KILLED — within-target redundancy explains nothing.** `r(train_frac_distinct@0.80,
+own-subclass rate) = +0.228`, `r(n_clusters@0.80, rate) = +0.007` vs `r(log10 nt, rate) = -0.933`
+on the same five subclasses. **This STRENGTHENS the `[P11]` compositional claim** against a confound
+it had never tested.
+⚠️ **TWO HOLES IN `paper.md`'s ELIMINATION TABLE.** (1) "not enough data" is eliminated with
+**r = -0.237 across 497–799 records — a 1.6x range**; that is a LOCAL null and does not license the
+18x extrapolation. (2) **Adapter CAPACITY was never varied** — `lora_r=16` on all five subclass
+adapters. Both queued as Phase 13.
+⚠️ **AND A FACTUAL CORRECTION:** the phage funnel is **~36:1**, not the ~1000:1 this repo carried in
+three places — ~11,000 SFT generations → 302 candidates → 285 synthesised → 16 viable. **Our n=1,000
+azole pool is already ~1/11 of their entire per-target budget**, which re-scopes `[P3-B2b]`.
+
+**★★★★ 2026-08-24 — THE LIMIT IS COMPOSITIONAL CAPACITY, NOT LENGTH CONTROL.** Forcing the azole
+adapter to generate at full length (`min_new_tokens` 1270 → median **9,512 nt**, 1.51x target, up
+from 3,390 = 0.54x) leaves its own-subclass rate **unchanged: 0.031 → 0.059, p=0.507**, still
+collapsing to bare generic `RiPP-like` **16/17**. Against its ceiling: **p=6.2e-14**.
+⇒ ★★ **The model does not fail because it stops writing too early — it fails because it cannot
+assemble the domain combination the subclass requires, however much sequence it is given.**
+⇒ The extra 6 kb IS filled with on-class material (primary `JOINT_PASS` **0.133 → 0.175**, detection
+0.065 → 0.085) and **zero** subclass chemistry. **More length buys FILLER, not STRUCTURE** — the same
+shape as the TERPENE `min_new_tokens` result.
+⇒ Suppressing EOS shows there is **no second stopping point**: `hit_eos` 837/1000 → 112/200, the
+model runs to the cap. Its stop is one decision, not a recoverable preference.
+⚠️ **17 detections** — a jump to ceiling is excluded, a *modest* improvement is not. n=1000 would
+resolve it (~1 h GPU); not run. ⚠️ Not length-matched — the claim is "length is not the lever
+anywhere in **0.54x–1.51x**", not "at exactly 1.0x".
+
+**★★★ 2026-08-24 — WHAT THIS METHOD CAN GENERATE IS PREDICTED BY TARGET LENGTH.** Five
+subclass-conditioned adapters spanning **8.8x** in target length give
+**r(log10 length, own-subclass rate) = -0.933**: cyclactone 715 nt → **1.000** · ranthipeptide
+1,624 → **0.636** · redox-cofactor 2,191 → **0.200** · lassopeptide 2,738 → **0.417** · azole
+6,293 → **0.031**. Extremes differ at **p=1.9e-48**; even adjacent points (cyclactone vs
+ranthipeptide) at **p=1.2e-09**.
+⚠️ **NOT monotonic** — lassopeptide sits above redox-cofactor, but on 12 and 15 detections with
+overlapping CIs (**p=0.398**). **The trend is strong; the middle ordering is unresolved.**
+★ **The failure mode degrades in THREE STAGES, which is the more useful finding:**
+**right chemistry (715 nt) → wrong-but-REAL chemistry (1.6–2.7 kb, misses are `RRE-containing` or a
+different genuine subclass) → no chemistry (6.3 kb, bare generic `RiPP-like` 62/63).** Only azole
+reaches collapse, and only azole undershoots its length (**0.54x** vs the others' 0.85–1.24x).
+⇒ **This is a SELECTION RULE: sub-1 kb subclasses are solved; past ~3 kb the method makes RiPP-like
+DNA but not the chemistry asked for.** It predicts which of the 43 RiPP subclasses are worth a run.
+⚠️ Detection rate falls with length too (0.620 → 0.165 → 0.075 → 0.060 → 0.065) — an earlier
+"specificity but not detectability" claim compared inconsistent denominators and is **withdrawn**.
+
+**★★★ 2026-08-24 — SUBCLASS CONDITIONING WORKS. THE FIRST CEILING EVER REACHED.**
+`P10-TRN-cyclactone` (GenomeOcean, 661 records, `[CLS_CYCLIC_LACTONE_AUTOINDUCER]`) produces its own
+subclass **124/124 = 1.000 of detections — indistinguishable from its real-core ceiling (p=1.0)**,
+with **zero** falling back to the generic `RiPP-like`, and **124/200 = 0.620 of everything it
+generates**. ✅ **NOT memorisation:** its generations are *more* novel than real held-out cores on
+both gates (`containment` max 0.247 vs 0.456; `protein_aai` fails 2/200 vs the real cores' 2/36).
+⛔ **But `P10-TRN-azole` is a clean null** — 1/63 = 0.016 against its own 45/45 = 1.000 ceiling
+(p=8.2e-30), and no better than the class-level adapter (p=1.0). **The two arms differ at p=2.6e-49.**
+⇒ ★ **What separates them is TARGET COMPLEXITY, not conditioning.** Cyclactone is one short peptide
+(median 715 nt) and the model reproduces its length distribution exactly (708 nt, 0.99x); azole is
+6,293 nt of multi-domain machinery and the model generates at **half** that (0.54x). **"Only the
+simplest member" survives one level down — but given a simple enough target, conditioning now
+delivers it COMPLETELY.**
+⚠️ **Two instrument problems found and recorded.** (1) The Pfam endpoint is **VOID for cyclactone** —
+real cores score only 2/36 = 0.056 on `OBLIGATE_DOMAINS[RIPP]`, so its 0/200 measures the instrument.
+**Any future subclass arm must validate its Stage-A gate against real cores of that subclass first.**
+(2) Azole is the **first arm where `JOINT_PASS` < `on_class`** (133 vs 158; 25 of 26 gate failures are
+on-class hits) — small-data training memorises, so quote `JOINT_PASS`.
+
+**★★★ 2026-08-24 — PHASE 9 CLOSES: THE SHAPE REPLICATES, THE MAGNITUDE DOES NOT.** GenomeOcean on
+RIPP reproduces the TERPENE 2x2 **structure** exactly — de novo it beats Evo2 de novo (0.115 vs
+0.027, **p=0.0020**), **ties Evo2 SEEDED** (p=0.471) and **gains nothing from a seed** (p=0.873).
+⇒ "GenomeOcean reaches the seeded band without a seed" is now replicated on a second, independent
+class. ⚠️ **But it reaches only 26.1% of its RIPP ceiling against 69.9% on TERPENE**, and the lift is
+**4.3x, not 9.8x** — *"GenomeOcean roughly reaches the ceiling" was a TERPENE-only claim.*
+★ **First specific RiPP chemistry ever generated** — a `ranthipeptide`, where every Evo2 detection
+was the generic `RiPP-like`. ⛔ **BUT POWERED TO n=1,000 / 87 DETECTIONS THE RATE FELL to 2/87 =
+0.023 strict, 10/87 = 0.115 lenient** — the 1/13 = 0.077 was small-sample inflation. The gap vs the
+ceiling (0.500/0.740) is now **DECISIVE, p=1.7e-11**, superseding the earlier "uninformative" read.
+★ **The real finding is RICHNESS: GenomeOcean made ONE chemistry (`ranthipeptide`, twice) across 87
+detections where real cores span ELEVEN.** Not "produces subclasses rarely" — "produces one and
+misses the other ten." ⚠️ vs Evo2 0/7 it is still p=1.0, and that is **Evo2's n, not ours**.
+★★ **AND, among POSITIVES ONLY, the models barely differ — the model swap buys FREQUENCY, not
+QUALITY** (TERPENE GO B/ceiling 0.90–1.05 on every structural metric). **TERPENE real cores are
+themselves single-gene (`n_bio_orfs` 1.122) so TERPENE could never test multi-gene structure; RIPP's
+1.454 ⚠️[class-level sample; per-subclass 1.79–3.38] can, and GO reaches only 0.71.** ⇒ **RIPP, not TERPENE, is the substrate for `bio + transport`.** ⛔ **And a measurement bug was found and fixed: the antiSMASH `--minlength` default
+(1,000 nt) was silently rejecting 30–89% of every arm** — and 14/50 real cores — because GenomeOcean
+generates at the real length distribution where Evo2 generated 4–8 kb. **Everything, ceiling
+included, was re-derived at `--minlength 200`** (real-core detection 33 → **50/50**).
+
+**★★★ 2026-08-24 — SEEDING ERASES THE MODEL GAP.** ⚠️ **"AND REVERSES IT" IS RETRACTED — the
+reversal was an artefact of the broken seeded arm** (61/200 empty; `memory.md`, `[P8-T5-FIX]`).
+De novo, GenomeOcean beats Evo2 9.8x (0.685 vs 0.070, p=3.4e-40). **Seeded, the two models are
+INDISTINGUISHABLE** — Evo2 0.615 vs GenomeOcean 0.580, **p=0.541**; antiSMASH-corrected 0.545 vs
+0.550. Seeding lifts Evo2 **8.8x** and still hurts GenomeOcean, but at **p=0.038, not 1.5e-08**.
+★ **Three of the four cells cluster at 0.545–0.635 corrected — Evo2 seeded, GO seeded, GO de novo.
+The only outlier is Evo2 de novo at 0.065.** ⇒ **GenomeOcean's advantage is reaching the seeded band
+without a seed**, not being better in general. ⚠️ The tie is GO's *best* case: `min_new_tokens=100`
+was applied only to GO's seeded arm. ⚠️ **And the cyclase claim is RETRACTED**: pooled to n=800,
 Evo2 makes the harder member 3/48 = 0.062 — rare, not never — and GenomeOcean's 0.159 is **not
 significantly higher (p=0.132)**. Both remain far below real cores (0.440). **The "easiest member"
 limitation survived the model swap.**
@@ -46,8 +223,10 @@ not dropped** (user, 2026-08-19) — see *Parked: RIPP* below for exactly what i
 |---|---|---|
 | **6** | **PKS** | ✅ **[P6-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.920). `max_orf_aa` 633 vs real 673. ⚠️ T3PKS-dominated substrate; ⚠️ 27.5% degenerate records. |
 | **7** | **TERPENE** | ✅ **[P7-A0] SIGNIFICANT de novo — 14/200 = 0.070 vs 0/400, p=1.5e-07** (ceiling 0.980). ⚠️ `n_class_domains`>=2 is 0/200 — RIPP's single-marker limit reproduces. |
-| **9** | **RIPP on GenomeOcean** | 🔄 **TRAINING** (`phase9_RIPP_GO`, 8,090 records, +10.3% vs Evo2). The second class, picked because RIPP's **many** subclasses give the harder-member contrast real power — TERPENE's binary split kept landing at p≈0.13. Evo2 baseline: `subclass_specificity` **0/7**. |
-| **8** | **TERPENE on GenomeOcean** | ✅ **COMPLETE T1–T9.** ★ **The model gap is CONDITIONING-DEPENDENT**: de novo GO 0.685 vs Evo2 0.070 (p=3e-40), but **seeded Evo2 0.615 vs GO 0.400 — Evo2 wins** (p=2.5e-05). GO's advantage is reaching seeded-level performance **without a seed**. ⚠️ Cyclase claim **retracted**: Evo2 makes it 3/48 = 0.062, GO 20/126, **p=0.132 n.s.** |
+| **9** | **RIPP on GenomeOcean** | ✅ **COMPLETE.** ★★ **The 2x2 SHAPE replicates exactly** (GO de novo beats Evo2 de novo p=0.0020; ties Evo2 SEEDED p=0.471; gains nothing from a seed p=0.873) — the "reaches the seeded band without a seed" conclusion now holds on a class it was not derived from. ⚠️ **Magnitude does NOT transfer**: 4.3x not 9.8x, **26.1% of ceiling not 69.9%**. ★ First **specific** RiPP chemistry ever generated (a `ranthipeptide`), but ⛔ `subclass_specificity` **1/13 vs Evo2 0/7 is p=1.0 — UNDERPOWERED, not negative**. |
+| **8** | **TERPENE on GenomeOcean** | ✅ **COMPLETE T1–T9 + fix.** ★ **The model gap is CONDITIONING-DEPENDENT**: de novo GO 0.685 vs Evo2 0.070 (p=3.4e-40); **seeded the two are INDISTINGUISHABLE, 0.615 vs 0.580, p=0.541** (⚠️ *"Evo2 wins, p=2.5e-05" RETRACTED* — it used the 61/200-empty arm). GO's advantage is reaching the seeded band **without a seed**. ⚠️ Cyclase claim **retracted**: Evo2 makes it 3/48 = 0.062, GO 20/126, **p=0.132 n.s.** |
+| **10** | **RIPP SUBCLASS adapters** | ✅ **COMPLETE.** ★★ **cyclactone 1.000 = AT CEILING**; ⛔ azole 0.016 null. Was: 🔄 training (`P10-TRN-azole`, `P10-TRN-cyclactone`) — `[CLS_AZOLE_CONTAINING_RIPP]` (799 rec) and `[CLS_CYCLIC_LACTONE_AUTOINDUCER]` (664 rec) on GenomeOcean. Tests whether class-level conditioning was too COARSE. ⚠️ small data, not length-matched. |
+| **11** | **RIPP subclass LENGTH series** | ✅ **COMPLETE.** ★★ **r = −0.933** over 5 subclasses × 8.8x length. Three-stage failure mode. Yields a **selection rule** for which subclasses are reachable. |
 | 5 | RIPP | ⏸️ **PARKED** — Level 2 achieved and defensible; open items listed below. |
 
 ⚠️ **[P6-A0] IS T3PKS-DOMINATED AND MUST BE DESCRIBED AS SUCH.** Of the 3,906 training records the
@@ -68,12 +247,126 @@ direction — never of magnitude.
 
 ---
 
+## Phase 10 queue — the subclass-specificity attack, in order (user, 2026-08-24)
+
+⚠️ **IDs below use the CURRENT convention** `P<phase>-<KIND>-<slug>` (`terms.md`). The Phase
+Ledger and everything in `memory.md` keep their ORIGINAL IDs and are read through the bridge
+table there — the ledger is permanent and is never renamed.
+
+**All three are GATED on `P10-TRN-azole` / `P10-TRN-cla` returning** — the two single-subclass adapters now training, plus
+their generation, scoring and antiSMASH. Nothing below starts until that eval is in, because
+the two running adapters tell us whether conditioning granularity is the lever at all.
+
+**The problem they attack.** `subclass_specificity` is **2/87 = 0.023** (GenomeOcean) and **1/77 =
+0.013** (Evo2) against a real-core **0.500**, p≈1e-11, and the two are indistinguishable from each
+other (p=1.0). Both models make **one** chemistry; real cores span **eleven**. Training data is
+**62.1% specific**, and the strict core retains its region's subclass **25/25 = 1.000** — so this is
+neither a data-availability nor a label-provenance problem (`memory.md` 2026-08-24, `P10-ANL-subclass-dist`).
+
+| id | intervention | what it changes | endpoint | what would FALSIFY it |
+|---|---|---|---|---|
+| **`P10-TRN-multitoken`** | **subclass-token routing — ONE adapter, N subclass tokens** | conditioning GRANULARITY at scale: `[CLS_<SUBCLASS>]` per record instead of one `[CLS_RIPP]`, over the top-N subclasses in a single model | `subclass_specificity` and **chemistry richness** (distinct chemistries generated, real cores = 11) | richness stays at 1 ⇒ granularity is not the lever, and the per-subclass adapters are the only route |
+| ~~`P10-DAT-drop-generic`~~ | ⛔ **DROPPED 2026-08-24 (user)** — the `P11` series answered it | — | **Already falsified:** 4 of 5 subclass arms emit the generic rule **0 times** (cyclactone 0/124, ranthipeptide 0/33, redox 0/15, lasso 0/12). The attractor exists **only for azole**, and azole's problem is target length, not the training mixture. |
+| ~~`P10-TRN-invfreq`~~ | ⛔ **DROPPED 2026-08-24 (user)** — the data answered it without the experiment | — | **Already falsified:** azole is the LARGER and MORE FREQUENT subclass (799 rec, 9.8%) and FAILS at 0.016; cyclactone (664 rec, 8.2%) reaches **1.000**. Matched on volume and frequency, opposite outcomes ⇒ frequency is not the lever. |
+
+⚠️ **REPRIORITISED 2026-08-24 after Phase 10 returned.** `P10-TRN-invfreq` is **dropped** (above).
+`P10-DAT-drop-generic` is **DROPPED** (2026-08-24) — `P11` showed 4 of 5 subclass arms emit the
+generic rule zero times, so there is no attractor to remove.
+`P10-TRN-multitoken` is **kept and is now more interesting**: the question changed from "does
+granularity help?" to "does ONE adapter with N tokens PRESERVE cyclactone's 1.000 while sharing
+capacity?" — the difference between a one-off and a usable method. **Top priority is now `P11`, the
+length dose-response series.**
+
+**Why this order.** `P10-TRN-multitoken` is the general form of the experiment already running and reuses its
+substrate builder. `P10-DAT-drop-generic` is the cheapest thing on the board — a filter on an existing split, no
+new data, no new code — and it isolates whether the 37.9% generic block is itself the attractor.
+`P10-TRN-invfreq` is last because it was shelved once for a reason (old `[X2c] → `P10-TRN-invfreq``: 31% of PKS training carried a
+ketosynthase and produced 0% of output, far worse than frequency alone predicts) and it only becomes
+interpretable once `P10-TRN-multitoken` has said whether granularity matters.
+
+⚠️ **Report chemistry RICHNESS alongside the rate for all three.** The `[P9-EVO2POOL]` result was
+that both models make exactly ONE chemistry — a rate that doubles while richness stays at 1 has not
+addressed the finding.
+⚠️ **Novelty gates are load-bearing here.** Every arm below trains on a small, narrow slice; an
+endpoint bought by memorisation is worthless. `containment` and `protein_aai` decide, not the rate.
+
+---
+
+## Phase 12 queue — write-up readiness (user, 2026-08-24)
+
+**Framing, hypothesis and titles now live in `docs/paper.md`** (framing only; every claim there cites
+`memory.md`).
+
+| id | what | why it is on the list |
+|---|---|---|
+| **`P12-TRN-secondclass`** | **replicate the length dose-response with SUBCLASS-conditioned adapters in TERPENE or PKS** | ★ **THE NEXT EXPERIMENT.** The quantitative curve is RIPP-only. ⚠️ The *direction* already replicates at class level — PKS T3PKS 1,083 nt made / T1PKS 7,665 nt not; TERPENE precursor 928 nt made / cyclase 2,009 nt rarely — so this converts an existing directional observation into a second curve. Difference between a RIPP paper and a paper about genome language models. |
+| **`P12-EVL-structure`** | **structure prediction on generated proteins** | Orthogonal to antiSMASH, which is HMM rules all the way down. A generated protein that folds like its class is evidence no homology search can give. Addresses "detection ≠ chemistry" without a wet lab. |
+| **`P12-EVL-coevolution`** | **co-evolutionary plausibility of generated proteins** | Second orthogonal axis: do generated sequences carry the covariation real families do, or only the consensus? Directly probes whether output is a real family member or a centroid — which is exactly the collapse claim. |
+| **`P12-EVL-proteomefilter`** | **broad filter = mmseqs hit COUNT vs the class's OWN training proteome** | Replaces the binary 8-accession Pfam gate, which is **blind to some subclasses** (real cyclactone cores score 2/36). Graded, cannot be blind by construction, and **we already run this search for the AAI gate** — the counts are free. Mirrors the phage paper's "≥7 protein hits". |
+| **`P12-FIX-filterdiscipline`** | **make validity checks FILTERS, not footnotes** | `containment`/`protein_aai` ≥0.95, junk/N, **length conformance to target** (new — azole's 0.54× went unflagged). ⚠️ Emit BOTH denominators (all-generated and valid-only) so nothing already published silently changes meaning — Standing Constraint 9. |
+
+**Principle for the filter work: filter on VALIDITY, never on the ENDPOINT.** A filter answers "is
+this a legitimate candidate?"; a metric answers "is it any good?". Filtering on the endpoint is
+circular. This is the line the phage paper holds and the one we currently blur.
+
+---
+
+## Phase 13 queue — the phage-paper gap (user, 2026-08-27)
+
+**Opened from `[P13-ANL-phagegap]`** (`memory.md` 2026-08-27), which read the phage paper's Methods
+directly and found two holes in `paper.md`'s elimination argument. Pre-registration:
+`docs/phase13_IDENTITY_BUCKET_preregistration.md`.
+
+| id | what | why it is on the list |
+|---|---|---|
+| **`P13-TRN-azolebucket`** | ✅ **DONE 2026-08-27 — identity-bucket conditioning on AZOLE.** **RESULT: the dial lands (detection 0.280 vs 0.010, p=1.78e-16, length-matched) and the subclass rate does NOT move (3/400 vs 2/1000, p=0.144).** `memory.md` 2026-08-27. Re-train the azole adapter with a second atomic token marking each training record's `ani_to_ref` bucket (their `∼`/`^`/`#`/`$`/`!` scheme), then generate across all five buckets, n=200 each. | ★ **THE NEXT EXPERIMENT.** The phage paper's multi-gene 5.4 kb success ran under **explicit template-fidelity conditioning** (`∼` = "95–100% identity to ΦX174"), and its viable outputs are **93.0–98.8% identical to a training sequence**. Every arm we have ever run sits at the maximum-novelty end of that dial. This builds the dial and measures the whole curve. ⇒ Converts `[P11]`'s "6.3 kb is a capability boundary" into **a measured exchange rate between fidelity and novelty** — or confirms the boundary at a known price. ⛔ **Gate T0 first:** if the top bucket holds <30 records the token has no training signal; switch to quintiles and drop the phage-threshold correspondence. |
+| **`P13-EVL-likelihood`** | ✅ **DONE 2026-08-27 — teacher-force real held-out clusters through the adapter and read the per-nucleotide likelihood.** 9 cells: {azole, cyclactone} × {real held-out, own generations} × {adapter, base}, plus azole-adapter-on-cyclactone as a specificity control. | ⛔ **Every azole result to date measures GENERATION, which confounds two failures with opposite fixes:** (1) the model never learned what an azole cluster is — knowledge/capacity; (2) it models them fine but its sampling mass sits elsewhere — a MODE problem. **Teacher-forcing separates them for one forward pass.** The cyclactone column is what makes the azole number readable: if azole's adapter improves on real azole as much as cyclactone's does on real cyclactone, both know their target equally well and the 1.000-vs-0.031 gap is **where the sampler goes, not what the model knows.** ⇒ **RESULT: it is NOT the sampler.** azole +0.0352 vs base (28/45) against cyclactone +0.1341 (34/34 vs the wrong adapter). Memorisation without generalisation; decoding fixes are closed off. `memory.md` 2026-08-27. |
+| **`P13-TRN-lorarank`** | **azole re-trained at `lora_r` 64 and 128** (α = 2r), everything else identical to `[P10-TRN-azole]`. ⚠️ **RE-SCOPED 2026-08-27 — this is a referee-facing CONTROL, not a hypothesis test.** | ⛔ **The 'we may be under the LoRA diminishing-returns knee' framing is WRONG, and our own loss curves already said so** (user, 2026-08-27). Azole at r=16 ends at train **3.906** vs eval **5.331** — a **1.43-nat generalisation gap** — with eval *rising* after step 400 (restored checkpoint-400 of 500). That is a model past the knee, not short of it; raising rank widens the gap and early stopping restores an even earlier checkpoint. ★ **And the decisive row is CYCLACTONE — the arm that reaches 1.000 has the WORST gap of the three**, peaking at step 150 then degrading to 5.633. **Fit quality does not separate our success case from our failure case at all.** ⇒ Run it only as a cheap box-check, quote it as a control, and **do not claim it closes the capacity hole**. ⚠️ Counter-argument, recorded because it cuts both ways: eval loss is per-token cross-entropy over ~1,270 tokens, so multi-gene architecture is a vanishing share of the signal — which makes loss weak evidence about architecture in EITHER direction, and is why `P13-EVL-likelihood` runs first. |
+
+⚠️ **AND A CORRECTION THAT RE-SCOPES `[P3-B2b]`:** their funnel is **~36:1**, not ~1000:1 — ~11,000
+SFT generations → 302 candidates → 285 synthesised → 16 viable. **Our n=1,000 azole pool is already
+~1/11 of their entire per-target sampling budget**, so "overgenerate far harder" is not the lever
+that intervention assumed. What their funnel buys is **filter discipline on a small pool**
+(`P12-FIX-filterdiscipline`), not scale.
+
+⛔ **The hypothesis `[P13-ANL-phagegap]` KILLED, recorded so it is not re-proposed:** within-target
+training redundancy explains nothing. `r(train_frac_distinct@0.80, own-subclass rate) = +0.228`,
+`r(n_clusters@0.80, rate) = +0.007` across the five `[P11]` subclasses. AZOLE is slightly *more*
+redundant than CYCLIC_LACTONE_AUTOINDUCER (0.610 vs 0.645) and has the **most** effective distinct
+examples (487) with the **worst** rate. And the phage training set is **more** diverse than ours at
+the matched threshold (94.9% vs 87.7% distinct at 99% id), not less. See `terms.md`
+`train_frac_distinct`.
+
+---
+
+## Phase 14 — THE COMPOSITE ENDPOINT (user, 2026-09-01)
+
+**The eventual goal, pre-registered.** antiSMASH detection means *the signature is present*, never
+that the cluster is complete — so the current defensible claim is **"generates a gene carrying the
+subclass's defining signature"**. The composite below is what would license **"generates a complete,
+architecturally correct cluster"** without a wet lab. Full definition and thresholds: `memory.md`
+2026-09-01 `[P14-EVL-composite]`.
+
+| # | component | instrument | where we are |
+|---|---|---|---|
+| 1 | all required genes present, not just the anchor | `definition_domains` per CDS | ⛔ azole 0.063 anchor-only |
+| 2 | gene count matches real | `n_bio_orfs` vs per-subclass real cores | ⛔ 1.04–1.38 vs **1.79–3.38** |
+| 3 | domain architecture correct AND ordered | `MODULE_PATTERNS` | ⚠️ never measured |
+| 4 | ORF lengths match real | `max_orf_aa` vs real | ⚠️ median **0.82x**, worst 0.63x |
+| 5 | plausible folds | structure prediction (`P12-EVL-structure`) | ⚠️ not run |
+
+⚠️ **Every current arm would fail this.** That is deliberate — the gap between it and our present
+rate is the size of the remaining problem. ⛔ **It still does not license "makes the compound."**
+⚠️ **Never filter on components 4–5** — they correlate with the endpoint, so filtering is circular.
+
+---
+
 ## Parked: RIPP — held, not dropped (2026-08-19, user)
 
 | item | why it is parked, and what unparks it |
 |---|---|
 | **[P5-REGEN]** regenerate the five duplicated Phase-4/5 arms | ~611 generations + antiSMASH, overnight. Buys back the 8 kb WIDE contrast and a real `JOINT_PASS`; changes **no claim anyone will build on**. Unpark if the WIDE question is reopened or a write-up needs the 8 kb contrast at full power. |
-| **[P5-BIOTRANS]** `bio + transport` training arm | ⚠️ **explicitly NOT dead** (user). Needs a re-stream of the 185 GB tar (`asdb5_core_records.jsonl` holds only strict and wide sequences). DEFINING-gene coverage 0.687, between STRICT 0.869 (works) and WIDE 0.576 (fails); 55.5% fits the 1B and only 58.4% of real RIPP regions have a transporter at all, so its ceiling is **0.584, not 1.0**. |
+| **[P5-BIOTRANS]** `bio + transport` training arm | ⛔ **CLOSED 2026-08-24 as a MULTI-GENE intervention** — measured on `ripp_components.jsonl` before building: it adds **0.000** biosynthetic genes, because the strict span runs first-to-last biosynthetic gene and so already contains them all. Still legitimate for generating a *complete* BGC with its exporter — a different goal. Original note: ⚠️ **explicitly NOT dead** (user). Needs a re-stream of the 185 GB tar (`asdb5_core_records.jsonl` holds only strict and wide sequences). DEFINING-gene coverage 0.687, between STRICT 0.869 (works) and WIDE 0.576 (fails); 55.5% fits the 1B and only 58.4% of real RIPP regions have a transporter at all, so its ceiling is **0.584, not 1.0**. |
 | **[P5-FILTER]** post-generation filtering | Selection only, never ranking — nothing we own ranks within positives. |
 | **Write up Level 2** | Ready. The RIPP result is complete and controlled. |
 
@@ -178,13 +471,22 @@ before designing anything after it.**
 `scripts/novelty_battery.py`. Never hand-assemble a subset — that is how A0 came to be quoted as a
 bare hit rate for three days while `n_class_domains` sat at exactly 1.000.
 
+★ **STAGE-B-ONLY, from 2026-08-24 (user).** Report the **Stage-A RATE of positives** as the primary,
+then report **every other metric among POSITIVES ONLY**, against a real-core reference that is also
+Stage B on its own positives (22/50 RIPP, 49/50 TERPENE) — and quote the **B/ceiling** ratio beside
+the raw value. Post-generation filtering discards negatives, and a Stage-A ladder value is the hit
+rate rescaled anyway (`bio_span_frac` 0.641 all vs **0.934** positives). ⚠️ **`frac`, `co_orient` and
+`bio_span_frac` SATURATE at Stage B** (1.20 / 1.10 / 1.07 of ceiling) — above 1.00 there is a
+symptom of single-gene output, not quality. The metrics with real headroom are `n_bio_orfs`,
+`n_bio_domains`, `n_class_domains`, `n_orfs`, `max_orf_aa`.
+
 Two arms are comparable **only** if their `scoring` stamps agree on all five axes. Each has already
 caused a real error here:
 
 | axis | required | what went wrong |
 |---|---|---|
 | Pfam subset | `OBLIGATE_DOMAINS[RIPP]`, 8 accessions | global set inverted A0 (08-14) |
-| scoring window | **2,000 nt** | `_w8000` read 0.087 vs `_w2000` 0.027 on one arm |
+| scoring window | ⚠️ **RETIRED 2026-08-24 — score FULL length** | `_w8000` read 0.087 vs `_w2000` 0.027 on one arm. The window then became the opposite problem: it truncated the CEILING (real cores 0.440 windowed vs 0.680 full) while GenomeOcean, which stops itself, barely moved. **Phase 3–9 numbers are windowed and do not compare to full-length ones.** |
 | substrate | `evo2_1b_base` | unset env silently used the 7B (08-17), 150 gens discarded |
 | generation path | batched (all current arms) | left-pad failed an equivalence gate — [P3-B8] |
 | regime | de novo **or** seeded, never pooled | 0.012 vs 0.367 detection |
@@ -240,10 +542,36 @@ Endpoint names are `terms.md` identifiers. `memory.md` column = date anchor to g
 | **P8-T2** | **GenomeOcean TERPENE substrate** | records kept vs Evo2 | 11,297 | **11,260 = 0.997 vs Evo2 0.943 → +602 (+5.3%)**; 4.974 nt/token, context 50,934 nt = 6.4x | ✅ **confound measured out: context cannot explain a P8 win** | 2026-08-22 |
 | **P8-T4** | **GenomeOcean TERPENE adapter** | training convergence | 11,260 rec | 2,112 steps = 3 ep, eval 4.5192→**4.2798**; **1.2414 bits/nt vs Evo2 1.2143** | ✅ trained; ★ **loss parity — representation was never the bottleneck** | 2026-08-22 |
 | **P8-T5/T7** | **GenomeOcean TERPENE de novo** | `best_bio_bits`>0 @ w2000 | 200 | **137/200 = 0.685** vs Evo2 0.070, ceiling 0.980; antiSMASH-corrected **0.635** | ✅ 9.8x de novo, novelty clean (0/200 gate fails) | 2026-08-24 |
-| **P9-SEED** | **the 2x2: seeded arms both models** | ″ | 200/arm | **Evo2 seeded 0.615** (8.8x lift, p=6e-33) · **GO seeded 0.400** (seeding HURTS, p=1.5e-08) | ★ **seeded: Evo2 BEATS GO, p=2.5e-05** | 2026-08-24 |
+| **P9-SEED** | **the 2x2: seeded arms both models** | ″ | 200/arm | **Evo2 seeded 0.615** (8.8x lift, p=6e-33) · **GO seeded 0.580** after the empty-generation fix (seeding still hurts GO, p=0.038) | ⛔ **"Evo2 BEATS GO" RETRACTED — p=0.541, NO DIFFERENCE** | 2026-08-24 |
 | **P9-CYC** | **powered cyclase test** | harder-member rate | Evo2 n=800 | Evo2 **3/48 = 0.062** · GO 20/126 = 0.159 · real 0.440 | ⚠️ **p=0.132 n.s.; 'never' RETRACTED** | 2026-08-24 |
 | **P8-CYC** | **cyclase vs the RIGHT comparator + training dist** | harder-member rate | — | **GO 0.159 vs Evo2-SEEDED 0.018, p=1.8e-04**; training data **0.331** — both under-produce, Evo2 by 18x | ★ **GenomeOcean IS the better substrate; NOT a data artifact** | 2026-08-24 |
-| **P8-SEEDFIX** | **GenomeOcean seeded-arm repair** | empty rate + full reporting set | 200/arm | `min_new_tokens=100` → **0 empty, 200/200 unique**, but primary **0.580 vs de novo 0.685** (p=0.038) | ⛔ **seeding is not worth it for GenomeOcean** | 2026-08-24 |
+| **P8-SEEDFIX** | **GenomeOcean seeded-arm repair** | empty rate + full reporting set | 200/arm | `min_new_tokens=100` → **0 empty, 200/200 unique**, primary **0.580** (corrected 0.550) vs de novo 0.685 (p=0.038) **and vs Evo2 seeded 0.615 p=0.541** | ⛔ seeding not worth it for GO; ⛔ **it also RETRACTS "Evo2 wins under seeding"** | 2026-08-24 |
+| **P9-T4** | **GenomeOcean RIPP adapter** | training convergence | 8,090 rec | 1,518 steps = 3 ep, 1h50m, eval 5.1153→**4.9501** = **1.4462 bits/nt vs Evo2 1.4573** | ✅ **loss parity replicates — GO now marginally BETTER** | 2026-08-24 |
+| **P9-A0** | **GenomeOcean RIPP de novo** | `best_bio_bits`>0 @ w2000 | 200 | **23/200 = 0.115** vs Evo2 0.027 (p=0.0020), ceiling 0.440; antiSMASH-corrected **0.085**, floor 0.000 | ✅ significant; ⚠️ only **26.1% of ceiling** vs TERPENE's 69.9% | 2026-08-24 |
+| **P9-2x2** | **the RIPP 2x2 vs TERPENE's** | four Fisher contrasts | 200/arm | GO de novo **ties Evo2 SEEDED** (p=0.471) and **gains nothing from a seed** (p=0.873) — identical to TERPENE | ★★ **structure replicates on an independent class** | 2026-08-24 |
+| **P9-SUBCLASS** | **`subclass_specificity`, the phase's designed endpoint** | specific vs generic, Stage B | 13 detected | ⛔ superseded by P9-POOL — the 1/13 = 0.077 was small-sample inflation | ⛔ **UNDERPOWERED at this n** | 2026-08-24 |
+| **P9-POOL** | **powered subclass test (user)** | ″ + full Stage-B ladder | **n=1,000, 87 detected** | ⛔ **2/87 = 0.023 strict, 10/87 = 0.115 lenient** (real 0.500/0.740); **ONE chemistry generated vs ELEVEN**; corrected primary **0.104** | ⛔ **gap now DECISIVE, p=1.7e-11**; ⚠️ vs Evo2 still p=1.0 — Evo2's n, not ours | 2026-08-24 |
+| **P9-STAGEB** | **Stage A vs Stage B across all arms (user)** | ladder among positives only | all arms | Among positives the models **barely differ** — TERPENE GO B/ceiling **0.90–1.05 on every metric**; Evo2 over-calls `n_orfs` **2.0x**. ★ TERPENE real cores are single-gene (1.122) so it **could never test multi-gene**; RIPP's 1.454 ⚠️[per-subclass real cores are 1.79–3.38] can, and GO reaches **0.71** | ★★ **the model swap buys FREQUENCY, not QUALITY**; multi-gene gap localised to RIPP | 2026-08-24 |
+| **P9-ML200** | **antiSMASH floor re-derived** | records actually run | 6 runs | default rejected **7/23, 9/21, 178/200** and **14/50 real cores**; at `--minlength 200` all run, ceiling 33 → **50/50** | ⛔ **policy held only in the Evo2 length regime** | 2026-08-24 |
+| **P9-EVO2POOL** | **model-vs-model subclass, detection-matched** | `subclass_specificity`, Stage B | GO 87 det / Evo2 77 det | ⛔ **2/87 = 0.023 vs 1/77 = 0.013, p=1.0** (lenient 0.115 vs 0.065, p=0.293); **BOTH make exactly ONE chemistry vs real cores' ELEVEN**; both ~5% of ceiling | ★★★ **POWERED NULL — the subclass limit is THE METHOD's, not either model's**; ⛔ "first specific chemistry" attribution RETRACTED (Evo2 makes a `redox-cofactor`) | 2026-08-24 |
+| **P9-TIE** | **the primary tie at 18x power** | `best_bio_bits`>0 | 1000 vs 889 | GO de novo **0.128** vs Evo2 seeded **0.116**, **p=0.439** (old Evo2 0.160 at n=50 was inflated) | ✅ **third independent confirmation: GO de novo ≈ Evo2 seeded** | 2026-08-24 |
+| **P9-CORR** | **antiSMASH-corrected, both pooled arms** | corrected rate | ″ | GO **0.104** vs Evo2 **0.133**, p=0.054 — but Evo2's `rn` is 2.7x higher because its negatives are **99.9% ≥2 kb** vs GO's 47.5% | ⚠️ **LENGTH ARTEFACT — not a win; quote the Pfam primary instead** | 2026-08-24 |
+| **P9-WINDOW** | **w2000 vs w4000 diagnostic** | ladder + primary | pooled arms | `n_bio_orfs` B/ceiling **FLAT at 0.71**; but the primary ceiling rises **0.440 → 0.680** while GO stays flat → its share falls **29% → 20%** | ⛔ my "window depresses the ladder ceiling" prediction was WRONG (mixed instruments); ✅ window DOES flatter the primary | 2026-08-24 |
+| **P9-BIOTRANS** | **`bio + transport` scoped before building** | biosynthetic genes added | 27,176 regions | **0.000** of 15,704 transporter-bearing regions gain a biosynthetic gene; span 3.9x longer | ⛔ **CLOSED — the strict span already contains every biosynthetic gene; 185 GB re-stream saved** | 2026-08-24 |
+| **P10-DATA** | **RIPP subclass distribution + core retention** | records per subclass; label survival into the core | 8,129 train; 50 real cores | **43 subclasses**; 62.1% specific vs 37.9% generic-only; top is azole 9.8%. **Core retains the region's subclass 25/25 = 1.000** | ⛔ **the long tail is NOT the explanation** (27x under-production of the whole category); ⇒ granularity is the live hypothesis | 2026-08-24 |
+| **P10-TRN-cyclactone** | **subclass adapter, short simple target** | own-subclass rate, Stage B | 200 gen / 124 det | ★★ **124/124 = 1.000, AT CEILING (p=1.0)**; 0.620 of all generated; novelty **cleaner than real held-out cores** | ★★★ **FIRST CEILING REACHED — subclass conditioning WORKS** | 2026-08-24 |
+| **P10-TRN-azole** | **subclass adapter, long complex target** | ″ | 1,000 gen / 63 det | ⛔ **1/63 = 0.016** vs ceiling 1.000 (p=8.2e-30); no better than class-level (p=1.0); generates at **0.54x** its training length | ⛔ **clean null — target complexity binds** | 2026-08-24 |
+| **P10-EVL-gate-void** | **Stage-A gate validity per subclass** | real cores on `OBLIGATE_DOMAINS[RIPP]` | 45 + 36 real | azole **45/45 = 1.000**; cyclactone **2/36 = 0.056** | ⛔ **Pfam endpoint VOID for cyclactone — validate the gate per subclass BEFORE using it** | 2026-08-24 |
+| **P11-TRN-series** | **length dose-response, 5 subclass adapters** | own-subclass rate vs target length | 200/arm | **1.000 / 0.636 / 0.200 / 0.417 / 0.031** at 715 / 1,624 / 2,191 / 2,738 / 6,293 nt; **r = −0.933** | ★★★ **target length predicts what the method can generate**; ⚠️ middle two n.s. (p=0.398) | 2026-08-24 |
+| **P11-ANL-failmode** | **what a MISS looks like, by length** | product census among misses | 5 arms | right → **wrong-but-real** (`RRE-containing`, other genuine subclasses) → **generic collapse** (azole 62/63) | ★ **three regimes, not a smooth fade** | 2026-08-24 |
+| **P11-FIX-earlystop** | **early stopping, first outing** | steps saved | ranthipeptide | peaked epoch 2.9, stopped at 250 of 345 — **95 steps saved**, restore took checkpoint-100 | ✅ **works as designed** | 2026-08-24 |
+| **P11-GEN-lengthfix** | **force azole to full length, re-measure** | own-subclass rate | 200 gen / 17 det | **0.031 → 0.059, p=0.507** at 1.51x target length; still 16/17 generic; primary rose 0.133 → 0.175 | ⛔ **NULL — the limit is COMPOSITIONAL CAPACITY, not length control**; ⚠️ underpowered for a modest effect | 2026-08-24 |
+| **P11-ANL-collapse** | **does class-level conditioning collapse to the centroid?** | bare-generic rate by conditioning granularity | 87 vs 184 det | **0.885 → 0.000, p=4.3e-57**; named chemistry 0.023 → 1.000, p=1.1e-57 | ★★ **the generic output is a CONDITIONING ARTEFACT, not a capability limit** — explains the class-level ~7% of ceiling | 2026-08-24 |
+| **P13-ANL-rulestructure** | **what predicts specificity — length or rule gene-count?** | own-subclass rate & detection rate vs both | 11 arms, 3 classes | **gene-count r=−0.895 (p=0.0002)** vs **length r=−0.186 n.s.**; length→detection **r=−0.822**; partials −0.891 / +0.028 | ★★★ **two orthogonal effects; length was the wrong variable for specificity** | 2026-09-01 |
+| **P13-ANL-ycao** | **do depth-2 misses carry half the rule?** | anchor-domain presence among detections | azole, 65 det | **62/65 = 0.954 carry YcaO**, called `RiPP-like` for want of the partner gene | ★★★ **single-gene ceiling DIRECTLY OBSERVED** | 2026-09-01 |
+| **P13-ANL-fragments** | **are the successes complete clusters?** | max ORF gen vs real; real-core `n_bio_orfs` | 5 arms | long-PKS longest gene **0.63–0.65×** real; real cores carry **1.79–3.38** bio genes vs our 1.04–1.38 | ⛔ **successes are fragments; the multi-gene gap is ~2× larger than reported** | 2026-09-01 |
+| **P14-EVL-composite** | **pre-register the composite endpoint** | 5 components, thresholds declared in advance | — | all-genes-present · gene count · domain ORDER · ORF length · fold plausibility | ★★ **defines what would license "generates a complete cluster"**; every current arm fails it | 2026-09-01 |
+| **P13-EVL-likelihood-corr** | **generation vs modelling, separated** | YcaO rate adapter vs base | 1000 vs 200 | adapter **63/1000 = 0.063** carry YcaO; base floor detects **0/200** | ⛔ **"the adapter learned nothing about azole" RETRACTED** — it learned the ANCHOR, not the joint structure | 2026-09-01 |
 | P5-PREC | precursor detector sensitivity | antiSMASH RODEO motifs | 12 + 12 | mixed subclass **8%**; module-covered **50%** | ⛔ **too low to gate — precursor line dropped** | 2026-08-19 |
 | **P8-AUDIT** | **refuted-claim audit across docs, code and cross-session auto-memory** | stale claims still asserted as fact outside `memory.md` | 16 sites | **16 corrected**; `memory.md` itself CLEAN. `hit_eos` had no `terms.md` entry — written. Auto-memory was the EOS leak (loads every session) | ⚠️ **corrections were reaching the ledger and not the docs people read** | 2026-08-24 |
 | **P8-AUDIT-2** | **propagate `f386df0` (the 2x2 + cyclase retraction) to the surfaces it missed** | stale claims left after a concurrent commit | 3 sites | `plan.md` 08-20 block still said "never"; `terms.md` power note had no worked example; PI artifact rebuilt | ⚠️ **the artifact went stale within the hour — it has no verifier** | 2026-08-24 |
@@ -255,7 +583,7 @@ substrate Evo2 1B (TE 1.13.0 verified).
 
 **Standing reading of the ledger:** A0 is **significant** (p=0.0054 vs 0/400 pooled controls,
 pre-registered §8.4). But it reaches only ~6% of the 0.440 ceiling, and all four hits carry a
-**single** RIPP domain where real cores carry 1.45 on average. The defensible claim is "a
+**single** RIPP domain where real cores carry 1.45 on average ⚠️[that is `n_class_domains`; the `n_bio_orfs` reference of 1.454 is also too low — per-subclass 1.79–3.38]. The defensible claim is "a
 class-specific LoRA puts RIPP-associated machinery into de novo output at a low but real rate" —
 **not** "it generates RiPP clusters". One domain is not a cluster.
 
@@ -404,18 +732,18 @@ reconstructs stop-at-EOS from the same generations (masking is frame-preserving,
 stop), and **both scorings are reported as a pair** until generation is token-id aware.
 
 **Interventions, cheapest first:**
-- **[X1e] MAKE `hit_eos` TEST TOKEN ID 0 — the cheapest real fix on the board.** It has read 0 in
+- **[X1e] → `INF-FIX-hit-eos` MAKE `hit_eos` TEST TOKEN ID 0 — the cheapest real fix on the board.** It has read 0 in
   every arm ever generated while the model was stopping all along. Requires capturing ids at
   generation time (vortex returns `logits`/`logprobs_mean`/`sequences`, not ids), which is also what
   separates EOS from genuine junk and makes the mask-vs-truncate choice unnecessary.
-- **[X1a] CONSTRAINED DECODING — do this first, it is ~10 lines.** Mask the logits to
+- **[X1a] → `INF-FIX-constrained-decoding` CONSTRAINED DECODING — do this first, it is ~10 lines.** Mask the logits to
   `{A,C,G,T}` (+ the EOS id once trained) before sampling. NVIDIA's own Evo2 NIM docs state only
   the 4 base tokens are meaningful in output and the rest exist for technical reasons. This makes
   the stray byte **impossible by construction** rather than filtered after the fact.
   ⚠️ Keep an unconstrained arm as the diagnostic — constraining hides the behaviour we are studying.
-- **[X1b] Train the EXISTING single-token EOS (id 0), not the 5-byte string** (user, 2026-08-20).
+- **[X1b] → `INF-FIX-eos-token` Train the EXISTING single-token EOS (id 0), not the 5-byte string** (user, 2026-08-20).
   ⚠️ **Do not ADD a token — id 0 is already there and the model already reaches for it.** One token
-  is ~5x the per-record gradient of a 5-token marker and makes [X1a] trivial (mask to 5 ids).
+  is ~5x the per-record gradient of a 5-token marker and makes [X1a] → `INF-FIX-constrained-decoding` trivial (mask to 5 ids).
   ✅ **SHIPPED 2026-08-20 — and with NO FLAG** (user): `--eos-token` and `--eos-mode` are both gone.
   The real EOS (id 0) is appended **unconditionally** after tokenisation to the window carrying a
   record's true end; the 5-byte `|END|` string is retired. `eos_reserve` is 1.
@@ -425,34 +753,34 @@ stop), and **both scorings are reported as a pair** until generation is token-id
   returned an uninterpretable null because the treatment never landed.
   ⚠️ Literature warns EOS becomes a **self-reinforcing attractor**: once emitted the model keeps
   emitting it, so a mis-placed early EOS collapses the record. Cap the upweight and measure.
-- **[X1h] DEGENERACY — what it is NOT, measured 2026-08-20.** Two plausible mechanisms tested and
+- **[X1h] → `INF-EVL-degeneracy-gate` DEGENERACY — what it is NOT, measured 2026-08-20.** Two plausible mechanisms tested and
   **both rejected**: (1) *"the prior context was not BGC-like"* — the pre-collapse prefix is NOT worse
   on-class (degenerate 6/55 = 0.109 vs clean 8/144 = 0.056, Fisher **p=0.22**, if anything better);
   (2) *classic repetition self-reinforcement* — degenerate records show **no more within-alphabet
   repetition than clean ones** (longest homopolymer median 6 vs 6; the BASE model is worse at median
   9). ⇒ It is an **abrupt exit from the nucleotide manifold**, not a gradual decay, which is
-  *encouraging* for [X1a]: there is no repetition loop for constraining to fall into.
+  *encouraging* for [X1a] → `INF-FIX-constrained-decoding`: there is no repetition loop for constraining to fall into.
   ⚠️ **But at those positions `P(ACGT) = 0.000`**, so renormalising over ACGT samples an essentially
   arbitrary base. **Whether constrained decoding yields USABLE sequence there is untested and is the
   measurement to make** — generate a constrained arm and score it, do not assume either way.
-- **[X1i] SNIP-AND-REPLACE (user, 2026-08-20)** — detect a degeneration/zero-length record, discard
+- **[X1i] → `INF-GEN-snip-replace` SNIP-AND-REPLACE (user, 2026-08-20)** — detect a degeneration/zero-length record, discard
   it, and regenerate that slot. This is rejection sampling; it is legitimate as a **selection** step,
-  needs no model change, and composes with [X1a]. It is also what the phage paper did (overgenerate,
+  needs no model change, and composes with [X1a] → `INF-FIX-constrained-decoding`. It is also what the phage paper did (overgenerate,
   filter hard). ⚠️ Report the rejection rate as its own row — a filtered set with an unreported
   discard rate hides the failure it was built to remove.
-- **[X1d] DEGENERACY IS A SEPARATE FAILURE AND [X1a] WILL NOT FIX IT.** In **0.42% of positions**
+- **[X1d] → `INF-EVL-degeneracy-gate` DEGENERACY IS A SEPARATE FAILURE AND [X1a] → `INF-FIX-constrained-decoding` WILL NOT FIX IT.** In **0.42% of positions**
   the model collapses to a ~uniform distribution over all 512 tokens (`P(ACGT)=0.000`) — the cause of
   the **27.5% degenerate records in PKS `A0`**. Masking logits at such a position just forces an
   arbitrary nucleotide. Needs the `n_pass` / length-quality gate, and it is the one place a
   *capability* fix (better model, more context) may be required rather than a decoding fix.
-- **[X1g] ◀ SHARED PREREQUISITE: MAKE GENERATION TOKEN-ID AWARE.** [X1e] (`hit_eos` on id 0) and
-  [X1f] (early stopping) are the SAME build, and [X1a] constrained decoding needs the same hook.
+- **[X1g] → `INF-FIX-token-ids` ◀ SHARED PREREQUISITE: MAKE GENERATION TOKEN-ID AWARE.** [X1e] → `INF-FIX-hit-eos` (`hit_eos` on id 0) and
+  [X1f] → `INF-FIX-per-row-stop` (early stopping) are the SAME build, and [X1a] → `INF-FIX-constrained-decoding` constrained decoding needs the same hook.
   vortex returns `logits`/`logprobs_mean`/`sequences` but **never the sampled ids**, and ids 0/1/32
   all detokenize to `' '`, so the decoded string cannot distinguish EOS from junk. **One change
   unlocks all three:** capture ids at sampling time, then (a) `hit_eos` tests id 0, (b) a per-row
   done-mask stops each sequence at its own EOS, (c) the junk-vs-EOS distinction that makes the
   mask/truncate choice unnecessary. **Do this before any further generation spend.**
-- **[X1f] EARLY STOPPING — ⚠️ BUILT, MEASURED, AND THE SIMPLE VERSION DOES NOT WORK.**
+- **[X1f] → `INF-FIX-per-row-stop` EARLY STOPPING — ⚠️ BUILT, MEASURED, AND THE SIMPLE VERSION DOES NOT WORK.**
   vortex's `stop_at_eos` checks for EOS and only `print`s (no `break`), and inspects batch row 0
   only — but fixing that is not enough. An `all(rows done)` exit gives **1.01x**, because only
   **21/32 rows emit EOS at all** and one non-terminating row holds the whole batch.
@@ -461,10 +789,10 @@ stop), and **both scorings are reported as a pair** until generation is token-id
   `inference_params` rebuilt for surviving rows.
   ⇒ **Cheaper approximations first:** shorten `--max-new-tokens` (median EOS is 2,869 of 8,000
   requested), and use **smaller batches** — waste scales with the wait on the slowest row.
-- **[X1c] Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
+- **[X1c] → `INF-GEN-filter-short` Filter prematurely-ended sequences at the selection stage** (user's earlier idea). Cheap,
   legitimate as selection, and the phage paper used a plain length filter rather than a stop token.
 
-### [X4] ⬜ BACKLOG — is the taxonomy prefix doing anything for Evo2? (user, 2026-08-22, NOT a focus)
+### `INF-ANL-taxonomy-prefix` ⬜ BACKLOG  *(was [X4])* — is the taxonomy prefix doing anything for Evo2? (user, 2026-08-22, NOT a focus)
 
 **Not urgent, logged so it is not re-derived from scratch later.**
 
@@ -508,21 +836,28 @@ every case the LONGER one, and the 1B's budget is 7,992 nt:
 ⇒ For PKS the model may simply **never have seen a complete T1PKS**. That is a substrate defect, not
 a capability limit, and it is testable.
 
-**Ordered interventions — ⏸️ ALL HELD pending [X3] GenomeOcean (user, 2026-08-20):**
+**Ordered interventions — ⚠️ SUPERSEDED 2026-08-24 for RIPP. See *Phase 10 queue* at the top of this file.** The hold pending `[X3]` is lifted (GenomeOcean is complete and is now THE substrate). Mapping, so the two lists do not drift:
+* `[X2d] → `P10-TRN-azole` / `P10-TRN-cla`` subclass-conditioned adapters → **RUNNING as `[P10-A]`** on RIPP (`AZOLE_CONTAINING_RIPP` 799 rec, `CYCLIC_LACTONE_AUTOINDUCER` 664 rec), on GenomeOcean not the 1B. The PKS/T1PKS framing below is the *original* scope and is not what is running.
+* `[X2c] → `P10-TRN-invfreq`` inverse-frequency upweighting → **queued as `[P10-D]`**, still last, still for the reason given below.
+* `[X2a]` bigger denominators → **DONE twice** (`[P9-POOL]` n=1,000, `[P9-EVO2POOL]` n=889). Both times the estimate moved DOWN. Do not re-run as a rescue.
+* `[X2b] → `P10-GEN-seeded-subclass`` seeded hard-subclass control → **still open and still cheap**; not yet run on RIPP.
+* **New, not in this list:** `[P10-B]` subclass-token routing and `[P10-C]` drop the generic block — both generated by the `[P10-DATA]` distribution analysis.
+
+*Original text, kept for the record:*
 - **[X2a] Bigger denominators — but NOT a blocker.** All three contrasts are already **significant
   against their own controls** (p=0.041 / 0.0024 / 6.4e-06) on 7–13 detections, and generation is the
   cheap step: n=600/arm would roughly triple them. Worth doing to turn a *direction* into an
   *estimated rate*, not to rescue the finding. ⚠️ The ">=15-detection floor" is **withdrawn** (user,
   2026-08-20) — arbitrary where sampling is cheap.
-- **[X2b] Seeded hard-subclass positive control.** Seed from a real T1PKS / cyclase exemplar at
+- **[X2b] → `P10-GEN-seeded-subclass` Seeded hard-subclass positive control.** Seed from a real T1PKS / cyclase exemplar at
   L\*=8. Phase 3 showed seeding lifts ~6x. **If seeded generation still yields 0 hard-subclass, the
   limitation is real; if it does not, it was the prior, not the capability.** This is the single
   most informative cheap experiment on the board.
-- **[X2c] Inverse-subclass-frequency upweighting** (user, 2026-08-20). Reweight training by rarity
-  of the subclass. ⚠️ **Do not run before [X2b]** — the PKS gap is 31.3% of training records
+- **[X2c] → `P10-TRN-invfreq` Inverse-subclass-frequency upweighting** (user, 2026-08-20). Reweight training by rarity
+  of the subclass. ⚠️ **Do not run before [X2b] → `P10-GEN-seeded-subclass`** — the PKS gap is 31.3% of training records
   carrying a ketosynthase producing 0% of output, which is far worse than frequency alone predicts,
   so reweighting may be aimed at the wrong cause.
-- **[X2d] Subclass-conditioned adapters** — a T1PKS-only adapter (~1,200 records). The honest route
+- **[X2d] → `P10-TRN-azole` / `P10-TRN-cla` Subclass-conditioned adapters** — a T1PKS-only adapter (~1,200 records). The honest route
   to any modular-PKS claim, and it also tests whether one adapter per *subclass* recovers what one
   per class does not.
 
@@ -563,7 +898,7 @@ context.** 37 records still exceed even the 32,768 ceiling (largest ~270 kb) and
 counted. Context **frozen at 10,240**. ✅ Tokenizer auto-wrap `BOS=1 … EOS=2` asserted in code.
 
 **T3 · Confirm the EOS/class-token handling.** GenomeOcean's tokenizer **auto-wraps every sequence
-`BOS=1 … EOS=2`**, so `[X1b]` is free here. Verify the class token survives fine-tuning as one
+`BOS=1 … EOS=2`**, so `[X1b] → `INF-FIX-eos-token`` is free here. Verify the class token survives fine-tuning as one
 atomic id (already gated true) and that EOS lands in the training targets.
 
 **T4 · Fine-tune.** Match the Evo2 recipe wherever it is meaningful — LoRA, 3 epochs, same data —
@@ -1029,8 +1364,17 @@ instrument and should stay closed** regardless of the Q1/Q2 history.
 - Adopt the phage-paper shape: generate **short**, sample **many**, filter **hard**. Measured
   support: block-0 detection 0.040 vs 0.024/0.028/0.022 later; 4× the tokens bought only 2.2× the
   hits (vs 0.151 predicted under independence). Tokens spent late are worth ~half those spent early.
-- Their funnel: ~14,466 training genomes → thousands generated → 302 candidates → 285 synthesised
-  → 16 viable. Roughly 1000:1 overgeneration.
+- ⚠️ **CORRECTED 2026-08-27 — this bullet previously read "Their funnel: ~14,466 training genomes
+  → thousands generated → 302 candidates → 285 synthesised → 16 viable. Roughly 1000:1
+  overgeneration."** The 1000:1 figure was never in the paper. Read from the source (bioRxiv
+  2025.09.12.675911v1, Methods), the funnel is **~36:1**: 14,266 training genomes → **~10,000
+  Evo1-SFT + ~1,000 Evo2-SFT generations** of length 6,000 at temperature 0.7 → **302** curated
+  candidates → 285 synthesised → **16 viable**. Retention 10.4% (Evo1) / 17.2% (Evo2) through
+  quality-control + tropism + diversification, then manual curation.
+- ⇒ ⛔ **THIS WEAKENS [P3-B2b] SUBSTANTIALLY.** Our n=1,000 azole pool is already ~1/11 of their
+  ENTIRE per-target sampling budget, so "generate far more" is not the lever this intervention
+  assumed it was. What their funnel actually buys is **filter discipline on a small pool**, not
+  scale. Re-scope accordingly; see `memory.md` 2026-08-27.
 - ⚠️ **CORRECTED 2026-08-24 — this bullet previously read "`|END|` does not work and is not worth
   fixing (0/150, previously 0/204; whole-record training did not change it)."** The zero was a
   property of the **metric**, not the model. The 5-byte string `|END|` genuinely never fired and is
