@@ -33,11 +33,31 @@ presenting exactly as "the model fails on short classes".
 **Paper:** methods must state `--minlength 1`, and this is a caution for anyone scoring
 extracted cores rather than genomes.
 
-### 1.2 The detection ceiling is high, so antiSMASH-only preserves dynamic range `[instrument]`
-Real held-out cores at ml=1, n=60/class: TERPENE 1.000, RIPP 0.967, PKS 1.000,
-BETALACTONE 1.000. **Paper:** justifies a single-instrument design; a Pfam-proxy ceiling
-measured earlier in the project's history was 0.440, which compresses every rate toward
-the floor.
+### 1.2 Full dynamic range: ceiling ~1.0 against a measured floor of exactly 0 `[instrument]`
+Scored through the single invocation site at `--minlength 1`, on the built corpus
+(held-out cores as ceiling, 300 real non-BGC coding sequences per class as floor):
+
+| class | ceiling (on-target) | **false-positive rate** | real-core multi-gene | modal share | products |
+|---|---|---|---|---|---|
+| TERPENE | 1.000 | **0.000** (0/300) | 0.197 | 0.525 | 2 |
+| NRPS | 0.992 | **0.000** | 0.273 | 0.441 | 11 |
+| RIPP | 0.992 | **0.000** | 0.347 | 0.384 | **19** |
+| ARYLPOLYENE | 1.000 | **0.000** | 0.588 | 0.820 | 4 |
+| BETALACTONE | 0.991 | **0.000** | 0.991 | 0.948 | 5 |
+
+**Paper:** justifies the single-instrument design. Zero false positives across 1,500 real
+non-BGC coding sequences also **confirms `--minlength 1`** — going low costs no specificity.
+A Pfam-proxy ceiling measured earlier in this project's history was 0.440, which compresses
+every rate toward the floor; antiSMASH gives essentially the full range.
+
+### 1.5 Re-scoring an extracted core recovers FEWER core genes than the genome-context annotation `[instrument]`
+Multi-gene fraction, corpus annotation vs antiSMASH re-detection on the same held-out
+records: TERPENE 23.7% → **19.7%**, NRPS 34.6% → **27.3%**, RIPP 44.0% → **34.7%**,
+ARYLPOLYENE 55.7% → **58.8%**, BETALACTONE 99.8% → **99.1%**.
+Stripping genomic context loses some biosynthetic-gene calls, most in the short classes.
+**Paper:** the achievable ceiling for *producing* multi-gene output is the re-detected
+figure, not the corpus annotation. Scoring generations against the corpus number would
+understate the model by up to ~9 points.
 
 ### 1.3 antiSMASH throughput is not the bottleneck `[instrument]`
 ~0.2 s/sequence at 8 CPUs in `--minimal` mode (60 sequences in 9–15 s; a 3-sequence probe

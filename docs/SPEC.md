@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.4 — APPROVED. §4 (data) COMPLETE and verified 2026-09-06. §3, §5–§9 not built.
+**Status:** v2.5 — APPROVED. §3 (scoring) and §4 (data) COMPLETE and verified 2026-09-06. §5–§9 not built.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -922,11 +922,11 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 
 | id | gate | blocks |
 |---|---|---|
-| G1 | ✅ minlength **resolved = 1** [M] (§3.1). ⏸ class FPR still open — **blocked on §4.8**, which is build work, not a gate | final scoring config |
+| G1 | ✅ **CLOSED** [M]. minlength = 1; class FPR **0.000 (0/300) for every class** on real non-BGC coding DNA. Going low costs no specificity | final scoring config |
 | G2 | ✅ Evo2-1B [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled) · **EOS id 0 verified empirically**. ⏸ GO-4B / bgcFM outstanding | all generation |
 | G3 | seed-length sweep for `S1` | seeded arms |
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
-| G5 | ✅ at ml=1 [M], n=60/class: TERPENE 1.000 · RIPP 0.967 · PKS 1.000 · BETALACTONE 1.000. Re-run for the final class set | interpretation of every rate |
+| G5 | ✅ **CLOSED** [M] on the built corpus: TERPENE 1.000 · NRPS 0.992 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 0.991 on-target. Full dynamic range | interpretation of every rate |
 | G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
