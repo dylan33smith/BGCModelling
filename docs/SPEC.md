@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.3 — APPROVED. §4 (data) COMPLETE and verified 2026-09-06. §3, §5–§9 not built.
+**Status:** v2.4 — APPROVED. §4 (data) COMPLETE and verified 2026-09-06. §3, §5–§9 not built.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -250,6 +250,38 @@ containment(s) = max over training records t of
 - **The gate MUST raise on a missing or empty k-mer set, never default to passing.** A test pins
   this (§11).
 - Reported for every arm regardless of outcome, including arms that score zero.
+
+### 3.9 The scored record — what scoring emits, per generation
+
+A rate is a summary; the scored record is the evidence. Everything an analysis could need
+must be written **at scoring time**, because a covariate not recorded then is unrecoverable
+later no matter how the analysis is framed.
+
+```
+generation_id        str    unique
+arm                  str    the §6 coordinate (weight state / regime / inference control)
+substrate            str    §5 id
+target_class         str    what was conditioned toward
+seed_accession       str    S1 only; null in S0
+seed_core_gene_count int    S1 only; null in S0   <- §4.5.1 covariate
+seed_seq_len         int    S1 only; null in S0   <- §4.5.1 covariate
+sequence             str    model output, seed excluded
+seq_len              int
+hit_eos              bool
+scored_ok            bool   FALSE means antiSMASH returned no verdict -- a build failure
+                            (§3.1), never silently a non-detection
+detected             bool
+products             list   RAW antiSMASH product strings, never collapsed (§3.6)
+observed_classes     list   products mapped through the regenerated class map
+on_target            bool   target_class in observed_classes
+region_table         list   per region: coords, products, rule that fired
+n_cds, coding_density        diagnostics (§3.7)
+containment, novel           the gate (§3.8)
+```
+
+⚠ `seed_core_gene_count` and `seed_seq_len` exist so that cross-class claims can be
+covariate-adjusted (§8.5). They are the reason §4.5.1 works without a second dataset, and
+they cost one join at generation time.
 
 ---
 
@@ -776,6 +808,29 @@ Arms × classes is a large family. The primary contrast per arm is pre-specified
 everything else is exploratory and corrected. Fixed in the Stage 2 pre-registration.
 
 ---
+
+### 8.5 Covariate adjustment — required for cross-CLASS claims, not cross-ARM
+
+Seeds are held identical across arms (§7.3), so the seed distribution does not vary between
+arms and cannot confound an arm comparison. It **does** vary between classes — that is the
+ladder confound (§4.5) — so:
+
+* **Across arms, within a class:** report the raw rate. No adjustment.
+* **Across classes:** report the raw rate **and** the covariate-adjusted rate. An
+  unadjusted cross-class claim is not reportable.
+
+The adjustment, in the seeded regime, is a per-generation model over the §3.9 covariates:
+
+```
+on_target ~ seed_core_gene_count + seed_seq_len + (1 | target_class)
+```
+
+n is the number of seeded generations, not the number of classes, which is what makes gene
+count separable from length at all.
+
+⚠ **De novo has no per-generation covariates.** Cross-class claims in `S0` therefore cannot
+be adjusted, and are reported with that stated. If an `S0` ladder gradient needs
+attributing, that is the one condition under which §4.5.2's strata run.
 
 ## 9. Repository layout
 
