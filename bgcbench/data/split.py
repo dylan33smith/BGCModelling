@@ -34,6 +34,10 @@ from bgcbench.data import manifest as mf
 
 FRACS = {"train": 0.8, "val": 0.1, "test": 0.1}
 
+#: A 1-nt record is a parse artifact, not a core. An all-N record carries no sequence.
+MIN_LEN = 200
+MAX_N_FRAC = 0.10
+
 
 class _Union:
     def __init__(self):
@@ -73,8 +77,19 @@ def load_corpus(path: Path, classes: tuple[str, ...], max_len: int) -> list[dict
             r = json.loads(line)
             if r["seq_len"] > max_len:
                 continue
+            if r["seq_len"] < MIN_LEN:
+                continue
+            if r["sequence"].count("N") / max(r["seq_len"], 1) > MAX_N_FRAC:
+                continue
             if want & set(r["classes"]):
                 out.append(r)
+    # CANONICAL ORDER. extract.py writes with pool.imap_unordered, so corpus LINE order is
+    # worker-completion order and differs on every rebuild. mmseqs easy-cluster is
+    # order-sensitive -- reordering identical records changes the partition and ~24% of
+    # representative labels -- and cluster selection is by sorted(_frac(representative)),
+    # so a relabel moves clusters across the common_n boundary. Sorting here makes the
+    # build a function of the corpus CONTENT, which is what SPEC 4.6 claims.
+    out.sort(key=lambda r: r["accession"])
     return out
 
 
@@ -94,6 +109,7 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     # the balance uncontrollable, because a component's class composition is only known
     # once selection has happened.
     cls_clusters: dict[str, dict[str, list[dict]]] = {}
+    cls_ordered: dict[str, list[str]] = {}
     selected: dict[str, list[str]] = {}
     for cls in classes:
         groups: dict[str, list[dict]] = defaultdict(list)
@@ -108,6 +124,7 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
                 f"silently shrinking one class breaks equal-n."
             )
         cls_clusters[cls] = groups
+        cls_ordered[cls] = ordered          # per class; `ordered` alone leaks the last one
         selected[cls] = ordered[:common_n]
 
     # --- components: linked by shared genome OR shared cluster -----------------------
@@ -161,10 +178,16 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     # train/val/test boundary -- otherwise a stratum record could sit in another corpus's
     # test set. They cannot affect the balance of the selected clusters (their counts are
     # zero), so the seedless hash is the right assignment for them.
+    # `members` only holds components carrying a SELECTED cluster, so members.get() always
+    # missed here and the key degenerated to whichever record happened to come first --
+    # i.e. it was corpus-order dependent, not canonical. Build the key from the component's
+    # full membership instead.
+    comp_members: dict = defaultdict(list)
     for r in records:
-        c = uf.find(("clu", rep[r["accession"]]))
+        comp_members[uf.find(("clu", rep[r["accession"]]))].append(r["accession"])
+    for c, accs in comp_members.items():
         if c not in split_of_comp:
-            split_of_comp[c] = _assign(min(members.get(c, [rep[r["accession"]]])))
+            split_of_comp[c] = _assign(min(accs))
 
     # cluster -> split, for EVERY cluster in the class union, not only selected ones
     cluster_split = {rep[r["accession"]]: split_of_comp[uf.find(("clu", rep[r["accession"]]))]
@@ -180,12 +203,51 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     for cls in classes:
         clusters = cls_clusters[cls]
         chosen = selected[cls]
+        def _pick(ck):
+            recs = sorted(clusters[ck], key=lambda r: r["accession"])
+            return next((r for r in recs if r["accession"] == ck), recs[0])
+
         buckets: dict[str, list[dict]] = {k: [] for k in FRACS}
         for ck in chosen:
-            # one representative record per cluster (SPEC 4.4.3)
-            recs = sorted(clusters[ck], key=lambda r: r["accession"])
-            pick = next((r for r in recs if r["accession"] == ck), recs[0])
-            buckets[split_of_comp[comp_of_cluster[ck]]].append(pick)
+            buckets[split_of_comp[comp_of_cluster[ck]]].append(_pick(ck))
+
+        # LEAK REMOVAL HAPPENS HERE, WITH BACKFILL, so equal-n survives it.
+        # Previously verify() deleted leaking held-out records and rewrote the files after
+        # the report was computed, so the manifest published 979/123/122 while disk held
+        # 979/107/110 for BETALACTONE -- and the deletion is not random, it removes exactly
+        # the held-out records most similar to training, biasing held-out difficulty
+        # upward by a different amount in every class.
+        spare = list(cls_ordered[cls][common_n:])
+        removed = 0
+        for _ in range(6):
+            held = buckets["val"] + buckets["test"]
+            if not held:
+                break
+            fwd = clu.neardup_query_ids(held, buckets["train"], workdir=workdir,
+                                        threads=threads)
+            rc = [{"accession": r["accession"],
+                   "sequence": clu.revcomp(r["sequence"])} for r in held]
+            rev = clu.neardup_query_ids(rc, buckets["train"], workdir=workdir,
+                                        threads=threads)
+            bad = fwd | rev
+            if not bad:
+                break
+            for part in ("val", "test"):
+                keep = [r for r in buckets[part] if r["accession"] not in bad]
+                need = len(buckets[part]) - len(keep)
+                removed += need
+                while need and spare:
+                    ck = spare.pop(0)
+                    comp = comp_of_cluster.get(ck) or uf.find(("clu", ck))
+                    if split_of_comp.get(comp) != part or not clusters.get(ck):
+                        continue
+                    keep.append(_pick(ck))
+                    need -= 1
+                buckets[part] = keep
+        if removed:
+            report_extra = {"leaking_held_out_replaced": removed}
+        else:
+            report_extra = {"leaking_held_out_replaced": 0}
 
         d = out_dir / cls
         d.mkdir(parents=True, exist_ok=True)
@@ -207,9 +269,15 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
                 sum(1 for x in picked if x["core_gene_count"] >= 2) / max(len(picked), 1),
                 4),
             "hybrid_frac": round(
+                sum(1 for x in picked if len(x["classes"]) > 1) / max(len(picked), 1), 4),
+            "n_products": len({p for x in picked for p in x["antismash_products"]}),
+            # SPEC 3.3 defines hybrids at CLASS level; counting multi-PRODUCT records
+            # inflated NRPS to 0.281 where the multi-class figure is 0.208, because
+            # {NRPS, NRPS-like} and {NRP-metallophore, NRPS} both map to {NRPS} alone.
+            "hybrid_frac_multiproduct": round(
                 sum(1 for x in picked if len(x["antismash_products"]) > 1)
                 / max(len(picked), 1), 4),
-            "n_products": len({p for x in picked for p in x["antismash_products"]}),
+            **report_extra,
         }
     return {"classes": report, "max_len": max_len, "common_n": common_n,
             "n_records_considered": len(records),
@@ -219,55 +287,41 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
 
 def verify(out_dir: Path, classes: tuple[str, ...], workdir: Path | None = None,
            threads: int = 16) -> dict:
-    """SPEC 4.6 integrity assertions. Every failure raises; none is filtered away."""
+    """SPEC 4.6 integrity assertions. STRICTLY READ-ONLY.
+
+    This function previously deleted leaking held-out records and rewrote the split files
+    in place, after the report had already been computed -- so the manifest published
+    979/123/122 while disk held 979/107/110. Removal now happens in build() with backfill
+    (which preserves equal-n); verify's only job is to confirm the property and RAISE if
+    it does not hold.
+    """
     res: dict[str, dict] = {}
     for cls in classes:
         d = out_dir / cls
         parts = {k: [json.loads(l) for l in open(d / f"{k}.jsonl")] for k in FRACS}
         for k, rows in parts.items():
             if not rows:
-                raise RuntimeError(f"{cls}/{k} is EMPTY — an observed prior corpus had a "
-                                   f"class with 0 val and 0 test and nothing caught it")
+                raise RuntimeError(f"{cls}/{k} is EMPTY")
+            accs = [r["accession"] for r in rows]
+            if len(accs) != len(set(accs)):
+                raise RuntimeError(f"{cls}/{k} contains duplicate accessions")
         gsets = {k: {r["genome_accession"] for r in v} for k, v in parts.items()}
         overlap = ((gsets["train"] & gsets["val"]) | (gsets["train"] & gsets["test"])
                    | (gsets["val"] & gsets["test"]))
         if overlap:
             raise RuntimeError(f"{cls}: {len(overlap)} genomes cross splits")
-        def leaks(rows):
-            fwd = clu.neardup_query_ids(rows, parts["train"], workdir=workdir,
-                                        threads=threads)
-            rc = [{"accession": r["accession"],
-                   "sequence": clu.revcomp(r["sequence"])} for r in rows]
-            rev = clu.neardup_query_ids(rc, parts["train"], workdir=workdir,
-                                        threads=threads)
-            return fwd, rev
-
-        fwd, rev = leaks(parts["val"] + parts["test"])
-        residual = len(fwd | rev)
-        if residual:
-            # Connected-component clustering makes this ~0 by construction, but the
-            # mmseqs prefilter is heuristic, so a small residual is possible. Dropping
-            # the offending HELD-OUT records is safe -- it only shrinks val/test and
-            # never touches training data -- but the count is RECORDED, never silently
-            # absorbed, so a reader knows construction was not perfect.
-            drop = fwd | rev
-            for k in ("val", "test"):
-                parts[k] = [r for r in parts[k] if r["accession"] not in drop]
-                with open(d / f"{k}.jsonl", "w") as fh:
-                    for r in parts[k]:
-                        fh.write(json.dumps(r) + "\n")
-            fwd, rev = leaks(parts["val"] + parts["test"])
-            if fwd or rev:
-                raise RuntimeError(
-                    f"{cls}: {len(fwd)} forward and {len(rev)} reverse-complement "
-                    f"near-duplicates remain after removing {residual} held-out "
-                    f"records. The split cannot be made leak-free by construction; "
-                    f"SPEC 4.6 must be revisited."
-                )
-            for k in ("val", "test"):
-                if not parts[k]:
-                    raise RuntimeError(f"{cls}/{k} emptied by residual removal")
+        held = parts["val"] + parts["test"]
+        fwd = clu.neardup_query_ids(held, parts["train"], workdir=workdir, threads=threads)
+        rc = [{"accession": r["accession"], "sequence": clu.revcomp(r["sequence"])}
+              for r in held]
+        rev = clu.neardup_query_ids(rc, parts["train"], workdir=workdir, threads=threads)
+        if fwd or rev:
+            raise RuntimeError(
+                f"{cls}: {len(fwd)} forward and {len(rev)} reverse-complement near-"
+                f"duplicates between held-out and train. build() should have replaced "
+                f"them; this is a build failure and verify does not filter."
+            )
         res[cls] = {"n": {k: len(v) for k, v in parts.items()},
-                    "genome_overlap": 0, "neardup_fwd": 0, "neardup_revcomp": 0,
-                    "residual_removed": residual}
+                    "genome_overlap": 0, "neardup_fwd": len(fwd),
+                    "neardup_revcomp": len(rev)}
     return res

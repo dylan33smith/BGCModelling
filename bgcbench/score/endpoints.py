@@ -34,12 +34,19 @@ def confusion(records_by_target: dict[str, list[dict]],
     """M[target][observed] = fraction of generations conditioned toward `target` whose
     antiSMASH classes include `observed`. Rows need not sum to 1: a hybrid record counts
     for every class it maps to (SPEC 3.3)."""
-    m: dict[str, dict[str, float]] = {}
+    m: dict[str, dict] = {}
     for t in classes:
         rows = records_by_target.get(t, [])
-        n = max(len(rows), 1)
-        m[t] = {o: round(sum(1 for r in rows if o in r["observed_classes"]) / n, 4)
-                for o in classes}
+        if not rows:
+            # SPEC 6.5: an absent cell is NOT APPLICABLE, never a zero. Fabricating a
+            # denominator of 1 made a crashed arm and a genuine 0/150 byte-identical --
+            # and a row of zeros is the best possible specificity result.
+            m[t] = {"n": 0, **{o: None for o in classes}}
+            continue
+        n = len(rows)
+        m[t] = {"n": n,
+                **{o: round(sum(1 for r in rows if o in r["observed_classes"]) / n, 4)
+                   for o in classes}}
     return m
 
 
@@ -59,17 +66,23 @@ def lift(records_by_target: dict[str, list[dict]], unconditioned: list[dict],
     return out
 
 
-def subclass_profile(records: list[dict], target: str) -> dict:
+def subclass_profile(records: list[dict], target: str,
+                     mapping: dict[str, str] | None = None) -> dict:
     """SPEC 3.6 -- SECONDARY, and a breakdown of an already-significant class-level
     result, never a standalone endpoint. Raw product strings, never collapsed."""
     on = [r for r in records if r["detected"] and target in r["observed_classes"]]
-    prods = Counter(p for r in on for p in r["products"])
-    total = sum(prods.values())
+    # Only products belonging to the TARGET class. Pooling foreign products made the two
+    # single-product classes publish "4 products" and "5 products".
+    own = [p for r in on for p in r["products"] if mapping.get(p) == target] \
+        if mapping else [p for r in on for p in r["products"]]
+    prods = Counter(own)
     return {
         "n_on_target": len(on),
         "counts": dict(prods.most_common()),
-        "modal_share": round(max(prods.values()) / total, 4) if total else None,
+        # SPEC 3.6 defines this over on-target GENERATIONS, not product occurrences.
+        "modal_share": round(max(prods.values()) / len(on), 4) if (prods and on) else None,
         "n_distinct": len(prods),
+        "foreign_products": sorted({p for r in on for p in r["products"]} - set(own)),
     }
 
 

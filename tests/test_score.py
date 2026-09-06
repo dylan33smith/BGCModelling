@@ -113,11 +113,78 @@ def test_gate_artifacts_encode_the_config_hash():
         assert antismash.config_hash() in p.name
 
 
-def test_measured_floor_is_zero_and_ceiling_is_high():
+def test_measured_floor_is_low_and_ceiling_is_high():
+    """The floor is MEASURED, not assumed. An earlier version asserted FPR == 0, which
+    hard-codes the very thing SPEC 4.8 exists to test -- and went red the moment a real
+    false positive appeared (RIPP 1/300)."""
     files = list(GATES.glob("gates_*.json"))
     if not files:
         return
     doc = json.loads(files[0].read_text())
-    for cls, v in doc.items():
-        assert v["G1_false_positive"]["on_target_rate"] == 0.0, f"{cls} FPR non-zero"
+    classes = doc.get("classes", doc)
+    for cls, v in classes.items():
+        assert v["G1_false_positive"]["on_target_rate"] <= 0.02, f"{cls} FPR too high"
         assert v["G5_ceiling"]["on_target_rate"] >= 0.95, f"{cls} ceiling too low"
+
+
+def test_gate_artifact_binds_the_data_not_only_the_instrument():
+    files = list(GATES.glob("gates_*.json"))
+    if not files:
+        return
+    doc = json.loads(files[0].read_text())
+    if "classes" not in doc:
+        return                                  # pre-fix artifact
+    assert doc.get("corpus_sha256"), "gate artifact must record which corpus it measured"
+
+
+def test_novelty_catches_a_collage_of_training_records():
+    """C1 REGRESSION. Forward containment alone cannot fail at the generation budget: its
+    denominator is the whole generation, so it decays as 1/length however much was copied.
+    Ten whole verbatim training records concatenated scored forward 0.198 -> PASS while
+    antiSMASH called them on-target with 15 core genes."""
+    import json as _j
+    from pathlib import Path as _P
+    tr = _P("/data2/ds85/bgcbench/splits/TERPENE/train.jsonl")
+    if not tr.exists():
+        return
+    rows = [_j.loads(l) for l in open(tr)][:200]
+    ref = Reference(rows)
+    collage = "".join(r["sequence"] for r in rows[:10])[:16000]
+    v = ref.verdict(collage)
+    assert v["gate"] == "FAIL_memorized", f"a pure copy passed the gate: {v}"
+    assert v["novel"] is False
+    assert v["containment_reverse"] > v["containment"], (
+        "reverse containment is what does the work here")
+
+
+def test_every_sequence_gets_a_verdict_rejects_duplicates():
+    """KNOWN_WRONG #5's red test, which did not previously exist. antiSMASH renames a
+    duplicate id to '<id>_0', so both a set-difference check and a count check pass while
+    one record's verdict silently serves for two."""
+    try:
+        antismash.run([("dup", "ACGT" * 100), ("dup", "TTTT" * 100)])
+    except ValueError as e:
+        assert "duplicate" in str(e).lower()
+        return
+    raise AssertionError("duplicate accessions were accepted")
+
+
+def test_no_truncation_of_model_output_in_score():
+    """SPEC 3.1: the entire generated sequence is scored; only a seed span may be excluded.
+    Mutation-tested -- injecting seq[:6200] anywhere in score/ must break something."""
+    import re as _re
+    for p in SCORE_DIR.glob("*.py"):
+        src = p.read_text()
+        for m in _re.finditer(r"sequence\[[^\]]*:[^\]]*\]|seq\[[^\]]*:[^\]]*\]", src):
+            frag = m.group(0)
+            assert "seed" in src[max(0, m.start() - 200):m.start()].lower(), (
+                f"{p.name} slices model output ({frag}) outside a seed context")
+
+
+def test_confusion_reports_not_applicable_rather_than_zero():
+    """SPEC 6.5: an absent cell is NOT APPLICABLE, never a zero. A crashed arm and a
+    genuine 0/150 must not be byte-identical -- a row of zeros is the best possible
+    specificity result."""
+    m = endpoints.confusion({"RIPP": []}, ["RIPP", "NRPS"])
+    assert m["RIPP"]["n"] == 0
+    assert m["RIPP"]["RIPP"] is None and m["RIPP"]["NRPS"] is None

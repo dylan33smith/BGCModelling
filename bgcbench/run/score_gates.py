@@ -68,7 +68,7 @@ def main() -> int:
 
         crow, cstat = summarise(cores, cv, cls)
         nrow, nstat = summarise(negs, nv, cls)
-        prof = subclass_profile(crow, cls)
+        prof = subclass_profile(crow, cls, mapping)
         report[cls] = {
             "G5_ceiling": cstat,
             "G1_false_positive": nstat,
@@ -88,8 +88,22 @@ def main() -> int:
               f"   modal_share={prof['modal_share']} n_products={prof['n_distinct']}",
               flush=True)
 
-    (OUT / f"gates_{cfg}.json").write_text(json.dumps(report, indent=2))
-    print(f"\nwrote {OUT / f'gates_{cfg}.json'}")
+    # The filename previously bound the INSTRUMENT config only, so a rebuild of the DATA
+    # silently overwrote the previous measurement under the same name -- which already
+    # happened here: RIPP's on-target FPR moved 0.000 -> 0.0033 and NRPS's ceiling
+    # 0.992 -> 0.975 with nothing on disk recording that two measurements existed.
+    man = json.loads((ROOT / "manifest.json").read_text())
+    data_hash = man.get("_build", {}).get("corpus_sha256", "nodata")[:12]
+    payload = {"scoring_config": antismash.FROZEN, "scoring_config_hash": cfg,
+               "corpus_sha256": man.get("_build", {}).get("corpus_sha256"),
+               "common_n": man.get("_build", {}).get("common_n"),
+               "classes": report}
+    path = OUT / f"gates_{cfg}_{data_hash}.json"
+    if path.exists():
+        raise RuntimeError(f"{path} already exists — refusing to overwrite a measurement. "
+                           f"Delete it deliberately if you mean to replace it.")
+    path.write_text(json.dumps(payload, indent=2))
+    print(f"\nwrote {path}")
     return 0
 
 

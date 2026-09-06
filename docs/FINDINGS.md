@@ -33,25 +33,27 @@ presenting exactly as "the model fails on short classes".
 **Paper:** methods must state `--minlength 1`, and this is a caution for anyone scoring
 extracted cores rather than genomes.
 
-### 1.2 Ceiling ~1.0 against a near-zero floor `[instrument]`
-Scored through the single invocation site at `--minlength 1`, on the rebuilt corpus
-(held-out cores as ceiling, 300 real non-BGC coding sequences per class as floor):
+### 1.2 Ceiling ~1.0 against a floor of 0/300 `[instrument]`
+Scored through the single invocation site at `--minlength 1`, on the corpus after the
+accession, join, fuzzy-coordinate and gene-snapping fixes:
 
-| class | ceiling (on-target) | FPR (detect) | **FPR (on-target)** | real-core multi-gene | modal share | products |
-|---|---|---|---|---|---|---|
-| TERPENE | 1.000 | 0.000 | 0.000 | 0.180 | 0.574 | 2 |
-| NRPS | 0.975 | 0.0033 | 0.000 | 0.254 | 0.371 | 10 |
-| RIPP | 0.992 | 0.0033 | **0.0033** (1/300) | 0.353 | 0.370 | **19** |
-| ARYLPOLYENE | 1.000 | 0.000 | 0.000 | 0.633 | 0.836 | 4 |
-| BETALACTONE | 1.000 | 0.000 | 0.000 | 1.000 | 0.909 | 5 |
+| class | ceiling (on-target) | FPR (on-target) | real-core multi-gene | modal share | products |
+|---|---|---|---|---|---|
+| TERPENE | 1.000 | 0.000 (0/300) | 0.180 | 0.607 | 2 |
+| NRPS | 0.975 | 0.000 | 0.213 | 0.513 | 5 |
+| RIPP | 0.992 | 0.000 | 0.344 | 0.397 | **16** |
+| ARYLPOLYENE | 1.000 | 0.000 | 0.598 | 1.000 | 1 |
+| BETALACTONE | 1.000 | 0.000 | 1.000 | 1.000 | 1 |
 
-[CORRECTED 2026-09-06] An earlier version of this entry reported **0.000 for every class**.
-That was measured on splits built before the accession-collision fix (§4.5) and is wrong.
-RIPP carries **1 on-target false positive in 300**, so the floor is not exactly zero.
-**Paper:** the floor must be quoted as measured, not as zero. A treatment rate near 0.003
-is indistinguishable from RIPP's floor, which bears directly on the powering in §3.1.
-Ceilings 0.975–1.000 still give essentially full dynamic range, and `--minlength 1` still
-costs no specificity.
+[CORRECTED TWICE] An earlier build reported RIPP FPR **0.0033 (1/300)**. That measurement
+used negative controls drawn from the alphabetical head of the genome index — 312 distinct
+genomes across all 1,500 controls, so the five per-class FPRs were approximately one
+measurement reported five times. With controls spread across the index by stable hash the
+floor is 0/300 for every class. `modal_share` and `n_distinct` are also corrected: they
+previously pooled FOREIGN products, publishing "4 products" for ARYLPOLYENE and "5" for
+BETALACTONE, which the class map defines as single-product classes.
+**Paper:** the floor is 0/300 per class, so an exact-binomial upper bound of ~0.012, not a
+claim of zero.
 
 ### 1.3 antiSMASH throughput is not the bottleneck `[instrument]`
 ~0.2 s/sequence at 8 CPUs in `--minimal` mode (60 sequences in 9–15 s; a 3-sequence probe
@@ -155,6 +157,22 @@ resource, and sizing treatments instead is wasted sampling.
 
 ## 4. Reproduction findings — defects that would corrupt results silently
 
+### 4.0 A novelty gate can be structurally unable to fail `[instrument]` `[design]`
+Containment defined as `max over training records t of |kmers(s) ∩ kmers(t)| / |kmers(s)|`
+puts the WHOLE GENERATION in the denominator, so it decays as 1/length however much was
+copied. Measured on the real TERPENE training split with the real instrument: **ten whole
+verbatim training records concatenated to 15,992 nt score forward containment 0.198 →
+PASS**, while antiSMASH calls them on-target with 15 core genes. At the 16 kb budget only
+0.6–3.7% of training records per class are even long enough for a single record to reach
+the FAIL threshold.
+**Fix, empirically separated by three orders of magnitude:** add REVERSE containment,
+`|kmers(s) ∩ kmers(t)| / |kmers(t)|`, which does not dilute with generation length, and
+gate on the worse of the two. Same collage → reverse **1.000, FAIL**; held-out real core
+plus filler → 0.000–0.006; random DNA → 0.000.
+**Paper:** this is a general trap for anyone gating generative-genomics results on
+containment, and it gets worse the better the model does, because a stronger arm produces
+longer output.
+
 ### 4.1 Cluster-disjoint does not imply near-duplicate-free `[data]`
 mmseqs defaults to `--cluster-mode 0` (greedy set cover), whose clusters are **not** the
 transitive closure of the similarity relation. A cluster-disjoint split built on it still
@@ -186,11 +204,17 @@ SACCHARIDE 0.647, BETALACTONE 0.678, ARYLPOLYENE 0.766, ECTOINE 0.838.
 ## 5. Standing limitations to disclose
 
 ### 5.1 Negative controls are GC-poorer than the cores `[limitation]`
-Median GC **0.475–0.481** (controls) vs **0.582–0.668** (cores), across all five classes,
-with lengths matched to within ~0.5%. This is real biology — biosynthetic cores are GC-rich
-— not a sampling defect, and it is not a shortcut antiSMASH can exploit, since detection
-runs profile HMMs over translated ORFs rather than composition. But the measured
-false-positive rate is plausibly a slight **under**estimate.
+Median GC **0.514–0.523** (controls) vs **0.563–0.668** (cores), lengths matched to within
+~1%. Detection runs profile HMMs over translated ORFs rather than composition, so this is
+not a shortcut antiSMASH can exploit, but the measured false-positive rate is plausibly a
+slight **under**estimate.
+
+[CORRECTED] An earlier version reported a gap of 0.475–0.481 vs 0.582–0.668 and asserted it
+was "real biology rather than a sampling defect". **Both halves were wrong.** The controls
+were drawn from the alphabetical head of the genome index, which is GC-poor fungi and
+archaea; holding the genome constant, cores run only ~0.01–0.02 GC above non-core coding
+DNA from the same organism. Spreading the sample by stable hash narrowed the gap to
+0.05–0.15. Some residual gap is real; most of the original was a sampling artifact.
 
 ### 5.2 The corpus is antiSMASH-defined and the endpoint is antiSMASH `[limitation]`
 This measures "can the model produce what the detector recognises", which is the intended

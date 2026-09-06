@@ -15,6 +15,10 @@ from collections import defaultdict
 K = 21
 FAIL_AT = 0.95
 WARN_AT = 0.80
+
+#: A reference record shorter than this contributes no usable k-mer set. It also removes
+#: the 1-nt records that a fuzzy-coordinate parse can emit.
+MIN_REF_KMERS = 50
 _COMP = str.maketrans("ACGTN", "TGCAN")
 
 
@@ -53,8 +57,7 @@ class Reference:
                 "novelty reference is empty — refusing to build a gate that cannot fail"
             )
 
-    def containment(self, seq: str) -> float:
-        """max over reference records t of |kmers(s) & kmers(t)| / |kmers(s)|."""
+    def _hits(self, seq: str) -> tuple[dict[int, int], int]:
         km = canonical_kmers(seq, self.k)
         if not km:
             raise ValueError(
@@ -66,15 +69,44 @@ class Reference:
         for x in km:
             for i in self.index.get(x, ()):
                 hits[i] += 1
-        if not hits:
-            return 0.0
-        return max(hits.values()) / len(km)
+        return hits, len(km)
+
+    def containment(self, seq: str) -> float:
+        """FORWARD: max over reference records t of |kmers(s) & kmers(t)| / |kmers(s)|.
+
+        ⚠ THIS ALONE CANNOT FAIL AT THE GENERATION BUDGET. The denominator is the WHOLE
+        generation, so containment falls as 1/length no matter how much was copied.
+        Measured: ten whole verbatim TERPENE training records concatenated to 15,992 nt
+        score forward 0.198 -- PASS -- while antiSMASH calls them on-target with 15 core
+        genes. Use `verdict()`, which gates on both directions.
+        """
+        hits, n = self._hits(seq)
+        return max(hits.values()) / n if hits else 0.0
+
+    def reverse_containment(self, seq: str) -> float:
+        """REVERSE: max over reference records t of |kmers(s) & kmers(t)| / |kmers(t)|.
+
+        "How much of some training record does this generation contain?" -- which does not
+        dilute with generation length, so a collage of copied records is caught. On the
+        same memorised concatenation this reads 1.000 against 0.000-0.006 for clean
+        held-out and random sequence.
+        """
+        hits, _ = self._hits(seq)
+        best = 0.0
+        for i, c in hits.items():
+            if self.sizes[i] >= MIN_REF_KMERS:
+                best = max(best, c / self.sizes[i])
+        return best
 
     def verdict(self, seq: str) -> dict:
-        c = self.containment(seq)
+        fwd = self.containment(seq)
+        rev = self.reverse_containment(seq)
+        worst = max(fwd, rev)
         return {
-            "containment": round(c, 4),
-            "novel": c < FAIL_AT,
-            "gate": "FAIL_memorized" if c >= FAIL_AT else ("WARN" if c >= WARN_AT
-                                                           else "PASS"),
+            "containment": round(fwd, 4),
+            "containment_reverse": round(rev, 4),
+            "containment_worst": round(worst, 4),
+            "novel": worst < FAIL_AT,
+            "gate": "FAIL_memorized" if worst >= FAIL_AT else ("WARN" if worst >= WARN_AT
+                                                              else "PASS"),
         }

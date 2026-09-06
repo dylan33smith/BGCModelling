@@ -172,7 +172,10 @@ def test_built_splits_are_leak_free():
         v = doc[cls]["verification"]
         assert v["genome_overlap"] == 0
         assert v["neardup_fwd"] == 0 and v["neardup_revcomp"] == 0
-        assert "residual_removed" in v, "residual count must be recorded"
+        # removal now happens in build() with backfill, so equal-n survives it; the count
+        # is recorded there, not in the (read-only) verification block
+        assert "leaking_held_out_replaced" in doc[cls]["split"], (
+            "the number of leaking held-out records replaced must be recorded")
 
 
 def test_negative_controls_are_not_pseudoreplicated():
@@ -288,3 +291,34 @@ def test_split_files_have_no_internal_duplicates():
     for f in sorted(root.glob("*/*.jsonl")):
         accs = [json.loads(l)["accession"] for l in open(f)]
         assert len(accs) == len(set(accs)), f"duplicate accession inside {f}"
+
+
+def test_verify_is_read_only():
+    """verify() previously deleted leaking held-out records and rewrote the split files
+    after the report was computed, so the manifest published 979/123/122 while disk held
+    979/107/110. Removal now happens in build() with backfill; verify must only assert."""
+    src = Path(split.__file__).read_text()
+    body = src[src.index("def verify("):]
+    assert '"w"' not in body and "write_text" not in body, "verify() writes to disk"
+    assert "STRICTLY READ-ONLY" in body
+
+
+def test_corpus_order_does_not_change_the_build():
+    """SPEC 4.6 claims the split is reproducible from the corpus alone. extract.py writes
+    with imap_unordered, so line order is worker-completion order; load_corpus must impose
+    a canonical order or clustering (which is order-sensitive) re-partitions."""
+    src = Path(split.__file__).read_text()
+    assert "out.sort(key=lambda r: r[\"accession\"])" in src
+
+
+def test_short_and_ambiguous_records_are_filtered():
+    assert split.MIN_LEN >= 200 and split.MAX_N_FRAC <= 0.2
+    root = Path("/data2/ds85/bgcbench/splits")
+    if not root.exists():
+        return
+    for f in sorted(root.glob("*/*.jsonl")):
+        for line in open(f):
+            r = json.loads(line)
+            assert r["seq_len"] >= split.MIN_LEN, f"{r['accession']} is {r['seq_len']} nt"
+            n_frac = r["sequence"].count("N") / max(r["seq_len"], 1)
+            assert n_frac <= split.MAX_N_FRAC, f"{r['accession']} is {n_frac:.0%} N"

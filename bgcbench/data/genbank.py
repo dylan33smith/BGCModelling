@@ -15,7 +15,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-_LOC = re.compile(r"(\d+)\.\.(\d+)")
+#: Fuzzy bounds are part of the GenBank grammar: `1236..>1540`, `<1..500`, `<6704178..>6706661`.
+#: Requiring a digit immediately after `..` made `..>` fall through to the single-position
+#: branch and collapse the feature to 1 bp -- 8,903 records of exactly 1 nt (1.65%) with
+#: NONE at 2 or 3 nt, which is the signature of the collapse rather than of biology.
+_LOC = re.compile(r"[<>]?(\d+)\.\.[<>]?(\d+)")
 
 
 @dataclass

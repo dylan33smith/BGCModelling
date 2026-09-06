@@ -1,14 +1,25 @@
 """Raw GenBank -> core records (SPEC 4.1, 4.2).
 
-WHAT A "CORE" IS, fixed here. An antiSMASH `region` is the cluster plus a per-product
+WHAT A "CORE" IS, fixed here. SNAPPED TO WHOLE GENES. An antiSMASH `region` is the cluster plus a per-product
 `/neighbourhood` of 5-20 kb on EACH side, so a region is far larger than the biosynthetic
 core -- one observed RiPP region spans 11,008 nt around a 1,008 nt core. The core is the
 `proto_core` feature. Where a region contains several protoclusters the core is the
 CONTIGUOUS span from the first proto_core start to the last proto_core end: splicing the
 protocores together would emit a chimeric sequence that never existed.
 
-This is `--flank 0`: no regulatory context. Every claim says "biosynthetic core", never
-"cluster ready to express" (SPEC 2.2).
+The span is then EXTENDED OUTWARD to whole-gene boundaries. `proto_core` bounds are
+cluster bounds and do not align to gene bounds: 16.4% of CDS overlapping a core straddle
+its edge. Extracting on the raw bound truncates those genes, they lose their stop codon,
+and prodigal will not call them -- measured on 121 RIPP held-out cores, 62 lost CDS calls
+and every core gene that went missing went missing because the gene was never called at
+all. Snapping costs a median of 0 nt and a p90 of ~1.1 kb.
+
+Extension uses each CDS's INDIVIDUAL spans, never its bounding box, so an origin-spanning
+gene on a circular replicon cannot drag the core across the whole replicon.
+
+This is still `--flank 0`: no neighbourhood, no regulatory context, only the genes the core
+already overlapped, made whole. Every claim says "biosynthetic core", never "cluster ready
+to express" (SPEC 2.2).
 """
 from __future__ import annotations
 
@@ -34,9 +45,16 @@ class CoreRecord:
     seq_len: int                 # == len(sequence). SPEC 4.2: there is no region-span field.
     core_gene_count: int          # CDS with /gene_kind="biosynthetic" in the core span
     cds_count: int                # ALL CDS in the span; diagnostic, not the multi-gene axis
+    snap_nt: int                  # nt added by whole-gene snapping (0 = boundaries aligned)
+    snap_capped: bool             # True if SNAP_CAP bound the extension
     n_protoclusters: int
     contig_edge: bool
     region_span: int             # diagnostic only, never a length statistic (KNOWN_WRONG #1)
+
+
+#: A single gene should never extend a core by more than this on one side. Guards against a
+#: pathological annotation dragging the core outward without bound.
+SNAP_CAP = 5000
 
 
 def _overlaps(a0: int, a1: int, b0: int, b1: int) -> bool:
@@ -55,6 +73,21 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
                 continue                       # a region with no protocore has no core
             lo = min(c.start for c in inner)
             hi = max(c.end for c in inner)
+            raw_lo, raw_hi = lo, hi
+            # snap outward to whole genes, per-span so a join() cannot run away
+            for c in cdss:
+                if not c.overlaps(lo, hi):
+                    continue
+                for a, b in (c.spans or [(c.start, c.end)]):
+                    if a < hi and lo < b:
+                        lo = min(lo, a)
+                        hi = max(hi, b)
+            capped = False
+            if raw_lo - lo > SNAP_CAP:
+                lo, capped = raw_lo - SNAP_CAP, True
+            if hi - raw_hi > SNAP_CAP:
+                hi, capped = raw_hi + SNAP_CAP, True
+            lo, hi = max(0, lo), min(len(rec.sequence), hi)
             seq = rec.sequence[lo:hi]
             if not seq or set(seq) <= {"N"}:
                 continue
@@ -86,6 +119,8 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
                 seq_len=len(seq),
                 core_gene_count=n_genes,
                 cds_count=len(in_core),
+                snap_nt=(raw_lo - lo) + (hi - raw_hi),
+                snap_capped=capped,
                 n_protoclusters=len(inner),
                 contig_edge=(reg.q1("contig_edge", "False") == "True"),
                 region_span=reg.end - reg.start,

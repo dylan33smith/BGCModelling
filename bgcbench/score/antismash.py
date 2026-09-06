@@ -60,6 +60,15 @@ def run(records: list[tuple[str, str]], workdir: Path | None = None,
     """
     if not records:
         return {}
+    accs = [a for a, _ in records]
+    if len(accs) != len(set(accs)):
+        from collections import Counter
+        dup = [a for a, n in Counter(accs).items() if n > 1]
+        raise ValueError(
+            f"{len(dup)} duplicate accessions submitted (e.g. {dup[:3]}). antiSMASH "
+            f"renames a duplicate to '<id>_0', so the totality check would still pass "
+            f"while one record's verdict silently served for two."
+        )
     import os
 
     env = dict(os.environ)
@@ -107,7 +116,11 @@ def run(records: list[tuple[str, str]], workdir: Path | None = None,
                         kind = (f.get("qualifiers", {})
                                  .get("gene_kind", ["(none)"])[0])
                         cds.append((s, e, st, kind))
-                seq_len = len(rec.get("seq") or "")
+                # antiSMASH 8 emits seq as {"data": ..., "alphabet": ...}, so len() on
+                # the dict returns 2 and coding_density came out in the hundreds.
+                raw = rec.get("seq")
+                seq_str = raw.get("data", "") if isinstance(raw, dict) else (raw or "")
+                seq_len = len(seq_str)
                 cov = sum(e - s for s, e, _, _ in cds)
                 # symmetric with the corpus definition (SPEC 4.2): the genes that
                 # satisfied the detection rule, not every CDS. Available under --minimal.

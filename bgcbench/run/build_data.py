@@ -99,7 +99,17 @@ def main() -> int:
         # draw from genomes NOT contributing this class's records, so a control can never
         # be a neighbour of a core in the same genome
         used = {r["genome_accession"] for r in recs}
-        pool = [g for g in sorted(index) if g not in used]
+        # SPREAD ACROSS THE WHOLE INDEX, not its alphabetical head. `sorted(index)` made
+        # all five classes walk the same prefix: 312 distinct genomes across all 1,500
+        # controls, pairwise overlap 288-295 of 300, so the five per-class FPRs were
+        # approximately ONE measurement reported five times. The head of the index is also
+        # GC-poor fungi and archaea, which is what produced the apparent core-vs-control
+        # GC gap.
+        import hashlib as _h
+        pool = sorted(
+            (g for g in index if g not in used),
+            key=lambda g: _h.sha256(f"{cls}|{g}".encode()).hexdigest(),
+        )
         # ONE interval per genome. Drawing all 300 from one genome would be
         # pseudo-replication, not 300 independent controls -- the first build did
         # exactly that and reported genomes=1.
@@ -112,7 +122,10 @@ def main() -> int:
             except Exception:
                 continue
             if got:
-                out.extend(got[:1])
+                r = dict(got[0])
+                r["accession"] = f"{r['genome_accession']}.{r['locus']}.neg{len(out)}"
+                r["target_class"] = cls
+                out.append(r)
                 ti.pop(0)
         with open(NEG / f"{cls}.jsonl", "w") as fh:
             for r in out:
@@ -123,8 +136,15 @@ def main() -> int:
               f"{v['median_len_pos']}  gc neg/pos={v['median_gc_neg']}/{v['median_gc_pos']}"
               f"  medCDS={v['median_cds_neg']}  genomes={v['genomes']}", flush=True)
 
+    import hashlib
+    h = hashlib.sha256()
+    with open(CORPUS, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
     mf.update(MANIFEST, "_build", {"max_len": args.max_len, "common_n": args.common_n,
-                                   "corpus": str(CORPUS)})
+                                   "corpus": str(CORPUS),
+                                   "corpus_sha256": h.hexdigest(),
+                                   "corpus_records": sum(1 for _ in open(CORPUS))})
     for cls in BENCHMARK_CLASSES:
         mf.update(MANIFEST, cls, {"split": rep["classes"][cls],
                                   "verification": ver[cls],
