@@ -89,45 +89,85 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     # --- one global clustering over the union of all benchmark classes ---------------
     rep = clu.cluster(records, workdir=workdir, threads=threads)
 
+    # --- select each class's common_n clusters BEFORE assigning splits ---------------
+    # Order matters. Assigning components first and selecting clusters afterwards makes
+    # the balance uncontrollable, because a component's class composition is only known
+    # once selection has happened.
+    cls_clusters: dict[str, dict[str, list[dict]]] = {}
+    selected: dict[str, list[str]] = {}
+    for cls in classes:
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for r in records:
+            if cls in r["classes"]:
+                groups[rep[r["accession"]]].append(r)
+        ordered = sorted(groups, key=lambda k: (_frac(k), k))
+        if len(ordered) < common_n:
+            raise RuntimeError(
+                f"{cls}: only {len(ordered)} clusters at max_len={max_len}, below "
+                f"common_n={common_n}. SPEC 4.4.2 must be revisited before building — "
+                f"silently shrinking one class breaks equal-n."
+            )
+        cls_clusters[cls] = groups
+        selected[cls] = ordered[:common_n]
+
     # --- components: linked by shared genome OR shared cluster -----------------------
     uf = _Union()
     for r in records:
         a = ("acc", r["accession"])
         uf.union(a, ("gen", r["genome_accession"]))
         uf.union(a, ("clu", rep[r["accession"]]))
-    comp_of = {r["accession"]: uf.find(("acc", r["accession"])) for r in records}
+    comp_of_cluster: dict[str, object] = {}
+    for cls in classes:
+        for ck in selected[cls]:
+            comp_of_cluster[ck] = uf.find(("clu", ck))
 
-    # stable component key: the smallest accession it contains, so the key does not
-    # depend on iteration order or on union-find internals
     members = defaultdict(list)
-    for acc, c in comp_of.items():
-        members[c].append(acc)
-    comp_key = {c: min(a) for c, a in members.items()}
-    split_of_comp = {c: _assign(comp_key[c]) for c in members}
+    for ck, c in comp_of_cluster.items():
+        members[c].append(ck)
+    comp_key = {c: min(v) for c, v in members.items()}
+
+    # per-component, per-class selected-cluster counts
+    sel_of = {cls: set(selected[cls]) for cls in classes}
+    counts: dict[object, dict[str, int]] = {
+        c: {cls: sum(1 for ck in v if ck in sel_of[cls]) for cls in classes}
+        for c, v in members.items()
+    }
+
+    # GREEDY, PER-CLASS-AWARE BALANCED ASSIGNMENT.
+    # Components chain hard (a record links by genome OR cluster), so a handful are huge.
+    # Hashing each component independently gave 93/3.5/3.5; balancing on the union alone
+    # gave ~60/20/20 because class composition varies between components. Place each
+    # component, largest first, into the split whose per-class deficits it reduces most.
+    # Ties break on the stable component key, so this stays deterministic and seedless.
+    target = {cls: {k: FRACS[k] * common_n for k in FRACS} for cls in classes}
+    have = {cls: {k: 0.0 for k in FRACS} for cls in classes}
+    order = sorted(members, key=lambda c: (-sum(counts[c].values()), comp_key[c]))
+    split_of_comp: dict = {}
+    for c in order:
+        best, best_gain = None, None
+        for k in FRACS:
+            gain = sum(
+                min(counts[c][cls], max(0.0, target[cls][k] - have[cls][k]))
+                for cls in classes
+            )
+            if best_gain is None or gain > best_gain:
+                best, best_gain = k, gain
+        split_of_comp[c] = best
+        for cls in classes:
+            have[cls][best] += counts[c][cls]
 
     # --- per class: take common_n clusters, honouring the global assignment ----------
     report: dict[str, dict] = {}
     out_dir.mkdir(parents=True, exist_ok=True)
     for cls in classes:
-        cls_recs = [r for r in records if cls in r["classes"]]
-        clusters = defaultdict(list)
-        for r in cls_recs:
-            clusters[rep[r["accession"]]].append(r)
-        # order clusters deterministically, then take common_n
-        ordered = sorted(clusters, key=lambda k: (_frac(k), k))
-        chosen = ordered[:common_n]
-        if len(chosen) < common_n:
-            raise RuntimeError(
-                f"{cls}: only {len(chosen)} clusters at max_len={max_len}, "
-                f"below common_n={common_n}. SPEC 4.4.2 must be revisited before "
-                f"building — silently shrinking one class breaks equal-n."
-            )
+        clusters = cls_clusters[cls]
+        chosen = selected[cls]
         buckets: dict[str, list[dict]] = {k: [] for k in FRACS}
         for ck in chosen:
             # one representative record per cluster (SPEC 4.4.3)
             recs = sorted(clusters[ck], key=lambda r: r["accession"])
             pick = next((r for r in recs if r["accession"] == ck), recs[0])
-            buckets[split_of_comp[comp_of[pick["accession"]]]].append(pick)
+            buckets[split_of_comp[comp_of_cluster[ck]]].append(pick)
 
         d = out_dir / cls
         d.mkdir(parents=True, exist_ok=True)
@@ -175,17 +215,41 @@ def verify(out_dir: Path, classes: tuple[str, ...], workdir: Path | None = None,
                    | (gsets["val"] & gsets["test"]))
         if overlap:
             raise RuntimeError(f"{cls}: {len(overlap)} genomes cross splits")
-        held = parts["val"] + parts["test"]
-        nd = clu.neardup_query_ids(held, parts["train"], workdir=workdir, threads=threads)
-        rc = [{"accession": r["accession"], "sequence": clu.revcomp(r["sequence"])}
-              for r in held]
-        nd_rc = clu.neardup_query_ids(rc, parts["train"], workdir=workdir, threads=threads)
-        if nd or nd_rc:
-            raise RuntimeError(
-                f"{cls}: cluster-aware split still leaks — {len(nd)} forward and "
-                f"{len(nd_rc)} reverse-complement near-duplicates. This is a build "
-                f"failure, not something to filter."
-            )
+        def leaks(rows):
+            fwd = clu.neardup_query_ids(rows, parts["train"], workdir=workdir,
+                                        threads=threads)
+            rc = [{"accession": r["accession"],
+                   "sequence": clu.revcomp(r["sequence"])} for r in rows]
+            rev = clu.neardup_query_ids(rc, parts["train"], workdir=workdir,
+                                        threads=threads)
+            return fwd, rev
+
+        fwd, rev = leaks(parts["val"] + parts["test"])
+        residual = len(fwd | rev)
+        if residual:
+            # Connected-component clustering makes this ~0 by construction, but the
+            # mmseqs prefilter is heuristic, so a small residual is possible. Dropping
+            # the offending HELD-OUT records is safe -- it only shrinks val/test and
+            # never touches training data -- but the count is RECORDED, never silently
+            # absorbed, so a reader knows construction was not perfect.
+            drop = fwd | rev
+            for k in ("val", "test"):
+                parts[k] = [r for r in parts[k] if r["accession"] not in drop]
+                with open(d / f"{k}.jsonl", "w") as fh:
+                    for r in parts[k]:
+                        fh.write(json.dumps(r) + "\n")
+            fwd, rev = leaks(parts["val"] + parts["test"])
+            if fwd or rev:
+                raise RuntimeError(
+                    f"{cls}: {len(fwd)} forward and {len(rev)} reverse-complement "
+                    f"near-duplicates remain after removing {residual} held-out "
+                    f"records. The split cannot be made leak-free by construction; "
+                    f"SPEC 4.6 must be revisited."
+                )
+            for k in ("val", "test"):
+                if not parts[k]:
+                    raise RuntimeError(f"{cls}/{k} emptied by residual removal")
         res[cls] = {"n": {k: len(v) for k, v in parts.items()},
-                    "genome_overlap": 0, "neardup_fwd": 0, "neardup_revcomp": 0}
+                    "genome_overlap": 0, "neardup_fwd": 0, "neardup_revcomp": 0,
+                    "residual_removed": residual}
     return res

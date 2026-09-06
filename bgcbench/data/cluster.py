@@ -21,10 +21,26 @@ MIN_SEQ_ID = 0.8
 COVERAGE = 0.5
 COV_MODE = 2          # coverage of the query
 
+#: CLUSTER MODE 1 = CONNECTED COMPONENT, and it is load-bearing.
+#: mmseqs defaults to cluster-mode 0 (greedy set cover), whose clusters are NOT the
+#: transitive closure of the similarity relation -- two sequences in different clusters
+#: can still be near-duplicates of each other. A cluster-disjoint split built on mode 0
+#: therefore still leaks: the first build of this corpus produced 3 forward and 3
+#: reverse-complement cross-split near-duplicates in TERPENE. Connected components make
+#: "same cluster" and "similar" the same relation, which is the property SPEC 4.6 needs.
+CLUSTER_MODE = 1
+
+#: Sensitivity must match the VERIFICATION search or clustering under-detects similarity
+#: and the guarantee is only apparent. At default sensitivity ARYLPOLYENE clustered to
+#: 2,774 groups; at -s 7.5 it clusters to 2,025, i.e. the default was missing real
+#: similarity that the verification search then found.
+SENSITIVITY = 7.5
+
 
 def cluster(records: list[dict], workdir: Path | None = None,
             min_seq_id: float = MIN_SEQ_ID, coverage: float = COVERAGE,
-            threads: int = 8) -> dict[str, str]:
+            threads: int = 8, cluster_mode: int = CLUSTER_MODE,
+            sensitivity: float = SENSITIVITY) -> dict[str, str]:
     """Return accession -> cluster representative accession."""
     if not records:
         return {}
@@ -37,7 +53,8 @@ def cluster(records: list[dict], workdir: Path | None = None,
         proc = subprocess.run(
             [MMSEQS, "easy-cluster", str(fa), str(tmp / "c"), str(tmp / "t"),
              "--min-seq-id", str(min_seq_id), "-c", str(coverage),
-             "--cov-mode", str(COV_MODE), "--threads", str(threads)],
+             "--cov-mode", str(COV_MODE), "--cluster-mode", str(cluster_mode),
+             "-s", str(sensitivity), "--threads", str(threads)],
             capture_output=True, text=True,
         )
         if proc.returncode != 0:

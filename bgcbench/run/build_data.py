@@ -88,15 +88,20 @@ def main() -> int:
         # be a neighbour of a core in the same genome
         used = {r["genome_accession"] for r in recs}
         pool = [g for g in sorted(index) if g not in used]
+        # ONE interval per genome. Drawing all 300 from one genome would be
+        # pseudo-replication, not 300 independent controls -- the first build did
+        # exactly that and reported genomes=1.
         out, ti = [], list(targets)
         for g in pool:
             if not ti:
                 break
             try:
-                got = negative.sample_from_genome(g, index, ti)
+                got = negative.sample_from_genome(g, index, ti[:1])
             except Exception:
                 continue
-            out.extend(got)
+            if got:
+                out.extend(got[:1])
+                ti.pop(0)
         with open(NEG / f"{cls}.jsonl", "w") as fh:
             for r in out:
                 fh.write(json.dumps(r) + "\n")

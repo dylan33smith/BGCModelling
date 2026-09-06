@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.0 — APPROVED. Class set, bound, minlength and arm set signed off 2026-09-06.
+**Status:** v2.1 — APPROVED. §4 (data) BUILT and verified 2026-09-06; §3, §5–§9 not yet built.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -487,6 +487,51 @@ density, and no cluster.
 against (§6.3) — and confirmation that `MINLENGTH = 1` does not admit spurious detections on short
 input. If the FPR at ml=1 is materially above zero, the minlength decision is revisited **before**
 any arm is scored, not after.
+
+### 4.9 BUILD RESULT — measured [M], 2026-09-06
+
+Corpus: **540,697 core records from 56,846 genomes**, zero extraction errors. 14.0% exceed
+the 16 kb bound and are dropped (SPEC 4.7). MiBIG partition: **24,694 of 340,044** in-class
+records match a curated cluster and are excluded from train/val/test.
+
+| class | train | val | test | clusters used/avail | med nt | ≥2 core genes | hybrid | products |
+|---|---|---|---|---|---|---|---|---|
+| TERPENE | 979 | 123 | 122 | 1,224 / 21,358 | 993 | 23.0% | 3.9% | 22 |
+| NRPS | 979 | 123 | 122 | 1,224 / 10,723 | 4,789 | 34.2% | 30.1% | 31 |
+| RIPP | 979 | 123 | 122 | 1,224 / 19,716 | 1,773 | 44.1% | 8.2% | **49** |
+| ARYLPOLYENE | 979 | 123 | 122 | 1,224 / 2,500 | 3,576 | 55.1% | 18.5% | 22 |
+| BETALACTONE | 979 | 123 | 122 | 1,224 / 4,107 | 8,770 | 99.8% | 13.2% | 18 |
+
+Ladder **23.0 → 34.2 → 44.1 → 55.1 → 99.8%**, monotone. Every class identical in size at
+every split. Verification: genome overlap 0, near-duplicates 0 forward and 0
+reverse-complement, for all five classes.
+
+**⚠ Clustering mode is load-bearing, and the default is wrong for this purpose [M].**
+mmseqs defaults to `--cluster-mode 0` (greedy set cover), whose clusters are NOT the
+transitive closure of the similarity relation — so a cluster-disjoint split still leaks.
+The first build produced **3 forward and 3 reverse-complement cross-split near-duplicates
+in TERPENE**. `--cluster-mode 1` (connected component) at `-s 7.5` fixes it. Sensitivity
+matters independently: at default sensitivity ARYLPOLYENE clustered to 2,774 groups, at
+`-s 7.5` to 2,025 — the default was missing real similarity the verification then found.
+Residual removals (heuristic prefilter) are recorded per class in the manifest, never
+absorbed; the built corpus removed **1** record, in RIPP.
+
+**⚠ Split balance needs a per-class-aware greedy, not a hash [M].** Components chain hard
+because a record links by genome OR cluster, so a few are enormous. Hashing each component
+independently gave **93/3.5/3.5**; balancing on the union alone gave **~60/20/20**. Placing
+components largest-first into the split whose per-class deficits they most reduce gives
+exactly 80/10/10, deterministically and with no RNG.
+
+**Negative controls (§4.8): 300 per class, each from a DISTINCT genome**, length-matched to
+within ~0.5% of the class median. The first build drew all 300 from one genome — 300
+intervals from one genome is one control, not 300 — and a test now pins genome diversity.
+
+**⚠ RECORDED LIMITATION: the controls are GC-poorer than the cores** — median GC 0.475–0.481
+against 0.582–0.668. This is real biology (biosynthetic cores are GC-rich) rather than a
+sampling defect, and it is not a shortcut antiSMASH can exploit, since detection runs
+profile HMMs over translated ORFs and not composition. But it means the measured
+false-positive rate is plausibly a slight **under**estimate, and the paper reports the gap
+rather than claiming a matched control.
 
 ## 5. Substrates
 

@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 
+from pathlib import Path
 from bgcbench.data import classmap, manifest, negative, split
 from bgcbench.data.genbank import parse
 
@@ -137,3 +138,60 @@ def test_length_targets_match_the_class_distribution():
     t = negative.length_targets(recs, 5)
     assert min(t) >= 100 and max(t) <= 500
     assert len(t) == 5
+
+
+MANIFEST = Path("/data2/ds85/bgcbench/manifest.json")
+
+
+def test_built_splits_are_balanced():
+    """Behavioural, not source-text. Components chain badly (a record links by genome OR
+    cluster), so per-component hashing gave 93/3.5/3.5 and union-level balancing gave
+    ~60/20/20. Assert the built artifact, since that is what the benchmark consumes."""
+    if not MANIFEST.exists():
+        return                                   # build has not run yet
+    doc = json.loads(MANIFEST.read_text())
+    for cls in classmap.BENCHMARK_CLASSES:
+        if cls not in doc:
+            continue
+        n = doc[cls]["split"]["n"]
+        total = sum(n.values())
+        assert 0.72 <= n["train"] / total <= 0.86, f"{cls} train share {n}"
+        for held in ("val", "test"):
+            assert 0.06 <= n[held] / total <= 0.16, f"{cls} {held} share {n}"
+
+
+def test_built_splits_are_leak_free():
+    """SPEC 4.6: the built artifact must carry zero genome overlap and zero near-dups in
+    both orientations. Any residual removal must be recorded, not absorbed."""
+    if not MANIFEST.exists():
+        return
+    doc = json.loads(MANIFEST.read_text())
+    for cls in classmap.BENCHMARK_CLASSES:
+        if cls not in doc:
+            continue
+        v = doc[cls]["verification"]
+        assert v["genome_overlap"] == 0
+        assert v["neardup_fwd"] == 0 and v["neardup_revcomp"] == 0
+        assert "residual_removed" in v, "residual count must be recorded"
+
+
+def test_negative_controls_are_not_pseudoreplicated():
+    """300 intervals from one genome is one control, not 300. The first build reported
+    genomes=1."""
+    if not MANIFEST.exists():
+        return
+    doc = json.loads(MANIFEST.read_text())
+    for cls in classmap.BENCHMARK_CLASSES:
+        if cls not in doc:
+            continue
+        nc = doc[cls]["negative_control"]
+        assert nc["genomes"] >= 0.9 * nc["n"], (
+            f"{cls}: {nc['n']} negatives from only {nc['genomes']} genomes")
+
+
+def test_cluster_mode_is_connected_component():
+    """cluster-mode 0 (greedy set cover) does not make 'same cluster' equal 'similar',
+    so a cluster-disjoint split still leaked 3 fwd + 3 revcomp near-dups in TERPENE."""
+    from bgcbench.data import cluster as clu
+    assert clu.CLUSTER_MODE == 1
+    assert clu.SENSITIVITY >= 7.0
