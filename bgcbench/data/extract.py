@@ -32,7 +32,8 @@ class CoreRecord:
     antismash_products: list[str]
     sequence: str
     seq_len: int                 # == len(sequence). SPEC 4.2: there is no region-span field.
-    core_gene_count: int
+    core_gene_count: int          # CDS with /gene_kind="biosynthetic" in the core span
+    cds_count: int                # ALL CDS in the span; diagnostic, not the multi-gene axis
     n_protoclusters: int
     contig_edge: bool
     region_span: int             # diagnostic only, never a length statistic (KNOWN_WRONG #1)
@@ -59,7 +60,13 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
                 continue
             prods = reg.quals.get("product", [])
             classes = classify(prods, mapping)
-            n_genes = sum(1 for c in cdss if _overlaps(c.start, c.end, lo, hi))
+            in_core = [c for c in cdss if _overlaps(c.start, c.end, lo, hi)]
+            # SPEC 4.2: core_gene_count is "core biosynthetic genes", NOT every CDS in
+            # the span. antiSMASH marks the genes that satisfied the detection rule with
+            # /gene_kind="biosynthetic"; counting all CDS instead inflates the multi-gene
+            # fraction badly (TERPENE read 53% rather than 18% before this was fixed).
+            n_genes = sum(1 for c in in_core
+                          if c.q1("gene_kind") == "biosynthetic")
             rn = reg.q1("region_number") or "0"
             out.append(asdict(CoreRecord(
                 accession=f"{acc}.region{rn}",
@@ -71,6 +78,7 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
                 sequence=seq,
                 seq_len=len(seq),
                 core_gene_count=n_genes,
+                cds_count=len(in_core),
                 n_protoclusters=len(inner),
                 contig_edge=(reg.q1("contig_edge", "False") == "True"),
                 region_span=reg.end - reg.start,

@@ -80,8 +80,10 @@ def load_corpus(path: Path, classes: tuple[str, ...], max_len: int) -> list[dict
 
 def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
           max_len: int, common_n: int, workdir: Path | None = None,
-          threads: int = 16) -> dict:
+          threads: int = 16, exclude: set[str] | None = None) -> dict:
     records = load_corpus(corpus_path, classes, max_len)
+    if exclude:
+        records = [r for r in records if r["accession"] not in exclude]
     by_acc = {r["accession"]: r for r in records}
 
     # --- one global clustering over the union of all benchmark classes ---------------
