@@ -50,7 +50,7 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
         cores = rec.of("proto_core")
         cdss = rec.of("CDS")
         for reg in rec.of("region"):
-            inner = [c for c in cores if _overlaps(c.start, c.end, reg.start, reg.end)]
+            inner = [c for c in cores if c.overlaps(reg.start, reg.end)]
             if not inner:
                 continue                       # a region with no protocore has no core
             lo = min(c.start for c in inner)
@@ -60,7 +60,7 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
                 continue
             prods = reg.quals.get("product", [])
             classes = classify(prods, mapping)
-            in_core = [c for c in cdss if _overlaps(c.start, c.end, lo, hi)]
+            in_core = [c for c in cdss if c.overlaps(lo, hi)]
             # SPEC 4.2: core_gene_count is "core biosynthetic genes", NOT every CDS in
             # the span. antiSMASH marks the genes that satisfied the detection rule with
             # /gene_kind="biosynthetic"; counting all CDS instead inflates the multi-gene
@@ -68,8 +68,15 @@ def extract_genome(acc: str, index: dict, mapping: dict[str, str]) -> list[dict]
             n_genes = sum(1 for c in in_core
                           if c.q1("gene_kind") == "biosynthetic")
             rn = reg.q1("region_number") or "0"
+            # THE LOCUS IS PART OF THE KEY. antiSMASH numbers regions PER RECORD, so
+            # region_number restarts at 1 on every contig: a draft genome with 84 contigs
+            # otherwise yields 84 records all keyed "<genome>.region1". Measured before
+            # this fix: 307,069 of 540,695 records (56.8%) shared an accession, and 560
+            # accessions appeared in more than one split file. Every downstream structure
+            # -- cluster assignment, record_split, component lookup, mmseqs FASTA headers
+            # -- is keyed on this string, so collisions silently overwrite.
             out.append(asdict(CoreRecord(
-                accession=f"{acc}.region{rn}",
+                accession=f"{acc}.{rec.locus}.region{rn}",
                 genome_accession=acc,
                 region_number=int(rn),
                 locus=rec.locus,

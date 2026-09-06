@@ -221,3 +221,70 @@ def test_one_dataset_invariant_is_documented():
     text = spec.read_text()
     assert "THE INVARIANT" in text
     assert "strata" in text and "not part of the arm grid" in text
+
+
+def test_join_locations_do_not_use_the_bounding_box():
+    """An origin-spanning gene on a circular replicon, join(2842906..2843201,1..161),
+    collapses to a 2.84 Mb bounding box and would overlap every cluster on the replicon.
+    Overlap must test the actual intervals."""
+    from bgcbench.data.genbank import parse as gbparse
+    gbk = ("LOCUS       CIRC                  3000 bp    DNA     circular CON 01-JAN-2026\n"
+           "FEATURES             Location/Qualifiers\n"
+           "     CDS             join(2900..2950,1..60)\n"
+           '                     /gene_kind="biosynthetic"\n'
+           "ORIGIN\n"
+           "        1 " + "acgt" * 15 + "\n"
+           "//\n")
+    rec = next(gbparse(gbk))
+    cds = rec.of("CDS")[0]
+    assert cds.spans == [(2899, 2950), (0, 60)]
+    assert cds.overlaps(0, 100) is True          # real interval
+    assert cds.overlaps(2890, 2960) is True      # real interval
+    assert cds.overlaps(1000, 2000) is False, (
+        "bounding box 2899..2950 would falsely overlap mid-replicon coordinates")
+
+
+CORPUS = Path("/data2/ds85/bgcbench/corpus/core_records.jsonl")
+
+
+def test_corpus_accessions_are_unique():
+    """The accession keys every downstream structure -- cluster assignment, record_split,
+    component lookup, mmseqs FASTA headers. antiSMASH numbers regions PER RECORD, so
+    omitting the locus made 56.8% of records collide."""
+    if not CORPUS.exists():
+        return
+    seen = set()
+    with open(CORPUS) as fh:
+        for line in fh:
+            a = json.loads(line)["accession"]
+            assert a not in seen, f"duplicate accession {a}"
+            seen.add(a)
+
+
+def test_a_record_lands_in_one_partition_across_all_classes():
+    """SPEC 4.6 global consistency. Under the SPEC 3.3 hybrid rule a record legitimately
+    appears in SEVERAL class corpora, so global uniqueness is the wrong property. What
+    must hold is that it lands in the same train/val/test partition in every one of them
+    -- otherwise a hybrid record sits in TERPENE-train and NRPS-test, and the pooled W1
+    arm, which trains on the union, trains on its own test set."""
+    root = Path("/data2/ds85/bgcbench/splits")
+    if not root.exists():
+        return
+    part_of: dict[str, str] = {}
+    for f in sorted(root.glob("*/*.jsonl")):
+        part = f.stem
+        for line in open(f):
+            a = json.loads(line)["accession"]
+            prev = part_of.setdefault(a, part)
+            assert prev == part, (
+                f"{a} is in '{prev}' for one class and '{part}' for another — the pooled "
+                f"arm would train on its own test set")
+
+
+def test_split_files_have_no_internal_duplicates():
+    root = Path("/data2/ds85/bgcbench/splits")
+    if not root.exists():
+        return
+    for f in sorted(root.glob("*/*.jsonl")):
+        accs = [json.loads(l)["accession"] for l in open(f)]
+        assert len(accs) == len(set(accs)), f"duplicate accession inside {f}"
