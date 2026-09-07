@@ -7,9 +7,32 @@ OPPOSITE places, so the abstraction has to be explicit about each:
   Evo2              byte 0       NO               NO (hardcoded)   byte-level, 1 tok ~ 1 nt
   GenomeOcean       [SEP] = 2    YES              only if told     BPE, vocab 4096
 
-⚠ EVO2 CANNOT STOP THROUGH ITS PUBLIC API. `vortex.model.generation.generate` calls the
-inner generator with a hardcoded `stop_at_eos=False` and forwards `**kwargs` AFTER it, so
-passing `stop_at_eos=True` is a duplicate-keyword error rather than an override.
+⚠ EVO2 CANNOT STOP AT ALL, AND THE REASON IS NOT WHAT IT LOOKS LIKE.
+
+The weights are local; nothing here is a remote service. Three layers were checked:
+
+  1. `Evo2.generate()` exposes no stop parameter.
+  2. `vortex.model.generation.generate()` calls the inner `Generator` with a hardcoded
+     `stop_at_eos=False`, forwarding `**kwargs` AFTER it — so passing `stop_at_eos=True`
+     is a duplicate-keyword error, not an override.
+  3. `Generator.generate()` DOES take `stop_at_eos`, defaulting to True — but it is DEAD
+     CODE. The entire implementation is:
+
+         if stop_at_eos and (generation[0, -1:] == eos_token_ids).all():
+             print("Stopping generation at EOS")
+
+     It prints and does not break. The only `break` in the function is inside a `verbose`
+     display block, unrelated. Generation always runs to `num_tokens`.
+
+  And even if it did break, it inspects `generation[0]` — row 0 only — so under batched
+  generation the whole batch would be cut the moment the FIRST sequence emitted EOS,
+  truncating every other row mid-sequence.
+
+⇒ POST-HOC TRUNCATION IS THE ONLY CORRECT MECHANISM, not a workaround for a missing
+feature. Generate to budget, truncate each row at its own terminator, record `hit_eos`.
+A block-wise early exit (generate in blocks, stop when ALL rows have terminated) would
+recover the wasted compute and is deferred until a fine-tuned model is measured to stop
+early enough to be worth it.
 
 So termination is handled UNIFORMLY and post hoc: generate to the budget, then truncate at
 the first terminator occurrence, and record whether one appeared. That works identically on

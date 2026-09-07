@@ -322,3 +322,18 @@ def test_short_and_ambiguous_records_are_filtered():
             assert r["seq_len"] >= split.MIN_LEN, f"{r['accession']} is {r['seq_len']} nt"
             n_frac = r["sequence"].count("N") / max(r["seq_len"], 1)
             assert n_frac <= split.MAX_N_FRAC, f"{r['accession']} is {n_frac:.0%} N"
+
+
+def test_evo2_termination_does_not_rely_on_vortex_stop_at_eos():
+    """vortex's stop_at_eos prints and does not break -- it is dead code, and its condition
+    inspects row 0 only. Termination must be post-hoc truncation, so the substrate layer
+    must not claim native stop for Evo2."""
+    import inspect
+    from bgcbench.model.load import Substrate
+    src = inspect.getsource(Substrate)
+    assert "truncate_at_terminator" in src
+    text, hit = Substrate(id="x", family="evo2", checkpoint="c", terminator_id=0,
+                          terminator_str=chr(0), appends_terminator=False,
+                          native_stop=False, approx_nt_per_token=1.0
+                          ).truncate_at_terminator("ACGT" + chr(0) + "TTTT")
+    assert text == "ACGT" and hit is True

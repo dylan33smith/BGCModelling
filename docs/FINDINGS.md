@@ -104,6 +104,16 @@ Three consequences, all load-bearing:
    before it can physically emit a multi-gene cluster. Any multi-gene claim about GO has
    to be read against its own realised length distribution, not against the budget.
 
+**⚠ `stop_at_eos` IS DEAD CODE IN VORTEX** [M]. `Generator.generate()` accepts it and
+documents it as defaulting to True, but its entire implementation is a condition that
+prints `"Stopping generation at EOS"` and does not break; the only `break` in the function
+is in an unrelated `verbose` display block. Generation always runs to `num_tokens`. And the
+condition inspects `generation[0]` — row 0 only — so had it been implemented, batched
+generation would have cut the whole batch when the first sequence terminated. The wrapper
+one layer up hardcodes it to False anyway. **Post-hoc truncation is therefore the only
+correct termination mechanism for Evo2, not a workaround.** Anyone relying on this
+parameter is generating to the full budget while believing otherwise.
+
 Also measured: GenomeOcean's BPE ratio is **~4.8 nt/token**, not the 4.0 assumed — 1,000
 tokens decoded to 4,792 nt. Budgets are specified in nucleotides and converted with the
 measured ratio, or the two substrates get different amounts of sequence.
