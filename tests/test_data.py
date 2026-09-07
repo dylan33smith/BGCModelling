@@ -337,3 +337,22 @@ def test_evo2_termination_does_not_rely_on_vortex_stop_at_eos():
                           native_stop=False, approx_nt_per_token=1.0
                           ).truncate_at_terminator("ACGT" + chr(0) + "TTTT")
     assert text == "ACGT" and hit is True
+
+
+def test_generate_has_no_arm_specific_branch():
+    """SPEC 9 rule 2: generate.py takes an arm coordinate as DATA. A branch on an arm name
+    is how two arms come to be generated differently without anyone deciding to."""
+    from bgcbench.model import generate as gen
+    src = Path(gen.__file__).read_text()
+    for tok in ("W0", "W1r", "W1", "W2", "W3", "S0", "S1", "I0", "I1", "I2"):
+        assert f'"{tok}"' not in src and f"'{tok}'" not in src, f"branches on {tok}"
+
+
+def test_seeded_generation_never_scores_the_seed():
+    """The seed is real sequence. Scoring it as model output would make every seeded arm
+    look extraordinary. Evo2 returns only the continuation; HuggingFace returns
+    prompt+continuation and must be sliced."""
+    from bgcbench.model import generate as gen
+    src = Path(gen.__file__).read_text()
+    assert "[plen:]" in src, "HF path must strip the prompt before scoring"
+    assert "STRIP THE PROMPT" in src
