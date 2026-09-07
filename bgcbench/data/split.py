@@ -97,12 +97,23 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
           max_len: int, common_n: int, workdir: Path | None = None,
           threads: int = 16, exclude: set[str] | None = None) -> dict:
     records = load_corpus(corpus_path, classes, max_len)
-    if exclude:
-        records = [r for r in records if r["accession"] not in exclude]
-    by_acc = {r["accession"]: r for r in records}
 
     # --- one global clustering over the union of all benchmark classes ---------------
     rep = clu.cluster(records, workdir=workdir, threads=threads)
+
+    # MiBIG EXCLUSION IS AT CLUSTER LEVEL, NOT RECORD LEVEL.
+    # Removing the matching accessions BEFORE clustering left their near-duplicates
+    # eligible for training: the held-out set measured 26.3% near-duplicate to pooled
+    # train against an 8.2% background for a size-matched random slice, i.e. 3.2x
+    # enriched. An external-validation set a quarter of which is a near-copy of training
+    # is not external under any use. Dropping the whole cluster is what makes it so.
+    n_excluded_records = 0
+    if exclude:
+        bad_clusters = {rep[a] for a in exclude if a in rep}
+        before = len(records)
+        records = [r for r in records if rep[r["accession"]] not in bad_clusters]
+        n_excluded_records = before - len(records)
+        rep = {a: c for a, c in rep.items() if c not in bad_clusters}
 
     # --- select each class's common_n clusters BEFORE assigning splits ---------------
     # Order matters. Assigning components first and selecting clusters afterwards makes

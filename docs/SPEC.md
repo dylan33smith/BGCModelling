@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.5 — APPROVED. §3 (scoring) and §4 (data) COMPLETE and verified 2026-09-06. §5–§9 not built.
+**Status:** v2.6 — APPROVED. §3 (scoring) and §4 (data) COMPLETE and verified 2026-09-06. §5–§9 not built.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -237,14 +237,38 @@ comparable across arms.
 Every ladder metric is maximised by reproducing training data, so novelty is an **absolute gate on
 every arm, applied before any rate is read** — not a co-reported number.
 
+**TWO DIRECTIONS, AND THE GATE TAKES THE WORSE OF THEM.**
+
 ```
-containment(s) = max over training records t of
-                 |canonical 21-mers(s) ∩ 21-mers(t)| / |canonical 21-mers(s)|
+forward(s) = max over reference records t of |21mers(s) ∩ 21mers(t)| / |21mers(s)|
+reverse(s) = max over reference records t of |21mers(s) ∩ 21mers(t)| / |21mers(t)|
+gate on    = max(forward, reverse)
 ```
 
-- Reference set: **the training split the arm was actually trained on**, per arm. An arm trained on
-  a pooled corpus is gated against the pooled corpus. [C — asymmetric reference sets make novelty
-  incomparable across arms, so this is specified per-arm and stated in every table.]
+⚠ **FORWARD ALONE CANNOT FAIL AT THE GENERATION BUDGET** [M]. Its denominator is the whole
+generation, so it decays as 1/length however much was copied. Measured on the real TERPENE
+training split with the real instrument: **ten whole verbatim training records concatenated to
+15,992 nt score forward 0.198 → PASS**, while antiSMASH calls them on-target with 15 core genes.
+At the 16 kb bound only 0.6–3.7% of training records per class are long enough for a single
+record to reach FAIL. Reverse containment does not dilute with length: the same collage scores
+**1.000 → FAIL**, against 0.000–0.006 for held-out real cores plus filler and 0.000 for random
+DNA. Reference records below 50 k-mers are excluded from the reverse direction.
+
+**TWO REFERENCES, BOTH REPORTED. They answer different questions.**
+
+| reference | question | applies to |
+|---|---|---|
+| **per-arm** — the training split the arm was actually trained on | "did this arm memorise its own training data?" | trained arms only |
+| **corpus-level** — every eligible core record (~309k), searched with mmseqs | "did the model output a KNOWN BGC?" | **every arm, including the untrained floor** |
+
+The corpus-level reference exists because the per-arm one is unconstructible for `W0` and
+`bgcfm`, which we never trained — `Reference([])` raises by design — and because Evo2 and
+GenomeOcean were **pretrained on public genome collections that include the source genomes of
+this corpus**. A base-model arm reproducing a real cluster is memorising from pretraining, which
+the per-arm reference cannot see at all. Reporting only the per-arm reference would leave the
+floor arm's memorisation both ungated and unmeasurable [C].
+The exact k-mer index does not scale to 309k records, so the corpus-level check uses mmseqs at
+the §4.4 criterion; the per-arm check uses the exact index.
 - `FAIL` at containment ≥ 0.95. Arm reported as a failure regardless of its rates.
 - `WARN` at ≥ 0.80; reported, not disqualifying.
 - **The gate MUST raise on a missing or empty k-mer set, never default to passing.** A test pins
@@ -259,6 +283,8 @@ later no matter how the analysis is framed.
 
 ```
 generation_id        str    unique
+stage                str    "stage1" (shakedown) or "stage2" (powered). A field, not a policy:
+                            SPEC 6.1 forbids pooling them and prose cannot be audited afterwards.
 arm                  str    the §6 coordinate (weight state / regime / inference control)
 substrate            str    §5 id
 target_class         str    what was conditioned toward
@@ -491,9 +517,19 @@ never be pooled or reported as replication.
 - Exact-duplicate removal before clustering. After the cluster-aware split, a **verification** pass
   re-runs the §4.4 near-dup search held-out vs train, forward **and reverse-complement**; a non-zero
   count is a build failure, not something to filter away.
-- **Externally-curated held-out set (MiBIG):** excluded from every training corpus, declared as a
-  named partition in the manifest **at build time**, used **once** at the end as external
-  validation. Never iterated against. It is the partial answer to §3.1's circularity disclosure.
+- **MiBIG is NOT a test set** [C]. This is a generation benchmark: we do not predict on held-out
+  inputs, so there is nothing for a test set to do. Its role is narrower and is stated as such:
+  1. **Novelty reference** — "did the model regenerate an *experimentally characterised*
+     cluster?" This is the sharpest form of the §3.8 corpus-level question.
+  2. **External ceiling** — antiSMASH detection on independently curated data, a check on §3.1's
+     circularity disclosure that does not depend on our own extraction.
+  3. **Likelihood / surprise** — per-token likelihood on curated clusters, a capability measure.
+  It is excluded from every training corpus, declared in the manifest at build time, and read
+  once. Never iterated against.
+  ⚠ **EXCLUSION IS AT CLUSTER LEVEL, NOT RECORD LEVEL** [M]. Removing the matching accessions
+  before clustering left their near-duplicates eligible for training: the held-out set measured
+  **26.3% near-duplicate to pooled train against an 8.2% background** — 3.2× enriched. A set a
+  quarter of which is a near-copy of training is not external under any of the three uses.
 - **The manifest is written per class and MUST be additive.** [C] A builder that initialises an
   empty manifest and rewrites the whole file silently destroys sibling entries. A test pins this
   (§11) — during this specification, 12 existing subclass datasets were found carrying an
@@ -616,6 +652,37 @@ rather than claiming a matched control.
 `bgcfm` is prior art run as-published: it establishes what an existing BGC generation model does
 under this benchmark. It is never fine-tuned by us.
 
+### 5.1 Termination and tokenisation differ between substrates — measured [M]
+
+Neither substrate does what is wanted by default, and they fail in OPPOSITE places:
+
+| | terminator | auto-appended at encode? | declared as `eos_token`? | tokenisation |
+|---|---|---|---|---|
+| **Evo2** | byte **0** | **NO** | yes (`eos_id=0`) | byte-level; 1 token ≈ 1 nt |
+| **GenomeOcean** | `[SEP]` = **2** | **YES** | **NO** (`eos_token_id` is `None`) | BPE, vocab 4096 |
+
+Consequences, each of which must be implemented rather than assumed:
+
+1. **Evo2 will never learn to stop unless the terminator is appended to training sequences.**
+   Its tokenizer does not add one (`tokenize("ACGT") -> [65,67,71,84]`). Token 0 is native — we
+   invent nothing — but it must be written into the training text.
+2. **GenomeOcean appends `[SEP]` automatically but will not stop on it**, because
+   `eos_token_id` is `None`, so `generate()` has no stop criterion unless id 2 is passed
+   explicitly.
+3. **Token count ≠ nucleotide count on GenomeOcean.** `ACGTACGTACGT -> ACG/TACG/TACG/T`. The
+   length bound (§4.7) and the generation budget (§7.1) are specified in **NUCLEOTIDES** and
+   converted per substrate. A budget in tokens would give the two substrates different amounts
+   of sequence.
+
+**Gate G10 — termination, per substrate, before any arm runs.** Verify the terminator id from
+what the model actually emits; verify training text carries it; verify generation stops on it;
+report `hit_eos` rate and the realised length distribution against real held-out cores.
+⚠ **This gate bears directly on the multi-gene axis.** If generations run to the full budget
+while real cores are ~1–9 kb, `frac_multigene` compares a 16 kb budget against a ~1 kb reference
+(a 15,992 nt concatenation produced 15 core genes). If termination works, lengths become
+comparable and the confound largely dissolves. Until G10 passes, gene-count comparisons are
+reported per-nucleotide as well as per-sequence.
+
 **Gate G2 — substrate health, before any arm runs.** For each substrate: (a) load and score a fixed
 set of real held-out cores, confirming per-token likelihood is materially better than on
 length-matched shuffled sequence; a substrate at chance must fail loudly. (b) record context limit,
@@ -668,17 +735,48 @@ proportion. Both the rank and the realised parameter fraction are reported for e
 
 **Inference-time control:**
 - `I0` none.
-- `I1` activation steering — inject a class direction during generation.
+- `I1` activation steering — inject a class direction into the residual stream during
+  generation. Fully specified here because every other free parameter carries an `[O]` tag and a
+  named gate, and an unspecified arm cannot be built blind.
+  - **Direction: DIFFERENCE OF MEANS, not probe weights.** For class *C* at layer *L*:
+    `d = mean(activations over C's TRAIN records) − mean(activations over all TRAIN records)`,
+    length-normalised. **Train only** — the prior codebase carried a leakage debt from fitting
+    directions on val+test. No probe is fitted, so §3.7's ban on learned-probe *endpoints* is
+    not even in tension; a probe would be an intervention, never a metric.
+  - **Injection site and magnitude:** swept together by **Gate G9**. The sweep criterion is NOT
+    the endpoint (§2.4) — it is the largest α at which generation quality is not degraded
+    beyond a stated tolerance, read as per-token likelihood on the model's own output and
+    coding density.
+  - **MANIPULATION CHECK, probe-free, two parts, both required.** (a) projection onto `d`
+    increases monotonically with α — confirms the hook fired; (b) KL divergence between steered
+    and unsteered next-token distributions is non-trivial — confirms it reached generation.
+    (a) alone is circular: it measures the quantity we injected. (b) is the one that licenses
+    reading a null.
+  - **Control:** magnitude-matched random direction (§6.3).
+  - ⚠ Substrates expose different residual streams (§6.5); the injection site is recorded per
+    substrate and an arm that cannot be implemented is NOT APPLICABLE, never a zero.
 - `I2` iterative refine — generate, detect, retain the rule-satisfying span, re-seed from it,
   repeat to a fixed iteration cap.
+
+### 6.0 Degenerate coordinates — collapse before sizing
+
+With no conditioning channel in the input (§4.3, the project's premise), **an arm with no
+class-bearing factor produces the SAME generations regardless of target class.** `W0/S0/I0` and
+`W1/S0/I0` are one run each, not five, and their output populates every row of the confusion
+matrix identically — which is exactly the unconditioned marginal §3.5's lift divides by. Six
+cells collapse to two. State this when sizing; counting them as thirty overstates the budget.
+
+**Sequencing [C]:** run the weight-state arms first (`W0`, `W1`, `W2`, `W3`), read them, and pick
+the base for the composable `S` and `I` factors from that data rather than assuming `W1`.
 
 ### 6.1 Stage 1 — the shakedown (build verification, not inference)
 
 Every arm run **once** at small n on `evo2-1b` / `W1r` for composable factors, to prove the harness
 end-to-end and to estimate rates for powering.
 
-**Stage 1 data is used for power estimation ONLY and is discarded from all final analysis.**
-Reusing it is sample-creep — running until the p-value cooperates. Final runs are generated fresh.
+Stage 1 exists to prove the harness end to end and to estimate rates for powering. Its output
+is **labelled `stage: "stage1"` in the scored record (§3.9)** and is never pooled with Stage 2.
+That is a field rather than a paragraph because a prose prohibition cannot be audited afterwards.
 
 ### 6.2 Stage 2 — the powered benchmark
 
@@ -712,6 +810,19 @@ negative.
 | `S1` | seed present in prompt, absent from scored span |
 
 ---
+
+### 6.4a Length-bucketed batching — permitted, with one guard
+
+Padding to the longest member of a batch wastes compute at these length spreads, so batches may
+be bucketed by length. **One caveat, specific to the pooled arm** [C]: class medians run from
+TERPENE ~1.3 kb to BETALACTONE ~9.0 kb, so on `W1` a pure length bucket is very nearly a pure
+CLASS bucket, and gradient updates would alternate between class-homogeneous batches — a
+training dynamic introduced by accident, on the one arm whose premise is that it sees all
+classes together.
+
+Required: bucket by length, then require each batch to draw from **≥2 classes** wherever the
+lengths permit; and verify empirically that held-out loss matches an unbucketed run before the
+optimisation is trusted. It is a speed change and must be shown to be only that.
 
 ### 6.5 Where substrates are not architecturally equivalent — declare, do not paper over
 
@@ -801,6 +912,20 @@ Consequences, and they drive the budget:
 Where an arm shows no effect, report an **equivalence bound** — "no effect larger than δ" — not
 merely "not significant". A null with a passing manipulation check and a stated bound is a result;
 without both it is uninformative.
+
+**δ IS COMPUTED FROM TWO MEASURED QUANTITIES, NEVER CHOSEN BY TASTE.**
+
+```
+δ = max( instrument resolution , smallest effect detectable at 80% power at the planned n )
+```
+
+* **Instrument resolution** is the exact-binomial upper bound on the measured false-positive
+  rate. At the current floor of 0/300 that is **0.0099** [M] — you cannot honestly claim to
+  resolve an effect smaller than your own instrument's uncertainty.
+* **Detectable-at-n** falls out of the pre-registration once n is fixed.
+
+Both components are reported. Both are computable **before any arm runs**, which is what makes δ
+pre-registrable rather than a number chosen after seeing the data.
 
 ### 8.4 Multiplicity
 
@@ -930,6 +1055,8 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
+| G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm |
+| G10 | **termination**: terminator id per substrate, present in training text, honoured at generation; `hit_eos` and realised length vs real cores | every generation arm, and the gene-count axis (§5.1) |
 
 **Bound resolved: 16 kb** [M]. G2 shows the 1B is not the constraint (64k fits in 19 GiB), so the
 bound is a cost decision; 16k captures ~92% of 32k's data benefit at half the generation and
