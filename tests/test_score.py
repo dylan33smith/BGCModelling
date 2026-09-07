@@ -385,3 +385,13 @@ def test_held_out_eval_is_stratified_across_classes():
     from bgcbench.model import train as tr
     src = Path(tr.__file__).read_text()
     assert "STRATIFY" in src and "by_cls" in src
+
+
+def test_evo2_generation_is_single_call_not_block_wise():
+    """Block-wise cache carry-over runs but is NOT equivalent: 200 tokens in one call vs
+    two 100-token blocks agree for only 119/200 characters at the same seed. Adopting it
+    would trade a verified generation path for an unverified one."""
+    from bgcbench.model import generate as gen
+    src = Path(gen.__file__).read_text()
+    assert "inference_params_dict" not in src, (
+        "block-wise cache carry-over is not equivalent; see FINDINGS 1.5b")

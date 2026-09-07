@@ -77,6 +77,35 @@ as lift against the real-core marginal and never against a diagonal ideal.
 
 ---
 
+### 1.5b Early stopping on Evo2: three mechanisms, none usable `[instrument]`
+Investigated in response to "is there really no other way?". All three checked against the
+local weights.
+
+1. **`Generator.generate(stop_at_eos=True)` — CRASHES.** It is not merely dead code that
+   prints without breaking; reaching that line threw `RuntimeError: CUDA error: an illegal
+   memory access was encountered`. That is very likely why the wrapper one layer up
+   hardcodes it to `False`.
+2. **Batched per-row stopping — impossible in principle, on either substrate.** In any
+   batched autoregressive loop every row advances together, so a row that terminates at
+   token 500 still costs compute until its batch-mates finish. HuggingFace behaves the same
+   way: it breaks when `unfinished_sequences.max() == 0`, i.e. when ALL rows are done. So
+   GenomeOcean's "native stopping" is BATCH-level, not row-level, and describing it as
+   per-row is wrong.
+3. **Block-wise with cache carry-over — works, but is NOT equivalent.** `Generator.generate`
+   documents passing and returning `inference_params_dict` for exactly this. It runs
+   (after `model.eval()`, which `vortex_generate` does and a direct `Generator` does not),
+   but **200 tokens generated in one call and in two 100-token blocks agree for only 119 of
+   200 characters at the same seed**, diverging 19 tokens past the boundary. Both are valid
+   samples, but the cached state is not restored exactly — the class of defect the prior
+   codebase recorded as `seqlen_offset` corruption on resumed calls.
+
+⇒ Post-hoc truncation remains the mechanism. It is exact, uniform across substrates, and
+costs only compute. Adopting block-wise would trade a verified generation path for an
+unverified one to buy a saving that is still hypothetical — whether a FINE-TUNED Evo2
+terminates early enough to matter is a post-training measurement that has not been made.
+**Revisit only if that measurement shows early termination**, and if adopted, apply it to
+every arm and record the mode, since it changes outputs.
+
 ### 1.6 The three substrates terminate in three incompatible ways `[instrument]` `[design]`
 Base models, no fine-tuning, 4,000 nt budget, 12 probes each [M]:
 
