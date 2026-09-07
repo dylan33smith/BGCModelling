@@ -35,6 +35,11 @@ def main() -> int:
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--grad-accum", type=int, default=16)
     ap.add_argument("--max-len-nt", type=int, default=16000)
+    ap.add_argument("--balance", choices=["records", "nucleotides"], default="records",
+                    help="'records' gives every record equal weight -- equal-n, but NOT "
+                         "equal tokens (measured 3.4x nucleotide imbalance). "
+                         "'nucleotides' weights the per-class loss so classes contribute "
+                         "equally by token, which is what the pooled gradient actually sees.")
     ap.add_argument("--limit", type=int, default=0, help="cap train records (smoke tests)")
     args = ap.parse_args()
 
@@ -47,7 +52,7 @@ def main() -> int:
         train, val = train[:args.limit], val[:max(8, args.limit // 8)]
 
     cfg = TrainConfig(rank=args.rank, epochs=args.epochs, grad_accum=args.grad_accum,
-                      max_len_nt=args.max_len_nt)
+                      max_len_nt=args.max_len_nt, balance=args.balance)
     out = ADAPTERS / f"{args.substrate}_{args.name}"
     print(f"training {args.name} on {sorted(args.classes)}: "
           f"{len(train)} train / {len(val)} val, rank {cfg.rank}, {cfg.epochs} epochs",
@@ -57,6 +62,11 @@ def main() -> int:
           f"= {100*rep['trainable_frac']:.3f}%")
     print(f"batching: {rep['batching']}")
     print(f"checkpoints: {rep['checkpoints']}  ->  {out}")
+    print(f"best checkpoint: {rep['best_checkpoint']} (val {rep['best_val_loss']}) "
+          f"| final_is_best={rep['final_is_best']}")
+    if rep.get("class_weights"):
+        print(f"class loss weights: "
+              f"{ {k: round(v,3) for k,v in rep['class_weights'].items()} }")
     if rep["log"]:
         print("loss track:", [(d["step"], d["train_loss"], d["val_loss"])
                               for d in rep["log"]])

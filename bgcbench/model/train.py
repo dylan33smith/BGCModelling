@@ -41,6 +41,11 @@ class TrainConfig:
     grad_accum: int = 16
     max_len_nt: int = 16000
     length_bucketed: bool = True
+    #: "records" -> every record contributes equally (equal-n, but NOT equal tokens:
+    #: measured 3.4x nucleotide imbalance across the five classes, and the loss is per
+    #: token, so the pooled gradient is dominated by the long classes).
+    #: "nucleotides" -> per-class loss weights make the classes contribute equally by token.
+    balance: str = "records"
     min_classes_per_batch: int = 2
     checkpoints: int = 5           # SPEC 6.4: >=5 for a monotone-slope manipulation check
     seed: int = 0
@@ -149,6 +154,15 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],
                             lr=cfg.lr, weight_decay=0.01, betas=(0.9, 0.95))
 
+    cls_w: dict[str, float] = {}
+    if cfg.balance == "nucleotides":
+        per: dict[str, int] = {}
+        for r in records:
+            per[r["classes"][0]] = per.get(r["classes"][0], 0) + r["seq_len"]
+        if per:
+            target = sum(per.values()) / len(per)
+            cls_w = {c: target / nt for c, nt in per.items()}
+
     batches = build_batches(records, cfg, rng)
     mixing = batch_class_mixing(batches)
     total_steps = max(1, (len(batches) * cfg.epochs) // cfg.grad_accum)
@@ -176,7 +190,12 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
             tgt = x[:, 1:]
             m = mask[:, 1:]
             nll = -lp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
-            loss = (nll * m).sum() / m.sum().clamp(min=1)
+            if cls_w:
+                w = torch.tensor([cls_w.get(r["classes"][0], 1.0) for r in batch],
+                                 device=device, dtype=nll.dtype).unsqueeze(1)
+                loss = (nll * m * w).sum() / (m * w).sum().clamp(min=1)
+            else:
+                loss = (nll * m).sum() / m.sum().clamp(min=1)
             (loss / cfg.grad_accum).backward()
 
             if (bi + 1) % cfg.grad_accum == 0:
@@ -195,10 +214,30 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
                           f"val={vl}", flush=True)
 
     model.save_pretrained(str(out_dir / "final"))
+
+    # BEST CHECKPOINT, NOT THE LAST. Training uses a fixed epoch count with no early
+    # stopping, so `final` is whatever the last step happened to produce. Measured on the
+    # first six arms: W1 and W2_RIPP both had a `final` WORSE than their best checkpoint,
+    # so generating from `final` handicaps exactly those two arms and nothing else.
+    best = min(log, key=lambda d: (d["val_loss"] if d["val_loss"] is not None else 9e9)) \
+        if log else None
+    best_dir = None
+    if best is not None:
+        best_dir = out_dir / f"step_{best['step']}"
+        (out_dir / "BEST").write_text(json.dumps(
+            {"step": best["step"], "val_loss": best["val_loss"],
+             "path": str(best_dir),
+             "final_val_loss": log[-1]["val_loss"],
+             "final_is_best": best["step"] == log[-1]["step"]}, indent=2))
+
     report = {"trainable_params": trainable, "total_params": total,
+              "best_checkpoint": (str(best_dir) if best_dir else None),
+              "best_val_loss": (best["val_loss"] if best else None),
+              "final_is_best": (best["step"] == log[-1]["step"]) if log else None,
               "trainable_frac": round(trainable / max(total, 1), 6),
               "rank": cfg.rank, "targets": cfg.targets, "epochs": cfg.epochs,
               "n_train": len(records), "batching": mixing, "log": log,
+              "balance": cfg.balance, "class_weights": cls_w,
               "checkpoints": len(log)}
     (out_dir / "train_report.json").write_text(json.dumps(report, indent=2))
     return report

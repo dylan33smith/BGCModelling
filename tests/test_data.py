@@ -374,3 +374,24 @@ def test_per_class_adapter_generates_once_not_five_times():
     src = Path(armmod.__file__).read_text()
     assert "row_class" in src
     assert "one adapter, one row" in src
+
+
+def test_training_records_the_best_checkpoint_not_just_the_last():
+    """Fixed epochs with no early stopping means `final` is whatever the last step
+    produced. Measured: W1 and W2_RIPP both had a final WORSE than their best, so
+    generating from final handicaps those two arms and nothing else."""
+    import glob
+    for f in glob.glob("/data2/ds85/bgcbench/adapters/*/train_report.json"):
+        d = json.loads(Path(f).read_text())
+        if "best_checkpoint" not in d:
+            continue                       # trained before the fix
+        assert d["best_val_loss"] is not None
+        assert "final_is_best" in d
+
+
+def test_pooled_balance_option_exists_and_is_token_aware():
+    """Equal records is NOT equal tokens: 3.4x nucleotide imbalance across the five
+    classes, and the loss is per token."""
+    from bgcbench.model.train import TrainConfig
+    assert TrainConfig().balance == "records"
+    assert TrainConfig(balance="nucleotides").balance == "nucleotides"

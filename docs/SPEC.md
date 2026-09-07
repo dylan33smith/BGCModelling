@@ -706,8 +706,16 @@ Arms are **factors**, not a flat list. Composability is the point: an arm is a c
 
 **Weight state** (mutually exclusive — one is loaded):
 - `W0` base — no training. The floor.
+- `W1n` pooled adapter, **balanced by NUCLEOTIDE**: per-class loss weights so the classes
+  contribute equally to the gradient.
 - `W1` pooled adapter over the benchmark classes at the common effective_n (§4.4.3), i.e.
-  **balanced by construction**. This is the controlled comparison to `W2`: it sees the *same amount
+  balanced by RECORD.
+  ⚠ **EQUAL RECORDS IS NOT EQUAL TOKENS, and an earlier version of this spec wrongly said
+  the two were the same** [M]. At 979 records per class the training corpus is
+  TERPENE 9.9% of nucleotides, RIPP 12.9%, ARYLPOLYENE 18.5%, NRPS 24.8%,
+  **BETALACTONE 33.9%** — a 3.4× imbalance — and the loss is per token, so `W1`'s gradient
+  is dominated by the long classes. `W1` is therefore the RAW-mixture arm and `W1n` is the
+  balanced one; data mixture is itself a control method (§6) and the pair measures it. This is the controlled comparison to `W2`: it sees the *same amount
   of class C* plus the other benchmark classes, so the contrast isolates class-exclusivity from
   data volume.
   **A full-corpus pooled arm is deliberately NOT included** [C]. It would reintroduce the exact
@@ -809,6 +817,7 @@ negative.
 
 | arm | check |
 |---|---|
+| checkpoint selection | the arm is evaluated at its BEST held-out checkpoint, not its last. Training uses a fixed epoch count with no early stopping, so `final` is whatever the last step produced; measured on the first six arms, `W1` and `W2_RIPP` both had a `final` worse than their best, which would have handicapped exactly those two arms |
 | `W1`/`W2` | training loss falls on held-out data of the target class; monotone across ≥5 checkpoints |
 | `W3` | prefix changes next-token distribution measurably vs no prefix |
 | `I1` | the injected direction changes an independent readout of class in activations |
