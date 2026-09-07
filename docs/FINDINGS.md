@@ -77,6 +77,37 @@ as lift against the real-core marginal and never against a diagonal ideal.
 
 ---
 
+### 1.6 The three substrates terminate in three incompatible ways `[instrument]` `[design]`
+Base models, no fine-tuning, 4,000 nt budget, 12 probes each [M]:
+
+| substrate | terminator | auto-appended at encode | `hit_eos` | median length |
+|---|---|---|---|---|
+| Evo2-1B | byte 0 | **no** | **0/12** | 4,000 — runs to budget every time |
+| GenomeOcean-4B | `[SEP]`=2 | yes | **12/12** | **553** (min 485, max 1,131) |
+| **GenomeOcean-bgcFM** | `[SEP]`=2 | yes | **0/12** | **4,792** |
+
+Three consequences, all load-bearing:
+
+1. **Evo2 will never stop unless its terminator is written into the training text.** Its
+   tokenizer does not add one, and `vortex.model.generation.generate` calls the inner
+   generator with a hardcoded `stop_at_eos=False`, forwarding `**kwargs` after it — so
+   `stop_at_eos=True` is a duplicate-keyword error, not an override. Termination must
+   therefore be handled post hoc (generate to budget, truncate at the first terminator),
+   which is the mechanism used uniformly across substrates.
+2. **The published bgcFM checkpoint has LOST the termination behaviour its own base model
+   has** — 0/12 against 12/12 for GenomeOcean-4B on identical prompts and settings.
+   Fine-tuning on BGCs appears to have destroyed it. That is a result about prior art, and
+   it means bgcFM cannot be compared to GO-4B on any length-sensitive axis without saying
+   so.
+3. **GenomeOcean stops at ~550 nt.** That is near real-core length for TERPENE (median
+   1,367) but an order of magnitude short of BETALACTONE (9,017), so GO may terminate
+   before it can physically emit a multi-gene cluster. Any multi-gene claim about GO has
+   to be read against its own realised length distribution, not against the budget.
+
+Also measured: GenomeOcean's BPE ratio is **~4.8 nt/token**, not the 4.0 assumed — 1,000
+tokens decoded to 4,792 nt. Budgets are specified in nucleotides and converted with the
+measured ratio, or the two substrates get different amounts of sequence.
+
 ## 2. Design findings — confounds that shape what can be claimed
 
 ### 2.1 The length bound preferentially deletes multi-gene clusters `[design]`

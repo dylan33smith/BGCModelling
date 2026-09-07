@@ -1054,7 +1054,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | id | gate | blocks |
 |---|---|---|
 | G1 | ✅ **CLOSED** [M]. minlength = 1; class FPR **0.000 (0/300) for every class** on real non-BGC coding DNA. Going low costs no specificity | final scoring config |
-| G2 | ⏸ **PARTIAL.** Evo2-1B ✅ [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled) · terminator id 0 verified from emitted output. **GO-4B and bgcFM NOT YET RUN** — tokenizer inspected only (§5.1) | all generation |
+| G2 | ⏸ **PARTIAL.** Evo2-1B ✅ [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled). GO-4B and bgcFM now **load and generate** (G10), but their health check — likelihood on real cores vs shuffled — has not been run | all generation |
 | G3 | seed-length sweep for `S1` | seeded arms |
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
 | G5 | ✅ **CLOSED** [M] on corpus `0225546040b9`: TERPENE 1.000 · NRPS 0.975 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 1.000 on-target. Full dynamic range against a 0/300 floor | interpretation of every rate |
@@ -1062,7 +1062,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
 | G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm |
-| G10 | **termination**: terminator id per substrate, present in training text, honoured at generation; `hit_eos` and realised length vs real cores | every generation arm, and the gene-count axis (§5.1) |
+| G10 | ✅ **MECHANISM CLOSED** [M] for all three substrates: terminator id round-trips, training text carries it, truncation detects it. Base-model behaviour at 4 kb: Evo2 **0/12** hit_eos (runs to budget) · GO-4B **12/12** (median 553 nt) · **bgcFM 0/12** (median 4,792 nt — the published fine-tune LOST its base model's stopping). BPE ratio measured at **4.8 nt/token**. ⏸ Whether a *fine-tuned* Evo2 emits its terminator is a post-training measurement | every generation arm, and the gene-count axis (§5.1) |
 
 **Bound resolved: 16 kb** [M]. G2 shows the 1B is not the constraint (64k fits in 19 GiB), so the
 bound is a cost decision; 16k captures ~92% of 32k's data benefit at half the generation and

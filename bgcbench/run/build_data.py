@@ -35,6 +35,11 @@ def main() -> int:
     ap.add_argument("--common-n", type=int, default=COMMON_N)
     ap.add_argument("--neg-per-class", type=int, default=NEG_PER_CLASS)
     ap.add_argument("--threads", type=int, default=16)
+    ap.add_argument("--strata", action="store_true",
+                    help="build the SPEC 4.5.2 RIPP strata. OFF by default: they are a "
+                         "conditional sub-experiment gated on a de novo ladder gradient, "
+                         "nothing in the main benchmark depends on them, and rebuilding "
+                         "them on every pass costs ~37k records of work for nothing.")
     args = ap.parse_args()
     WORK.mkdir(parents=True, exist_ok=True)
 
@@ -77,17 +82,22 @@ def main() -> int:
               f"neardup_fwd={d['neardup_fwd']} neardup_rc={d['neardup_revcomp']}",
               flush=True)
 
-    print("\n== within-RIPP multi-gene stratification (SPEC 4.5) ==", flush=True)
-    strat = stratify.build(SPLITS, ROOT / "strata", "RIPP",
-                           corpus_path=CORPUS, max_len=args.max_len,
-                           exclude=held)
-    for part, sr in strat.items():
+    if not args.strata:
+        print("\n== within-RIPP strata: SKIPPED (SPEC 4.5.2, pass --strata) ==", flush=True)
+        strat = None
+    else:
+        print("\n== within-RIPP multi-gene stratification (SPEC 4.5) ==", flush=True)
+        strat = stratify.build(SPLITS, ROOT / "strata", "RIPP",
+                               corpus_path=CORPUS, max_len=args.max_len,
+                               exclude=held)
+    for part, sr in (strat or {}).items():
         print(f"  {part:6s} matched single/multi = {sr['matched']['single']}/"
               f"{sr['matched']['multi']}  (available {sr['available']['single']}/"
               f"{sr['available']['multi']})  medlen {sr['median_len']['single']}/"
               f"{sr['median_len']['multi']}  medCDS {sr['median_cds']['single']}/"
               f"{sr['median_cds']['multi']}", flush=True)
-    mf.update(MANIFEST, "_ripp_strata", strat)
+    if strat:
+        mf.update(MANIFEST, "_ripp_strata", strat)
 
     print("\n== negative controls ==", flush=True)
     NEG.mkdir(parents=True, exist_ok=True)

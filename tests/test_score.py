@@ -11,12 +11,13 @@ SCORE_DIR = Path(antismash.__file__).parent
 
 
 # ------------------------------------------------------------ structural (SPEC 9)
-def test_single_scoring_site():
-    """Exactly one place runs antiSMASH. A second invocation site is how two arms come
-    to be scored differently without anyone deciding to."""
+def test_single_antismash_invocation_site():
+    """SPEC 9.1: exactly one place runs antiSMASH. A second invocation site is how two arms
+    come to be scored differently without anyone deciding to. Other tools (mmseqs, for the
+    corpus-level novelty reference) are not the endpoint instrument and are not covered."""
     callers = [p for p in SCORE_DIR.glob("*.py")
-               if "subprocess.run" in p.read_text() and p.name != "antismash.py"]
-    assert not callers, f"extra subprocess sites in score/: {[p.name for p in callers]}"
+               if "ANTISMASH" in p.read_text() and p.name != "antismash.py"]
+    assert not callers, f"extra antiSMASH sites in score/: {[p.name for p in callers]}"
 
 
 def test_no_arm_or_class_branching_in_score():
@@ -197,3 +198,31 @@ def test_caller_ids_survive_antismash_sanitisation():
     out = antismash.run([("weird::id::with:colons", "ATG" + "ACGT" * 200 + "TAA")])
     assert "weird::id::with:colons" in out, (
         "caller-supplied id did not survive the round trip")
+
+
+def test_not_applicable_is_expressible_and_distinct_from_zero():
+    """SPEC 6.5. A structural absence and a measured null must not be byte-identical --
+    a zero is a measurement and reads as the best possible specificity result."""
+    from bgcbench.score.record import not_applicable
+    na = not_applicable("I1", "evo2-1b", "RIPP", "no residual stream at this site")
+    assert na["applicable"] is False
+    assert na["on_target"] is None and na["detected"] is None
+    assert na["gate"] == "NOT_APPLICABLE"
+    assert na["na_reason"]
+
+
+def test_scored_record_carries_stage_and_both_novelty_directions():
+    from bgcbench.score.record import REQUIRED
+    assert "stage" in REQUIRED and "applicable" in REQUIRED
+
+
+def test_corpus_novelty_fails_closed_when_reference_is_absent():
+    """The gate must never report PASS for a check it did not run."""
+    from pathlib import Path as _P
+    from bgcbench.score.novelty import corpus_novelty
+    try:
+        corpus_novelty([{"generation_id": "g", "sequence": "ACGT" * 100}],
+                       _P("/nonexistent/corpus.fa"))
+    except FileNotFoundError:
+        return
+    raise AssertionError("corpus novelty returned without a reference")

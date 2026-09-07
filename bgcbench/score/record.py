@@ -13,7 +13,7 @@ from bgcbench.score import antismash
 from bgcbench.score.novelty import Reference
 
 REQUIRED = (
-    "generation_id", "arm", "substrate", "target_class",
+    "generation_id", "stage", "applicable", "arm", "substrate", "target_class",
     "seed_accession", "seed_core_gene_count", "seed_seq_len",
     "sequence", "seq_len", "hit_eos", "scored_ok", "detected", "products",
     "observed_classes", "on_target", "region_table", "n_cds", "coding_density",
@@ -21,9 +21,27 @@ REQUIRED = (
 )
 
 
+def not_applicable(arm: str, substrate: str, target_class: str, reason: str,
+                   stage: str = "stage1") -> dict:
+    """SPEC 6.5: an arm that cannot be implemented on a substrate is NOT APPLICABLE, never
+    a zero. A zero is a measurement and reads as the best possible specificity result; a
+    structural absence and a measured null are different results and must not be
+    byte-identical."""
+    return {"generation_id": f"NA::{substrate}::{arm}::{target_class}",
+            "stage": stage, "applicable": False, "na_reason": reason,
+            "arm": arm, "substrate": substrate, "target_class": target_class,
+            "seed_accession": None, "seed_core_gene_count": None, "seed_seq_len": None,
+            "sequence": "", "seq_len": 0, "hit_eos": None, "scored_ok": False,
+            "detected": None, "products": [], "observed_classes": [], "on_target": None,
+            "region_table": [], "n_cds": None, "coding_density": None,
+            "produced_core_genes": None, "containment": None, "novel": None,
+            "gate": "NOT_APPLICABLE"}
+
+
 def build(generations: list[dict], verdicts: dict[str, dict],
           mapping: dict[str, str], reference: Reference,
-          arm: str, substrate: str) -> list[dict]:
+          arm: str, substrate: str, stage: str = "stage1",
+          corpus_verdicts: dict[str, dict] | None = None) -> list[dict]:
     """`generations` carry generation-side fields; `verdicts` come from the single
     antiSMASH site keyed on generation_id."""
     out = []
@@ -38,8 +56,13 @@ def build(generations: list[dict], verdicts: dict[str, dict],
         products = v["products"]
         observed = classify(products, mapping) if products else []
         nov = reference.verdict(g["sequence"])
+        cv = (corpus_verdicts or {}).get(gid)
         rec = {
             "generation_id": gid,
+            # SPEC 6.1 forbids pooling shakedown and powered runs. A field, not a policy:
+            # prose cannot be audited after the fact.
+            "stage": stage,
+            "applicable": True,
             "arm": arm,
             "substrate": substrate,
             "target_class": g.get("target_class"),
@@ -59,8 +82,14 @@ def build(generations: list[dict], verdicts: dict[str, dict],
             "coding_density": v["coding_density"],
             "produced_core_genes": v["produced_core_genes"],
             "containment": nov["containment"],
+            "containment_reverse": nov["containment_reverse"],
+            "containment_worst": nov["containment_worst"],
             "novel": nov["novel"],
             "gate": nov["gate"],
+            # SPEC 3.8 corpus-level reference: answers "did it output a KNOWN BGC?", which
+            # the per-arm reference cannot ask of an untrained arm.
+            "matched_known_bgc": (cv or {}).get("matched_known_bgc"),
+            "corpus_best_identity": (cv or {}).get("best_identity"),
             "scoring_config": antismash.config_hash(),
         }
         missing = [k for k in REQUIRED if k not in rec]

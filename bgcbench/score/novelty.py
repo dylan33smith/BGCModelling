@@ -10,7 +10,10 @@ cannot compute a containment raises.
 """
 from __future__ import annotations
 
+import subprocess
+import tempfile
 from collections import defaultdict
+from pathlib import Path
 
 K = 21
 FAIL_AT = 0.95
@@ -110,3 +113,76 @@ class Reference:
             "gate": "FAIL_memorized" if worst >= FAIL_AT else ("WARN" if worst >= WARN_AT
                                                               else "PASS"),
         }
+
+
+# --------------------------------------------------------------------------------------
+# CORPUS-LEVEL REFERENCE (SPEC 3.8)
+#
+# The per-arm reference answers "did this arm memorise its own training data?". It is
+# unconstructible for W0 and bgcfm, which we never trained -- Reference([]) raises by
+# design -- and it is blind to the deeper problem: Evo2 and GenomeOcean were PRETRAINED on
+# public genome collections that include the source genomes of this corpus. A base-model
+# arm reproducing a real cluster is memorising from pretraining, which the per-arm
+# reference cannot see at all.
+#
+# This answers the other question -- "did the model output a KNOWN BGC?" -- for EVERY arm,
+# including the untrained floor. The exact k-mer index does not scale to ~309k records, so
+# it uses mmseqs at the SPEC 4.4 criterion.
+# --------------------------------------------------------------------------------------
+
+MMSEQS = "/home/ds85/.local/share/mamba/envs/bgcmodel/bin/mmseqs"
+CORPUS_MIN_ID = 0.8
+CORPUS_COV = 0.5
+
+
+def corpus_novelty(generations: list[dict], corpus_fasta: Path,
+                   workdir: Path | None = None, threads: int = 16) -> dict[str, dict]:
+    """generation_id -> {matched_known_bgc, best_identity, best_target}."""
+    if not generations:
+        return {}
+    if not corpus_fasta.exists():
+        raise FileNotFoundError(
+            f"corpus reference {corpus_fasta} absent — refusing to report corpus-level "
+            f"novelty as PASS when it was never computed (the gate fails closed)."
+        )
+    with tempfile.TemporaryDirectory(dir=str(workdir) if workdir else None) as td:
+        tmp = Path(td)
+        q, out = tmp / "q.fa", tmp / "h.tsv"
+        with open(q, "w") as fh:
+            for g in generations:
+                fh.write(f">{g['generation_id']}\n{g['sequence']}\n")
+        proc = subprocess.run(
+            [MMSEQS, "easy-search", str(q), str(corpus_fasta), str(out), str(tmp / "t"),
+             "--search-type", "3", "--min-seq-id", str(CORPUS_MIN_ID),
+             "-c", str(CORPUS_COV), "--cov-mode", "2",
+             "--format-output", "query,target,fident,qcov", "-e", "1e-5",
+             "--threads", str(threads)],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"mmseqs easy-search failed:\n{proc.stderr[-2000:]}")
+        best: dict[str, tuple[float, str]] = {}
+        if out.exists():
+            for line in out.read_text().splitlines():
+                if not line.strip():
+                    continue
+                qid, tid, fid, _cov = line.split("\t")[:4]
+                f = float(fid)
+                if qid not in best or f > best[qid][0]:
+                    best[qid] = (f, tid)
+    res = {}
+    for g in generations:
+        gid = g["generation_id"]
+        hit = best.get(gid)
+        res[gid] = {"matched_known_bgc": hit is not None,
+                    "best_identity": round(hit[0], 4) if hit else 0.0,
+                    "best_target": hit[1] if hit else None}
+    return res
+
+
+def write_corpus_fasta(records: list[dict], out: Path) -> Path:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with open(out, "w") as fh:
+        for r in records:
+            fh.write(f">{r['accession']}\n{r['sequence']}\n")
+    return out
