@@ -320,3 +320,68 @@ def test_run_directory_refuses_to_overwrite_a_measurement():
     assert "refusing to overwrite a measurement" in src
     assert "exist_ok=False" in src
     assert "{row_class or 'ALLROWS'}_{rhash}" in src, "run dir must carry class and run hash"
+
+
+def test_both_substrates_terminate_and_the_mode_is_recorded():
+    """Both DO stop and both produce terminator-truncated output; only the internal compute
+    differs. Evo2 cannot stop natively (vortex's stop_at_eos prints and does not break), so
+    the mode differs between substrates and must be recorded, not assumed."""
+    from bgcbench.model.load import Substrate
+    evo = Substrate(id="e", family="evo2", checkpoint="c", terminator_id=0,
+                    terminator_str=chr(0), appends_terminator=False, native_stop=False,
+                    approx_nt_per_token=1.0)
+    go = Substrate(id="g", family="genomeocean", checkpoint="c", terminator_id=2,
+                   terminator_str="", appends_terminator=True, native_stop=True,
+                   approx_nt_per_token=4.8)
+    assert evo.termination_mode == "post_hoc_truncation"
+    assert go.termination_mode == "native_eos"
+    body, hit = evo.truncate_at_terminator("ACGT" + chr(0) + "TTTT")
+    assert body == "ACGT" and hit
+    from bgcbench.model import generate as gen
+    src = Path(gen.__file__).read_text()
+    assert "eos_token_id=sub.terminator_id" in src, "HF path must halt on the terminator"
+
+
+def test_instrument_state_is_recorded_not_intended():
+    """FROZEN records the version we EXPECT and the check compares only the major
+    component; a point release with changed rules would flip verdicts while every artifact
+    still attested 8.0.4."""
+    from bgcbench.score import antismash
+    assert "OBSERVED" in dir(antismash)
+    from bgcbench.data.classmap import build_map, mapping_hash
+    m = build_map()["mapping"]
+    h = mapping_hash(m)
+    assert len(h) == 12 and h == mapping_hash(m)
+    assert mapping_hash({**m, "x": "Y"}) != h, "classmap hash must change with the map"
+
+
+def test_novelty_reference_follows_training_data_not_target_class():
+    """Keying it on the target class meant the same memorised output could pass or fail
+    depending on which row it landed in."""
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "train_classes" in src
+    assert "THE SPLIT THIS ARM TRAINED ON" in src
+
+
+def test_lift_denominator_is_named_not_implicit():
+    """A per-class adapter has no unconditioned twin; publishing three different quantities
+    under one field name compares things that are not the same quantity."""
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert '"lift_denominator"' in src
+
+
+def test_training_has_a_frozen_config_hash():
+    from bgcbench.model.train import TrainConfig, train_config_hash
+    a, b = TrainConfig(), TrainConfig(rank=32)
+    assert train_config_hash(a) != train_config_hash(b)
+    assert train_config_hash(a) == train_config_hash(TrainConfig())
+
+
+def test_held_out_eval_is_stratified_across_classes():
+    """Taking the first N in --classes order made the pooled arm's early stopping and its
+    manipulation check both computed on whichever class was typed first."""
+    from bgcbench.model import train as tr
+    src = Path(tr.__file__).read_text()
+    assert "STRATIFY" in src and "by_cls" in src

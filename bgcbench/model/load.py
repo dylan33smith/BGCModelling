@@ -69,6 +69,23 @@ class Substrate:
     tokenizer: Any = None
     meta: dict = field(default_factory=dict)
 
+    @property
+    def termination_mode(self) -> str:
+        """How this substrate stops. BOTH terminate and both produce terminator-truncated
+        output; only the internal compute differs, and the difference is recorded rather
+        than assumed because it is not the same between arms on different substrates.
+
+        native_eos    the sampler halts on the terminator (HuggingFace `eos_token_id`)
+        post_hoc      generation runs to budget and output is truncated at the first
+                      terminator. Evo2 has no alternative: vortex's `stop_at_eos` prints
+                      and does not break. A block-wise early exit would recover the wasted
+                      compute but costs more than it saves at a 16 kb budget -- re-prompting
+                      each block reprocesses the accumulated prefix -- unless termination is
+                      very early, which base models do not do (measured 0/12).
+        """
+        return "native_eos" if self.native_stop else "post_hoc_truncation"
+
+
     # ---- training text -------------------------------------------------------------
     def training_text(self, sequence: str) -> str:
         """SPEC 4.3: bare sequence, plus a terminator where the tokenizer will not add one.

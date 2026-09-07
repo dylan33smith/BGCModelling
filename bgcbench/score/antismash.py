@@ -36,6 +36,12 @@ FROZEN = {
 
 _LOC = re.compile(r"\[(\d+):(\d+)\]\(([+-])\)")
 
+#: The version that ACTUALLY ran, filled in on first invocation. FROZEN records the
+#: version we expect and the check compares only the MAJOR component, so a point release
+#: with changed rules or HMMs would flip verdicts while every artifact still attested
+#: "8.0.4". An artifact must record the instrument that produced it, not the one intended.
+OBSERVED: dict = {"version": None}
+
 
 def config_hash() -> str:
     return hashlib.sha256(
@@ -98,6 +104,7 @@ def run(records: list[tuple[str, str]], workdir: Path | None = None,
         for jp in jsons:
             doc = json.loads(jp.read_text())
             ver = doc.get("version")
+            OBSERVED["version"] = ver          # what actually ran, not what we expected
             if ver and not str(ver).startswith(FROZEN["version_expected"].split(".")[0]):
                 raise RuntimeError(f"antiSMASH major version {ver} != "
                                    f"{FROZEN['version_expected']}; the frozen scoring "

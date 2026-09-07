@@ -32,7 +32,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map
+from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map, mapping_hash
 from bgcbench.model import genconfig as gc
 from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
@@ -51,6 +51,15 @@ CORPUS_FA = ROOT / "reference" / "corpus.fasta"
 
 def _load(p: Path) -> list[dict]:
     return [json.loads(l) for l in open(p)]
+
+
+def _novelty_params() -> dict:
+    """Gate parameters were module constants recorded nowhere; two arms scored across an
+    edit would be gated differently with nothing showing it."""
+    from bgcbench.score import novelty as nv
+    return {"K": nv.K, "fail_at": nv.FAIL_AT, "warn_at": nv.WARN_AT,
+            "min_ref_kmers": nv.MIN_REF_KMERS,
+            "corpus_min_id": nv.CORPUS_MIN_ID, "corpus_cov": nv.CORPUS_COV}
 
 
 def _sha_of(path: str | None) -> str | None:
@@ -94,12 +103,14 @@ def ensure_corpus_reference() -> Path:
 
 
 def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
-            class_bearing: bool, cpus: int = 16, row_class: str | None = None) -> dict:
+            class_bearing: bool, cpus: int = 16, row_class: str | None = None,
+            train_classes: list[str] | None = None) -> dict:
     mapping = build_map()["mapping"]
     corpus_fa = ensure_corpus_reference()
     by_target: dict[str, list[dict]] = {}
     empty_counts: dict[str, int] = {}
-    pooled_ref = None
+    ref_cache: dict[tuple, object] = {}
+    ref_used: dict[str, list[str]] = {}
 
     targets = list(BENCHMARK_CLASSES)
     if row_class:
@@ -133,14 +144,18 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
             if nonempty else {}
         empty_counts[cls] = n_empty
 
-        # SPEC 3.8: the per-arm reference is the split this arm actually trained on. An
-        # untrained arm has none, and Reference([]) raises by design -- so it is gated on
-        # the corpus-level reference alone, and that is stated rather than silently skipped.
-        if arm.weight_state == "base":
-            ref = pooled_ref or Reference(_load(SPLITS / cls / "train.jsonl"))
-            pooled_ref = ref
-        else:
-            ref = Reference(_load(SPLITS / cls / "train.jsonl"))
+        # SPEC 3.8: the per-arm reference is THE SPLIT THIS ARM TRAINED ON, not the split
+        # of whichever class is being scored. Keying it on the target class meant a pooled
+        # arm was gated against one class's train set, and an untrained arm was gated
+        # against TERPENE's -- so the same memorised output could pass or fail depending on
+        # which row it landed in, and no artifact recorded which reference was used.
+        ref_classes = train_classes if train_classes else [cls]
+        key = tuple(sorted(ref_classes))
+        if key not in ref_cache:
+            recs = [r for c in ref_classes for r in _load(SPLITS / c / "train.jsonl")]
+            ref_cache[key] = Reference(recs)
+        ref = ref_cache[key]
+        ref_used[cls] = list(ref_classes)
 
         by_target[cls] = build_records(gens, verdicts, mapping, ref, arm=arm.arm_id,
                                        substrate=sub.id, stage=stage,
@@ -155,8 +170,18 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         by_target = {c: one for c in BENCHMARK_CLASSES}
 
     classes = list(BENCHMARK_CLASSES)
-    unconditioned = [r for r in by_target[classes[0]]] if not class_bearing else \
-        [r for rows in by_target.values() for r in rows]
+    # ⚠ THE LIFT DENOMINATOR DIFFERS BY ARM SHAPE, so it is NAMED, not left implicit under
+    # one field. A per-class adapter has no unconditioned counterpart of its own -- the
+    # honest denominator is the arm that shares its weights minus the class signal, which
+    # only exists once the pooled arm is run. Publishing all three under "lift" would
+    # compare quantities that are not the same quantity.
+    if row_class:
+        unconditioned, denom = [], "none — per-class adapter has no unconditioned twin"
+    elif not class_bearing:
+        unconditioned, denom = by_target[classes[0]], "own output (one distribution)"
+    else:
+        unconditioned = [r for rows in by_target.values() for r in rows]
+        denom = "pooled across this arm's own targets"
     realised = gc.realised(
         n_per_row=n, budget_nt=cfg.budget_nt, batch_size=cfg.batch_size,
         rng_seed=cfg.seed, temperature=arm.temperature, top_k=arm.top_k,
@@ -165,8 +190,13 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         adapter_sha=_sha_of(arm.adapter_path), row_class=row_class or "ALLROWS",
         substrate=sub.id, checkpoint=sub.checkpoint,
         scoring_config=antismash.config_hash(), corpus_sha256=_corpus_sha(),
+        termination_mode=sub.termination_mode,
+        classmap_hash=mapping_hash(mapping),
+        novelty=_novelty_params(),
     )
     rhash = gc.realised_hash(realised)
+    # the instrument that ACTUALLY ran, only knowable after the first scoring call
+    realised["antismash_observed_version"] = antismash.OBSERVED.get("version")
 
     report = {
         "arm": arm.arm_id, "substrate": sub.id, "stage": stage,
@@ -175,12 +205,14 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         # which realised values differ from FROZEN; {} means a frozen-config run
         "off_frozen": gc.off_frozen(realised),
         "n_empty_generations": empty_counts,
+        "novelty_reference_classes": ref_used,
         "class_bearing": class_bearing, "n_per_class": n,
         "budget_nt": cfg.budget_nt,
         "row_class": row_class,
         "per_class": {c: rates(by_target[c], c) for c in classes},
         "confusion": confusion(by_target, classes),
-        "lift": lift(by_target, unconditioned, classes),
+        "lift": lift(by_target, unconditioned, classes) if unconditioned else None,
+        "lift_denominator": denom,
         "subclass": {c: subclass_profile(by_target[c], c, mapping) for c in classes},
         "gene_counts": {c: gene_count_profile(by_target[c], c) for c in classes},
         "novelty": {c: {
@@ -240,6 +272,9 @@ def main() -> int:
                          "that differs from the frozen config is flagged in its report.")
     ap.add_argument("--budget-nt", type=int, default=GEN_FROZEN["budget_nt"])
     ap.add_argument("--batch-size", type=int, default=GEN_FROZEN["batch_size"])
+    ap.add_argument("--train-classes", nargs="+", default=None,
+                    help="the classes this arm's WEIGHTS were trained on. Sets the SPEC 3.8 "
+                         "per-arm novelty reference. Omit for an untrained arm.")
     ap.add_argument("--row-class", default=None,
                     help="the class this arm's WEIGHTS carry. Set for a per-class adapter: "
                          "it generates once and fills that one row, rather than pretending "
@@ -274,7 +309,7 @@ def main() -> int:
 
 
     rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
-                  row_class=args.row_class)
+                  row_class=args.row_class, train_classes=args.train_classes)
     if rep["off_frozen"]:
         print(f"⚠ NOT THE FROZEN CONFIG — {rep['off_frozen']}. Recorded in the report; "
               f"this run is not comparable to a frozen-config run.", flush=True)

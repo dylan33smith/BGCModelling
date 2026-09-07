@@ -48,6 +48,8 @@ def main() -> int:
     args = ap.parse_args()
 
     sub = load(args.substrate, trainable=True)
+    # held-out loss must cover EVERY class the arm trains on. Taking the first 32 val
+    # records in --classes order made the pooled arm checkpoint-selected on one class.
     train, val = [], []
     for c in args.classes:
         train += _load(SPLITS / c / "train.jsonl")
@@ -69,6 +71,8 @@ def main() -> int:
     print(f"\ntrainable {rep['trainable_params']:,} / {rep['total_params']:,} "
           f"= {100*rep['trainable_frac']:.3f}%")
     print(f"batching: {rep['batching']}")
+    print(f"train config hash: {rep['train_config_hash']}"
+          f"{'  RESUMED from ' + str(rep['resumed_from']) if rep['resumed_from'] else ''}")
     print(f"epochs run {rep['epochs_run']}/{rep['max_epochs']}  "
           f"early_stop={rep['stopped_early']}  ->  {out}")
     print(f"best checkpoint: {rep['best_checkpoint']} (val {rep['best_val_loss']}) "

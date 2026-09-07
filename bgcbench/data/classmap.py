@@ -97,6 +97,16 @@ def build_map(rules: dict[str, Rule] | None = None) -> dict:
     }
 
 
+def mapping_hash(mapping: dict[str, str]) -> str:
+    """The map is REBUILT from the installed antiSMASH on every run and never recorded.
+    A within-major upgrade that renamed a product or moved a category would silently
+    redefine what the benchmark measures, and no artifact would show the change. Hashing it
+    makes the redefinition visible in every run directory that used it."""
+    import hashlib
+    return hashlib.sha256(
+        json.dumps(mapping, sort_keys=True).encode()).hexdigest()[:12]
+
+
 def classify(products: list[str], mapping: dict[str, str]) -> list[str]:
     """SPEC 3.3 hybrid rule: a record counts for EVERY class its products map to."""
     return sorted({mapping.get(p, "UNMAPPED") for p in products})

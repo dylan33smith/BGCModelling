@@ -30,6 +30,16 @@ import torch
 EVO2_LORA_TARGETS = ["l1", "l2", "l3", "out_filter_dense", "Wqkv", "out_proj"]
 
 
+def train_config_hash(cfg) -> str:
+    """Training had NO frozen config and no hash: nine of twelve CLI flags appeared in no
+    artifact. Arms must differ in DATA, never in optimisation, and nothing recorded whether
+    they did."""
+    import hashlib
+    from dataclasses import asdict
+    d = {k: v for k, v in asdict(cfg).items()}
+    return hashlib.sha256(json.dumps(d, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
 @dataclass
 class TrainConfig:
     rank: int = 16
@@ -260,7 +270,10 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
          "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
          "max_epochs": cfg.max_epochs}, indent=2))
 
-    report = {"trainable_params": trainable, "total_params": total,
+    report = {"train_config": {k: v for k, v in __import__("dataclasses").asdict(cfg).items()},
+              "train_config_hash": train_config_hash(cfg),
+              "resumed_from": resume_from,
+              "trainable_params": trainable, "total_params": total,
               "best_checkpoint": (str(best_dir) if best_dir else None),
               "best_val_loss": (best_val if best_val < float("inf") else None),
               "final_is_best": bool(log) and log[-1]["step"] == best_step,
@@ -283,7 +296,18 @@ def evaluate(sub, model, records: list[dict], cfg: TrainConfig,
     model.eval()
     tot, n = 0.0, 0
     pad = 1 if sub.family == "evo2" else (sub.tokenizer.pad_token_id or 0)
-    for r in records[:limit]:
+    # STRATIFY. Taking the first `limit` records in --classes order meant the pooled arm's
+    # early stopping and its SPEC 6.4 manipulation check were both computed on whichever
+    # class happened to be typed first.
+    by_cls: dict[str, list[dict]] = {}
+    for r in records:
+        by_cls.setdefault(r["classes"][0], []).append(r)
+    picked: list[dict] = []
+    if by_cls:
+        per = max(1, limit // len(by_cls))
+        for v in by_cls.values():
+            picked.extend(v[:per])
+    for r in (picked or records[:limit]):
         ids = _encode(sub, r, cfg)
         x = torch.tensor([ids], device=device)
         logits = _unwrap(model(x))

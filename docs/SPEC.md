@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.8 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
+**Status:** v2.9 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
 against corpus `0225546040b9` on 2026-09-06. §5–§9 NOT BUILT: `bgcbench/model/`,
 `bgcbench/stats/` and all of `bgcbench/conf/` are empty.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
@@ -911,8 +911,25 @@ zero. A structural absence and a measured null are different results.
    per-nucleotide**. The two rates disagreeing is an informative result, not an error.
 9. **Real cores and negative controls are scored WHOLE**, under the same length bound as
    generation (§4.7). Same envelope on both sides, so the ceiling is a real ceiling.
-5. Every generation set carries a manifest: substrate, weights, arm coordinate, target class, n,
-   decoding config, seed, code commit, dependency versions.
+5. **Every artifact records the RUN, not the intent.** A provenance field that states what
+   was configured rather than what happened is decoration; the test for it is whether a
+   deliberately drifted run produces a different fingerprint. Each run records and hashes:
+   n, budget, batch size, RNG seed, decoding parameters, seeded flag and seed length,
+   weight state, resolved adapter path **and its content hash**, row class, substrate and
+   checkpoint, **termination mode**, corpus sha256, scoring-config hash, **the class-map
+   hash**, the novelty gate parameters and reference classes, and **the antiSMASH version
+   that ACTUALLY RAN** — not the one expected. The run directory is
+   `<stage>_<SUBSTRATE>_<ARM>_<CLASS>_<run hash>` and **writing into an existing one
+   raises.**
+6. **Termination is enforced on both substrates, by different mechanisms, and the mechanism
+   is recorded** (§5.1). GenomeOcean halts natively on its terminator id; Evo2 generates to
+   budget and its output is truncated at the first terminator, because vortex's
+   `stop_at_eos` prints and does not break. Output is equivalent; internal compute is not.
+7. **Empty generations are scored as non-detections, never dropped.** A draw whose
+   terminator lands at position 0 is a real outcome of a model that learned to stop.
+   Removing it inflates the rate, and the bias is DIRECTIONAL — only a model that emits its
+   terminator can produce one, so the deletion concentrates in trained arms and is absent
+   from the base control they are compared against.
 
 ---
 
