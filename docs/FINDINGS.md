@@ -188,6 +188,26 @@ carries a per-product neighbourhood of 5–20 kb on each side — one RiPP regio
 
 ---
 
+### 2.7 Equal records is not equal tokens `[design]` `[data]`
+At 979 records per class the pooled training corpus is, by NUCLEOTIDE: TERPENE **9.9%**,
+RIPP 12.9%, ARYLPOLYENE 18.5%, NRPS 24.8%, **BETALACTONE 33.9%** — a **3.4× imbalance** [M].
+The loss is per token, so a record-balanced pooled arm's gradient is dominated by the long
+classes. **An equal-n split does NOT give a balanced pooled model**, and an earlier version
+of this project's spec asserted that it did.
+**Paper:** the pooled arm must say which balance it used. `W1` (record-balanced) is the raw
+mixture by token; `W1n` (nucleotide-balanced, per-class loss weights) is the balanced one.
+The pair is what measures data mixture as a control method.
+
+### 2.8 A fixed epoch count cannot tell you whether an arm converged `[design]`
+First pass at 3 epochs, six arms, held-out loss: three still improving (ARYLPOLYENE,
+BETALACTONE, RIPP), two already turned over (`W1` best at step 732 then rose;
+`W2_RIPP` best at step 180 then rose), one flat. Generation loaded `final`, so the two that
+had turned were evaluated at a checkpoint worse than their own best — an arbitrary handicap
+on those two arms alone. Total improvements were small throughout, 0.005–0.022 nats.
+**Paper:** report the stopping rule and the checkpoint used. "Trained for N epochs" is not
+a description of a converged model, and a one-batch train loss is too noisy to see the
+turn — the first pass logged exactly that and the overfitting was invisible.
+
 ## 3. Statistical findings
 
 ### 3.1 The p-value has a floor set entirely by control n `[stats]`

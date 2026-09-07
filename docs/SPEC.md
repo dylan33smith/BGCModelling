@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.7 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
+**Status:** v2.8 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
 against corpus `0225546040b9` on 2026-09-06. §5–§9 NOT BUILT: `bgcbench/model/`,
 `bgcbench/stats/` and all of `bgcbench/conf/` are empty.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
@@ -782,6 +782,26 @@ cells collapse to two. State this when sizing; counting them as thirty overstate
 
 **Sequencing [C]:** run the weight-state arms first (`W0`, `W1`, `W2`, `W3`), read them, and pick
 the base for the composable `S` and `I` factors from that data rather than assuming `W1`.
+
+### 6.0a Training protocol — the same for every weight-state arm
+
+Arms differ in their DATA, never in how they are optimised. Any difference in training
+procedure between arms is a confound on the axis the benchmark reports.
+
+* **Early stopping, not a guessed epoch count** [C]. `max_epochs=12`, held-out evaluation
+  every 25 optimizer steps, `patience=4`, `min_delta=1e-4`. A fixed count cannot know
+  whether an arm converged — measured on a first pass at 3 epochs, three of six arms still
+  had headroom while two had already turned over, and only luck kept the rest from being
+  under-trained.
+* **Generation uses the BEST held-out checkpoint, never the last** [M]. `final` is whatever
+  the last step produced; on that same first pass `W1` and `W2_RIPP` both had a `final`
+  worse than their best, which handicaps exactly those two arms and nothing else.
+* **Reported train loss is the mean since the last evaluation**, not the single batch that
+  landed on a checkpoint. A one-batch train loss is too noisy to read a curve from, which
+  is why overfitting was invisible on the first pass even where it had begun.
+* **No arm is resumed from another arm's state.** Resuming restores adapter weights but not
+  optimizer moments, so a resumed arm and a from-scratch arm have different optimisation
+  histories. Every arm is trained from scratch under identical settings.
 
 ### 6.1 Stage 1 — the shakedown (build verification, not inference)
 
