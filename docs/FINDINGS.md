@@ -15,6 +15,14 @@ Tags: `[instrument]` `[design]` `[data]` `[stats]` `[limitation]`
 
 ## 1. Instrument findings — how antiSMASH behaves as a measurement device
 
+### 1.0 antiSMASH silently sanitises record ids `[instrument]`
+It strips colons: a record submitted as `oracle::TERPENE::GCF_x.region2` is returned as
+`oracleTERPENEGCF_x.region2`. All 60 verdict joins missed, and only a totality check
+(submitted-count vs scored-count) turned it into a loud failure rather than silently mismatched
+verdicts served to the wrong records.
+**Paper:** anyone joining antiSMASH output back to input by record id must either verify the
+round trip or, better, submit opaque ids they control and map back. This is a general trap.
+
 ### 1.1 `--minlength` silently discards short records, asymmetrically by class `[instrument]`
 Default `--minlength 1000` filters the **input record** length, not the detected cluster
 length. antiSMASH-DB was built on whole genomes and contigs, which clear it trivially; we
@@ -33,27 +41,27 @@ presenting exactly as "the model fails on short classes".
 **Paper:** methods must state `--minlength 1`, and this is a caution for anyone scoring
 extracted cores rather than genomes.
 
-### 1.2 Ceiling ~1.0 against a floor of 0/300 `[instrument]`
-Scored through the single invocation site at `--minlength 1`, on the corpus after the
-accession, join, fuzzy-coordinate and gene-snapping fixes:
+### 1.2 Ceiling ~1.0 against a floor of 0/300, verified end to end `[instrument]`
+Corpus `0225546040b9`, `--minlength 1`, through the single invocation site:
 
-| class | ceiling (on-target) | FPR (on-target) | real-core multi-gene | modal share | products |
-|---|---|---|---|---|---|
-| TERPENE | 1.000 | 0.000 (0/300) | 0.180 | 0.607 | 2 |
-| NRPS | 0.975 | 0.000 | 0.213 | 0.513 | 5 |
-| RIPP | 0.992 | 0.000 | 0.344 | 0.397 | **16** |
-| ARYLPOLYENE | 1.000 | 0.000 | 0.598 | 1.000 | 1 |
-| BETALACTONE | 1.000 | 0.000 | 1.000 | 1.000 | 1 |
+| class | ceiling | FPR (on-target) | ORACLE (full arm path) | real-core multi-gene | modal share | products |
+|---|---|---|---|---|---|---|
+| TERPENE | 1.000 | 0.000 (0/300) | 1.000 | 0.167 | 0.607 | 2 |
+| NRPS | 0.975 | 0.000 | 0.967 | 0.224 | 0.496 | 5 |
+| RIPP | 0.992 | 0.000 | 0.983 | 0.424 | 0.413 | **15** |
+| ARYLPOLYENE | 1.000 | 0.000 | 1.000 | 0.600 | 1.000 | 1 |
+| BETALACTONE | 1.000 | 0.000 | 1.000 | 1.000 | 1.000 | 1 |
 
-[CORRECTED TWICE] An earlier build reported RIPP FPR **0.0033 (1/300)**. That measurement
-used negative controls drawn from the alphabetical head of the genome index — 312 distinct
-genomes across all 1,500 controls, so the five per-class FPRs were approximately one
-measurement reported five times. With controls spread across the index by stable hash the
-floor is 0/300 for every class. `modal_share` and `n_distinct` are also corrected: they
-previously pooled FOREIGN products, publishing "4 products" for ARYLPOLYENE and "5" for
-BETALACTONE, which the class map defines as single-product classes.
-**Paper:** the floor is 0/300 per class, so an exact-binomial upper bound of ~0.012, not a
-claim of zero.
+The ORACLE column is the one that licenses reading any of the others: it pushes a held-out
+real core through the COMPLETE arm path (record build, novelty gate, rates, confusion, lift),
+where the ceiling column only calls antiSMASH. `novel=60/60` with every gate PASS.
+**Paper:** the floor is 0/300 per class — an exact-binomial upper bound of ~0.0099, which is
+also what sets δ (§3.1) — and it is a measured bound, never quoted as zero.
+
+[CORRECTED TWICE] Earlier versions reported RIPP FPR 0.0033 (1/300) and before that 0.000 for
+every class. The 1/300 came from negative controls drawn from the alphabetical head of the
+genome index — 312 distinct genomes across all 1,500 controls, so the five per-class FPRs were
+approximately one measurement reported five times.
 
 ### 1.3 antiSMASH throughput is not the bottleneck `[instrument]`
 ~0.2 s/sequence at 8 CPUs in `--minimal` mode (60 sequences in 9–15 s; a 3-sequence probe

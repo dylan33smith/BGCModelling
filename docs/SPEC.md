@@ -1,6 +1,8 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.6 — APPROVED. §3 (scoring) and §4 (data) COMPLETE and verified 2026-09-06. §5–§9 not built.
+**Status:** v2.7 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
+against corpus `0225546040b9` on 2026-09-06. §5–§9 NOT BUILT: `bgcbench/model/`,
+`bgcbench/stats/` and all of `bgcbench/conf/` are empty.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -590,56 +592,60 @@ against (§6.3) — and confirmation that `MINLENGTH = 1` does not admit spuriou
 input. If the FPR at ml=1 is materially above zero, the minlength decision is revisited **before**
 any arm is scored, not after.
 
-### 4.9 BUILD RESULT — measured [M], 2026-09-06
+### 4.9 BUILD RESULT — measured [M], corpus `0225546040b9`
 
-Corpus: **540,697 core records from 56,846 genomes**, zero extraction errors. 14.0% exceed
-the 16 kb bound and are dropped (SPEC 4.7). MiBIG partition: **24,694 of 340,044** in-class
-records match a curated cluster and are excluded from train/val/test.
+**Everything below is re-measured from the built artifacts, not carried forward.** The corpus
+was rebuilt six times during development as defects were found; earlier versions of this section
+were stale on essentially every cell, so the corpus SHA is quoted with the numbers and every
+gate artifact binds it (§9.3).
 
-| class | train | val | test | clusters used/avail | med nt | ≥2 core genes | hybrid | products |
-|---|---|---|---|---|---|---|---|---|
-| TERPENE | 979 | 123 | 122 | 1,224 / 21,358 | 993 | 23.0% | 3.9% | 22 |
-| NRPS | 979 | 123 | 122 | 1,224 / 10,723 | 4,789 | 34.2% | 30.1% | 31 |
-| RIPP | 979 | 123 | 122 | 1,224 / 19,716 | 1,773 | 44.1% | 8.2% | **49** |
-| ARYLPOLYENE | 979 | 123 | 122 | 1,224 / 2,500 | 3,576 | 55.1% | 18.5% | 22 |
-| BETALACTONE | 979 | 123 | 122 | 1,224 / 4,107 | 8,770 | 99.8% | 13.2% | 18 |
+Corpus: **542,414 core records from 56,846 genomes**, zero extraction errors, `sha256`
+`0225546040b9…`. Bound 16,000 nt; cores snapped outward to whole genes. MiBIG partition:
+**31,838 records excluded at CLUSTER level** (§4.6).
 
-Ladder **23.0 → 34.2 → 44.1 → 55.1 → 99.8%**, monotone. Every class identical in size at
-every split. Verification: genome overlap 0, near-duplicates 0 forward and 0
-reverse-complement, for all five classes.
+| class | train | val | test | clusters avail | med nt | ≥2 core genes | hybrid (class) | products | leaking replaced |
+|---|---|---|---|---|---|---|---|---|---|
+| TERPENE | 979 | 123 | 122 | 23,960 | 1,367 | 23.5% | 4.2% | 23 | 0 |
+| NRPS | 979 | 123 | 122 | 15,792 | 5,161 | 25.9% | 17.1% | 42 | 0 |
+| RIPP | 979 | 123 | 122 | 23,453 | 2,263 | 45.5% | 4.3% | **48** | 0 |
+| ARYLPOLYENE | 979 | 123 | 122 | 2,048 | 3,842 | 54.5% | 19.0% | 25 | 2 |
+| BETALACTONE | 979 | 123 | 122 | 3,704 | 9,017 | 99.8% | 10.8% | 17 | 24 |
 
-**⚠ Clustering mode is load-bearing, and the default is wrong for this purpose [M].**
-mmseqs defaults to `--cluster-mode 0` (greedy set cover), whose clusters are NOT the
-transitive closure of the similarity relation — so a cluster-disjoint split still leaks.
-The first build produced **3 forward and 3 reverse-complement cross-split near-duplicates
-in TERPENE**. `--cluster-mode 1` (connected component) at `-s 7.5` fixes it. Sensitivity
-matters independently: at default sensitivity ARYLPOLYENE clustered to 2,774 groups, at
-`-s 7.5` to 2,025 — the default was missing real similarity the verification then found.
-Residual removals (heuristic prefilter) are recorded per class in the manifest, never
-absorbed; the built corpus removed **1** record, in RIPP.
+Ladder **23.5 → 25.9 → 45.5 → 54.5 → 99.8%**. Monotone, but ⚠ **TERPENE and NRPS are now nearly
+tied** (23.5 vs 25.9) — closer than the ~12-point gap the class set was chosen on, because the
+gene-snapping and fuzzy-coordinate fixes moved both. They remain distinct rungs only weakly.
 
-**⚠ Split balance needs a per-class-aware greedy, not a hash [M].** Components chain hard
-because a record links by genome OR cluster, so a few are enormous. Hashing each component
-independently gave **93/3.5/3.5**; balancing on the union alone gave **~60/20/20**. Placing
-components largest-first into the split whose per-class deficits they most reduce gives
-exactly 80/10/10, deterministically and with no RNG.
+**Equal-n holds exactly**: 979/123/122 for every class, at every split. Leaking held-out records
+are REPLACED by backfill rather than deleted (§4.6), so the count is recorded without the
+denominators shrinking — an earlier build deleted them and published 979/123/122 while disk held
+979/107/110.
 
-**Within-RIPP strata (§4.5.2) [M] — built, but OFF the critical path:** drawn from the FULL RIPP pool, not the equal-n
-subsample, since length matching is already lossy. Matched single/multi = **14,793/14,793**
-train, 614/614 val, 801/801 test; median length 2,151 vs 2,101 nt; median `cds_count` 1 vs
-3; `core_gene_count` 1 vs ≥2. Split assignment is inherited from `record_split.json`, so a
-stratum record can never sit in another corpus's test set.
+Verification: genome overlap 0, near-duplicates 0 forward and 0 reverse-complement, all classes.
+Within-RIPP strata (§4.5.2, off the critical path): 18,528 matched pairs train.
+Negative controls: 300 per class, each from a distinct genome, spread across the whole index by
+stable hash.
 
-**Negative controls (§4.8): 300 per class, each from a DISTINCT genome**, length-matched to
-within ~0.5% of the class median. The first build drew all 300 from one genome — 300
-intervals from one genome is one control, not 300 — and a test now pins genome diversity.
+#### 4.9.1 Instrument verification — measured [M]
 
-**⚠ RECORDED LIMITATION: the controls are GC-poorer than the cores** — median GC 0.475–0.481
-against 0.582–0.668. This is real biology (biosynthetic cores are GC-rich) rather than a
-sampling defect, and it is not a shortcut antiSMASH can exploit, since detection runs
-profile HMMs over translated ORFs and not composition. But it means the measured
-false-positive rate is plausibly a slight **under**estimate, and the paper reports the gap
-rather than claiming a matched control.
+| class | ceiling (on-target) | FPR (on-target) | real-core modal share | products in reference | **ORACLE on-target** |
+|---|---|---|---|---|---|
+| TERPENE | 1.000 | 0.000 (0/300) | 0.607 | 2 | 1.000 |
+| NRPS | 0.975 | 0.000 | 0.496 | 5 | 0.967 |
+| RIPP | 0.992 | 0.000 | 0.413 | **15** | 0.983 |
+| ARYLPOLYENE | 1.000 | 0.000 | 1.000 | 1 | 1.000 |
+| BETALACTONE | 1.000 | 0.000 | 1.000 | 1 | 1.000 |
+
+**The ORACLE column is the load-bearing one.** The ceiling is measured by calling antiSMASH
+directly; the oracle pushes a held-out real core through the COMPLETE arm path — `record.build`,
+the novelty gate, `rates`, `confusion`, `lift`. Without it, "the methods do not work" and "the
+harness is broken" are indistinguishable when every arm reads zero. It passes at 0.967–1.000 with
+precision 1.000 and a clean confusion diagonal, and `novel=60/60` with every gate PASS, so the
+strengthened novelty gate passes real cores rather than false-positiving on them.
+
+It immediately earned its keep: it caught that **antiSMASH silently sanitises record ids** — it
+strips colons, so `oracle::TERPENE::X` returns as `oracleTERPENEX` and all 60 verdict joins
+missed. The totality check turned that into a loud failure instead of silently mismatched
+verdicts. Scoring now submits opaque positional ids and maps back.
 
 ## 5. Substrates
 
@@ -1048,10 +1054,10 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | id | gate | blocks |
 |---|---|---|
 | G1 | ✅ **CLOSED** [M]. minlength = 1; class FPR **0.000 (0/300) for every class** on real non-BGC coding DNA. Going low costs no specificity | final scoring config |
-| G2 | ✅ Evo2-1B [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled) · **EOS id 0 verified empirically**. ⏸ GO-4B / bgcFM outstanding | all generation |
+| G2 | ⏸ **PARTIAL.** Evo2-1B ✅ [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled) · terminator id 0 verified from emitted output. **GO-4B and bgcFM NOT YET RUN** — tokenizer inspected only (§5.1) | all generation |
 | G3 | seed-length sweep for `S1` | seeded arms |
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
-| G5 | ✅ **CLOSED** [M] on the built corpus: TERPENE 1.000 · NRPS 0.992 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 0.991 on-target. Full dynamic range | interpretation of every rate |
+| G5 | ✅ **CLOSED** [M] on corpus `0225546040b9`: TERPENE 1.000 · NRPS 0.975 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 1.000 on-target. Full dynamic range against a 0/300 floor | interpretation of every rate |
 | G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
