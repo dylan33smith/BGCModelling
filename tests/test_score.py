@@ -253,21 +253,70 @@ def test_generation_budget_matches_the_corpus_bound():
         f"budget {FROZEN['budget_nt']} < corpus bound {bound}: long classes handicapped")
 
 
-def test_arms_generated_under_different_configs_cannot_be_compared():
+# REMOVED, both tautologies the uniformity audit identified:
+#   test_arms_generated_under_different_configs_cannot_be_compared fed check_uniform two
+#     hand-written dicts and passed regardless of how broken the production hash was.
+#   test_run_directory_encodes_the_generation_config asserted the literal presence of the
+#     vacuous gen_config_hash() call -- i.e. it pinned the defect in place.
+# Replaced by test_realised_hash_actually_discriminates_a_drifted_run,
+# test_check_uniform_fires_on_realised_not_frozen and
+# test_run_directory_refuses_to_overwrite_a_measurement, which exercise behaviour.
+
+
+def test_realised_hash_actually_discriminates_a_drifted_run():
+    """BEHAVIOURAL, not a source grep. config_hash() hashes the FROZEN literal, so it is
+    the same constant for every run whatever was passed -- which made the run directory
+    collide and check_uniform unable to fire."""
+    from bgcbench.model import genconfig as gc
+    a = gc.realised(n_per_row=200, budget_nt=16000, seed_len_nt=8)
+    b = gc.realised(n_per_row=150, budget_nt=16000, seed_len_nt=8)
+    assert gc.realised_hash(a) != gc.realised_hash(b), "a drifted run hashes identically"
+    assert gc.config_hash() == gc.config_hash()
+    assert gc.off_frozen(b)["n_per_row"]["realised"] == 150
+    assert gc.off_frozen(a) == {}, "a frozen run must report no drift"
+
+
+def test_check_uniform_fires_on_realised_not_frozen():
     from bgcbench.model.genconfig import check_uniform
-    check_uniform([{"arm": "A", "generation_config_hash": "x"},
-                   {"arm": "B", "generation_config_hash": "x"}])
     try:
-        check_uniform([{"arm": "A", "generation_config_hash": "x"},
-                       {"arm": "B", "generation_config_hash": "y"}])
+        check_uniform([{"arm": "A", "realised_config_hash": "x"},
+                       {"arm": "B", "realised_config_hash": "y"}])
     except RuntimeError:
         return
-    raise AssertionError("arms under different generation configs compared silently")
+    raise AssertionError("arms with different realised configs compared silently")
 
 
-def test_run_directory_encodes_the_generation_config():
-    """A run under different generation settings must not silently overwrite or be
-    mistaken for another."""
+def test_generation_actually_seeds_the_rng():
+    """rng_seed was stamped into every report and applied nowhere."""
+    from bgcbench.model import generate as gen
+    src = Path(gen.__file__).read_text()
+    assert "def _seed_everything" in src
+    assert "_seed_everything(cfg.seed)" in src, "seeding is defined but never called"
+    import torch
+    gen._seed_everything(7); a = torch.randn(4)
+    gen._seed_everything(7); b = torch.randn(4)
+    assert torch.equal(a, b), "seeding does not make generation reproducible"
+
+
+def test_seed_length_is_frozen():
+    """An unrecorded default of 0 made `--seeded` without the flag a SILENT de novo arm."""
+    from bgcbench.model.genconfig import FROZEN
+    assert FROZEN.get("seed_len_nt", 0) > 0
+
+
+def test_empty_generations_stay_in_the_denominator():
+    """Dropping them inflates the rate AND is directionally biased: only a model that
+    emits its terminator can produce one, so the deletion concentrates in trained arms and
+    is absent from the base control they are compared against."""
     from bgcbench.run import arm as armmod
     src = Path(armmod.__file__).read_text()
-    assert "{gen_config_hash()}" in src
+    assert "EMPTY GENERATIONS STAY IN THE DENOMINATOR" in src
+    assert 'gens = [g for g in gens if g["sequence"]]' not in src
+
+
+def test_run_directory_refuses_to_overwrite_a_measurement():
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "refusing to overwrite a measurement" in src
+    assert "exist_ok=False" in src
+    assert "{row_class or 'ALLROWS'}_{rhash}" in src, "run dir must carry class and run hash"

@@ -55,7 +55,12 @@ def build(generations: list[dict], verdicts: dict[str, dict],
             )
         products = v["products"]
         observed = classify(products, mapping) if products else []
-        nov = reference.verdict(g["sequence"])
+        # An empty generation is a real outcome (the model terminated immediately), not a
+        # missing measurement. Containment is undefined on it, so it is recorded as such
+        # rather than raising or being silently dropped from the denominator.
+        nov = (reference.verdict(g["sequence"]) if g["sequence"]
+               else {"containment": None, "containment_reverse": None,
+                     "containment_worst": None, "novel": None, "gate": "EMPTY"})
         cv = (corpus_verdicts or {}).get(gid)
         rec = {
             "generation_id": gid,

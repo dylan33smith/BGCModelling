@@ -28,12 +28,13 @@ rows.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map
+from bgcbench.model import genconfig as gc
 from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
-from bgcbench.model.genconfig import config_hash as gen_config_hash
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
 from bgcbench.model.load import attach_adapter, load
 from bgcbench.score import antismash
@@ -50,6 +51,21 @@ CORPUS_FA = ROOT / "reference" / "corpus.fasta"
 
 def _load(p: Path) -> list[dict]:
     return [json.loads(l) for l in open(p)]
+
+
+def _sha_of(path: str | None) -> str | None:
+    """Fingerprint the WEIGHTS. Without this, two runs of one arm at different checkpoints
+    produce byte-identical provenance and are indistinguishable on disk."""
+    if not path:
+        return None
+    p = Path(path)
+    h = hashlib.sha256()
+    files = sorted(p.rglob("*")) if p.is_dir() else [p]
+    for f in files:
+        if f.is_file():
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def _corpus_sha() -> str | None:
@@ -82,6 +98,7 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
     mapping = build_map()["mapping"]
     corpus_fa = ensure_corpus_reference()
     by_target: dict[str, list[dict]] = {}
+    empty_counts: dict[str, int] = {}
     pooled_ref = None
 
     targets = list(BENCHMARK_CLASSES)
@@ -93,14 +110,28 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
     for cls in targets:
         seed_pool = _load(SPLITS / cls / "test.jsonl") if arm.seeded else None
         gens = generate(sub, arm, cls, n, cfg, seed_pool=seed_pool, stage=stage)
-        gens = [g for g in gens if g["sequence"]]
-        if not gens:
-            by_target[cls] = []
-            continue
 
-        verdicts = antismash.run([(g["generation_id"], g["sequence"]) for g in gens],
-                                 workdir=WORK, cpus=cpus)
-        cvs = corpus_novelty(gens, corpus_fa, workdir=WORK, threads=cpus)
+        # ⚠ EMPTY GENERATIONS STAY IN THE DENOMINATOR.
+        # A draw whose terminator lands at position 0 cleans to "" -- a real outcome of a
+        # model that has learned to stop. Dropping it before scoring inflates the rate and
+        # is DIRECTIONALLY BIASED toward the hypothesis: only a model that emits its
+        # terminator can lose a draw this way, so the deletion concentrates in the trained
+        # arms and is absent from the base control they are compared against. Two arms with
+        # identical biology, 70 on-target of 200 draws each, report 0.35 vs 0.50 if one had
+        # 60 instant terminations. They are scored as non-detections, which is what they are.
+        nonempty = [g for g in gens if g["sequence"]]
+        n_empty = len(gens) - len(nonempty)
+        verdicts = antismash.run([(g["generation_id"], g["sequence"]) for g in nonempty],
+                                 workdir=WORK, cpus=cpus) if nonempty else {}
+        for g in gens:
+            if not g["sequence"]:
+                verdicts[g["generation_id"]] = {
+                    "scored_ok": True, "detected": False, "products": [],
+                    "region_table": [], "n_cds": 0, "coding_density": 0.0,
+                    "produced_core_genes": 0, "gc_content": None, "scored_len": 0}
+        cvs = corpus_novelty(nonempty, corpus_fa, workdir=WORK, threads=cpus) \
+            if nonempty else {}
+        empty_counts[cls] = n_empty
 
         # SPEC 3.8: the per-arm reference is the split this arm actually trained on. An
         # untrained arm has none, and Reference([]) raises by design -- so it is gated on
@@ -126,12 +157,27 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
     classes = list(BENCHMARK_CLASSES)
     unconditioned = [r for r in by_target[classes[0]]] if not class_bearing else \
         [r for rows in by_target.values() for r in rows]
+    realised = gc.realised(
+        n_per_row=n, budget_nt=cfg.budget_nt, batch_size=cfg.batch_size,
+        rng_seed=cfg.seed, temperature=arm.temperature, top_k=arm.top_k,
+        top_p=arm.top_p, seeded=arm.seeded, seed_len_nt=arm.seed_len_nt,
+        weight_state=arm.weight_state, adapter=arm.adapter_path,
+        adapter_sha=_sha_of(arm.adapter_path), row_class=row_class or "ALLROWS",
+        substrate=sub.id, checkpoint=sub.checkpoint,
+        scoring_config=antismash.config_hash(), corpus_sha256=_corpus_sha(),
+    )
+    rhash = gc.realised_hash(realised)
+
     report = {
         "arm": arm.arm_id, "substrate": sub.id, "stage": stage,
+        "realised": realised,
+        "realised_config_hash": rhash,
+        # which realised values differ from FROZEN; {} means a frozen-config run
+        "off_frozen": gc.off_frozen(realised),
+        "n_empty_generations": empty_counts,
         "class_bearing": class_bearing, "n_per_class": n,
         "budget_nt": cfg.budget_nt,
         "row_class": row_class,
-        "off_frozen": None,
         "per_class": {c: rates(by_target[c], c) for c in classes},
         "confusion": confusion(by_target, classes),
         "lift": lift(by_target, unconditioned, classes),
@@ -150,14 +196,24 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
                              for r in rows)[max(0, sum(len(v) for v in by_target.values()) // 2)]
         if any(by_target.values()) else 0,
         "scoring_config": antismash.config_hash(),
-        "generation_config": GEN_FROZEN,
-        "generation_config_hash": gen_config_hash(),
-        "corpus_sha256": _corpus_sha(),
+        "generation_config_frozen": GEN_FROZEN,
     }
     # the config hash is IN the run directory name, so a run under different generation
     # settings cannot silently overwrite or be mistaken for this one
-    d = RUNS / f"{stage}_{sub.id}_{arm.arm_id}_{gen_config_hash()}"
-    d.mkdir(parents=True, exist_ok=True)
+    # SPEC 9.5: <stage>_<SUBSTRATE>_<ARM>_<CLASS>, plus a hash OF THE RUN. Naming it with
+    # the frozen-literal hash made all five per-class adapters resolve to one path, each
+    # truncating the last -- and the survivor rendered the four destroyed rows as
+    # {"n": 0, "detect_rate": null}, which is byte-identical to the SPEC 6.5
+    # NOT-APPLICABLE encoding. Four deleted measurements would have read as four
+    # structural absences.
+    d = RUNS / f"{stage}_{sub.id}_{arm.arm_id}_{row_class or 'ALLROWS'}_{rhash}"
+    if d.exists():
+        raise RuntimeError(
+            f"{d} already exists — refusing to overwrite a measurement. The only file in "
+            f"this repo that had this guard (score_gates) learned it the hard way. Delete "
+            f"it deliberately if you mean to replace it."
+        )
+    d.mkdir(parents=True, exist_ok=False)
     with open(d / "scored.jsonl", "w") as fh:
         seen = set()
         for rows in by_target.values():
@@ -176,7 +232,9 @@ def main() -> int:
     ap.add_argument("--arm", default="base")
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--seeded", action="store_true")
-    ap.add_argument("--seed-len", type=int, default=0)
+    ap.add_argument("--seed-len", type=int, default=GEN_FROZEN["seed_len_nt"],
+                    help="seeded-regime prompt length. Frozen: an unrecorded default of 0 "
+                         "made `--seeded` without this flag a silent DE NOVO arm.")
     ap.add_argument("--n", type=int, default=GEN_FROZEN["n_per_row"],
                     help="OVERRIDES the frozen n. For smoke tests only: any run "
                          "that differs from the frozen config is flagged in its report.")
@@ -213,15 +271,13 @@ def main() -> int:
     # the class must enter at GENERATION time for a target to mean anything
     class_bearing = args.seeded or arm.inference_control != "none"
     cfg = GenConfig(budget_nt=args.budget_nt, batch_size=args.batch_size)
-    off = {k: v for k, v in (("n_per_row", args.n), ("budget_nt", args.budget_nt),
-                             ("batch_size", args.batch_size))
-           if GEN_FROZEN[k] != v}
-    if off:
-        print(f"⚠ NOT THE FROZEN CONFIG — differs in {off}. This run is not comparable "
-              f"to a frozen-config run and its report records the difference.", flush=True)
+
 
     rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
                   row_class=args.row_class)
+    if rep["off_frozen"]:
+        print(f"⚠ NOT THE FROZEN CONFIG — {rep['off_frozen']}. Recorded in the report; "
+              f"this run is not comparable to a frozen-config run.", flush=True)
     print(f"\narm={rep['arm']} substrate={rep['substrate']} "
           f"class_bearing={rep['class_bearing']} hit_eos={rep['hit_eos_rate']} "
           f"median_len={rep['median_len']}")

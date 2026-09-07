@@ -270,6 +270,44 @@ SACCHARIDE 0.647, BETALACTONE 0.678, ARYLPOLYENE 0.766, ECTOINE 0.838.
 
 ---
 
+## 4a. Uniformity findings — how a benchmark loses "every arm measured identically"
+
+### 4a.1 Freezing the INTENT is not freezing the RUN `[design]`
+A frozen-config module whose hash is `sha256(FROZEN_literal)` produces the SAME hash for
+every run on a given code state, whatever was actually passed. Every mechanism built on it
+is then inert, and each one LOOKS like enforcement:
+* the run directory carried the constant, so all five per-class adapters resolved to ONE
+  path and each truncated the last — and the survivor rendered the four destroyed rows as
+  `{"n": 0, "detect_rate": null}`, **byte-identical to the NOT-APPLICABLE encoding**. Four
+  deleted measurements would have published as four structural absences.
+* the "refuses to compare arms with different configs" guard grouped on that constant, so
+  it could not fire — and had no production caller.
+* the "off-frozen runs are flagged in their report" field was a hardcoded `None`.
+**The fix is to hash the REALISED values** — what n, budget, seed, temperature, adapter
+sha, row class were actually used — and to put that in the directory name.
+**Paper:** any provenance field that records intent rather than measurement is decoration.
+The test for it is whether a deliberately drifted run produces a different fingerprint.
+
+### 4a.2 Dropping empty generations biases toward the hypothesis `[design]` `[stats]`
+A generation whose terminator lands at position 0 is a real outcome of a model that has
+learned to stop. Removing it from the denominator before scoring inflates the rate — two
+arms with identical biology, 70 on-target of 200 draws, report **0.35 vs 0.50** if one had
+60 instant terminations — and `hit_eos_rate` computed over the survivors reads 0.0 against
+a true 0.30, so **the drop erases its own evidence**.
+⚠ The bias is DIRECTIONAL. Only a model that emits its terminator can lose a draw this
+way, and the terminator is written into training text specifically so trained arms learn to
+stop. Base models measure 0/12 hit_eos. So the deletion concentrates in exactly the
+treatment arms and is absent from the control they are compared against.
+**Paper:** empty generations are scored as non-detections, which is what they are.
+
+### 4a.3 A declared parameter that nothing reads `[design]`
+`rng_seed` was set from the frozen config, stamped into every report, and consumed by no
+code on the generation path — generation was unseeded on both substrates while every
+artifact asserted `rng_seed: 0`. Unlike the parameters above there was no truthful field
+anywhere to contradict it.
+**Paper:** a config value is only real if something consumes it. Grep for the consumer, not
+the declaration.
+
 ## 5. Standing limitations to disclose
 
 ### 5.1 Negative controls are GC-poorer than the cores `[limitation]`

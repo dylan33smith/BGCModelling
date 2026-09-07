@@ -93,8 +93,25 @@ def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
     return out
 
 
+def _seed_everything(seed: int) -> None:
+    """SPEC 7.3 requires an identical RNG seed across arms. `GenConfig.seed` was declared,
+    stamped into every report as `rng_seed: 0`, and READ BY NOTHING -- generation was
+    unseeded on both substrate paths while every artifact asserted otherwise. There was no
+    truthful field anywhere to contradict the claim."""
+    import random as _r
+
+    import numpy as _np
+    import torch as _t
+    _r.seed(seed)
+    _np.random.seed(seed)
+    _t.manual_seed(seed)
+    if _t.cuda.is_available():
+        _t.cuda.manual_seed_all(seed)
+
+
 def _run(sub: Substrate, arm: ArmSpec, prompts: list[str],
          cfg: GenConfig) -> tuple[list[str], list[bool]]:
+    _seed_everything(cfg.seed)
     if sub.family == EVO2:
         return _run_evo2(sub, arm, prompts, cfg)
     return _run_hf(sub, arm, prompts, cfg)

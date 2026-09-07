@@ -39,11 +39,40 @@ FROZEN = {
     # batch size affects padding and kernel selection, not the sampling distribution, but
     # it is recorded so two runs are fully reconstructible from the artifacts.
     "batch_size": 8,
+
+    # SPEC 6 S1. An unrecorded invocation-site default of 0 made `--seeded` without an
+    # explicit length a SILENT DE NOVO ARM -- the prompt was the empty string and nothing
+    # in any artifact showed it. Value itself is set by gate G3.
+    "seed_len_nt": 8,
 }
 
 
 def config_hash() -> str:
+    """Fingerprint of the FROZEN literal — the INTENT. Use `realised_hash` for a run.
+
+    ⚠ This value is identical for every run made on a given code state, whatever was
+    actually passed. Naming a run directory with it made all five per-class adapters
+    resolve to ONE path, each truncating the last: four of five confusion rows destroyed,
+    and the survivor rendered them as {"n": 0, "detect_rate": null} -- byte-identical to
+    the SPEC 6.5 NOT-APPLICABLE encoding. Four deleted measurements would have published
+    as four structural absences.
+    """
     return hashlib.sha256(json.dumps(FROZEN, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def realised(**kw) -> dict:
+    """The values a run ACTUALLY used. Every field here is measured, never assumed."""
+    return {k: kw[k] for k in sorted(kw)}
+
+
+def realised_hash(r: dict) -> str:
+    return hashlib.sha256(json.dumps(r, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def off_frozen(r: dict) -> dict:
+    """Which realised values differ from FROZEN. Empty dict means a frozen-config run."""
+    return {k: {"frozen": FROZEN[k], "realised": r[k]}
+            for k in FROZEN if k in r and FROZEN[k] != r[k]}
 
 
 def check_uniform(reports: list[dict]) -> None:
@@ -54,7 +83,9 @@ def check_uniform(reports: list[dict]) -> None:
     """
     seen: dict[str, list[str]] = {}
     for r in reports:
-        h = r.get("generation_config_hash", "MISSING")
+        # group on the REALISED hash. Grouping on the frozen-literal hash made this
+        # function unable to fire: every run carried the same constant.
+        h = r.get("realised_config_hash") or "MISSING"
         seen.setdefault(h, []).append(r.get("arm", "?"))
     if len(seen) > 1:
         raise RuntimeError(
