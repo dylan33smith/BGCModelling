@@ -166,3 +166,35 @@ def load(substrate_id: str, device: str = "cuda:0",
         )
 
     raise ValueError(f"unknown substrate {substrate_id!r}")
+
+
+def attach_adapter(sub: Substrate, adapter_path: str) -> Substrate:
+    """Load a LoRA adapter and MERGE it into the base weights.
+
+    Merging rather than wrapping: generation goes through the vendor's own path
+    (`Evo2.generate` -> vortex), and handing that path a PeftModel wrapper risks a
+    compatibility failure that would be silent or obscure. A merged model is a plain model
+    with the adaptation baked in, so the generation path is byte-for-byte the one the base
+    arm uses -- which is what makes the arms comparable.
+
+    ⚠ Returns a Substrate whose weights are NO LONGER the base model. Reload for a
+    different arm; do not attach twice.
+    """
+    from peft import PeftModel
+
+    base = sub.model.model if sub.family == EVO2 else sub.model
+    cfgobj = getattr(base, "config", None)
+    if cfgobj is not None and not callable(getattr(cfgobj, "to_dict", None)):
+        try:
+            cfgobj.to_dict = lambda _c=cfgobj: {}
+        except Exception:
+            pass
+    peft_model = PeftModel.from_pretrained(base, adapter_path,
+                                           autocast_adapter_dtype=False)
+    merged = peft_model.merge_and_unload()
+    if sub.family == EVO2:
+        sub.model.model = merged
+    else:
+        sub.model = merged
+    sub.meta["adapter"] = adapter_path
+    return sub

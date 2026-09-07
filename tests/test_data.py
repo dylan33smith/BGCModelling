@@ -356,3 +356,11 @@ def test_seeded_generation_never_scores_the_seed():
     src = Path(gen.__file__).read_text()
     assert "[plen:]" in src, "HF path must strip the prompt before scoring"
     assert "STRIP THE PROMPT" in src
+
+
+def test_arm_runner_actually_attaches_the_adapter():
+    """--adapter was accepted and never loaded, so a trained arm would have generated from
+    the base model and read as a null. Nothing in the output would have shown it."""
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "attach_adapter(sub, args.adapter)" in src

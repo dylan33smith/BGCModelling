@@ -20,7 +20,7 @@ from pathlib import Path
 
 from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
-from bgcbench.model.load import load
+from bgcbench.model.load import attach_adapter, load
 from bgcbench.score import antismash
 from bgcbench.score.endpoints import confusion, gene_count_profile, lift, rates, subclass_profile
 from bgcbench.score.novelty import Reference, corpus_novelty, write_corpus_fasta
@@ -148,6 +148,9 @@ def main() -> int:
     args = ap.parse_args()
 
     sub = load(args.substrate)
+    if args.adapter:
+        sub = attach_adapter(sub, args.adapter)
+        print(f"attached adapter {args.adapter}", flush=True)
     arm = ArmSpec(arm_id=args.arm,
                   weight_state="base" if args.adapter is None else args.arm,
                   seeded=args.seeded, seed_len_nt=args.seed_len,
