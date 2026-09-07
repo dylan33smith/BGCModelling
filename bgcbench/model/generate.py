@@ -51,16 +51,52 @@ class GenConfig:
 
 
 def _seed_text(rec: dict, n_nt: int) -> str:
-    """Seeded regime: the first `n_nt` nt of a held-out core of the target class."""
-    return (rec["sequence"] or "")[:n_nt]
+    """Seeded regime: the first `n_nt` nt of a held-out core of the target class.
+
+    Callers must supply records at least `n_nt` long -- see `usable_seed_pool`. A short
+    record silently yields a SHORT PROMPT, and ragged prompts split Evo2 between batched
+    and sequential decoding (vortex batches only when all prompts are the same length).
+    That split correlates with the confusion-matrix row, so a decoding-mode difference
+    would read as a class effect.
+    """
+    s = (rec["sequence"] or "")[:n_nt]
+    if len(s) != n_nt:
+        raise ValueError(
+            f"{rec.get('accession')} yields a {len(s)} nt seed, not {n_nt}. Ragged prompts "
+            f"change the decode path; filter the pool with usable_seed_pool() first."
+        )
+    return s
+
+
+def usable_seed_pool(records: list[dict], n_nt: int) -> list[dict]:
+    """Records long enough to give a full-length seed, in a deterministic order.
+
+    Ordering by accession (not file order) and filtering BEFORE the modulo means the seed
+    set is a function of the pool and n_nt alone -- previously it drifted with n and with
+    whatever order the split file happened to be written in.
+    """
+    return sorted((r for r in records if (r.get("seq_len") or 0) >= n_nt),
+                  key=lambda r: r["accession"])
 
 
 def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
              cfg: GenConfig, seed_pool: list[dict] | None = None,
              stage: str = "stage1") -> list[dict]:
     """Return generation dicts ready for `record.build`. One per requested sequence."""
-    if arm.seeded and not seed_pool:
-        raise ValueError(f"{arm.arm_id} is seeded but no seed pool was supplied")
+    if arm.seeded:
+        if not seed_pool:
+            raise ValueError(f"{arm.arm_id} is seeded but no seed pool was supplied")
+        if arm.seed_len_nt <= 0:
+            raise ValueError(
+                f"{arm.arm_id} is seeded with seed_len_nt={arm.seed_len_nt}: an empty "
+                f"prompt makes it a DE NOVO arm wearing a seeded label."
+            )
+        seed_pool = usable_seed_pool(seed_pool, arm.seed_len_nt)
+        if not seed_pool:
+            raise ValueError(
+                f"no record in the pool is >= {arm.seed_len_nt} nt; a short seed would "
+                f"change the decode path for this row only."
+            )
 
     prompts: list[str] = []
     seeds: list[dict | None] = []
@@ -143,7 +179,14 @@ def _run_hf(sub, arm, prompts, cfg):
     max_new = max(1, int(cfg.budget_nt / sub.approx_nt_per_token))
     for i in range(0, len(prompts), cfg.batch_size):
         chunk = [p if p else "A" for p in prompts[i:i + cfg.batch_size]]
+        # LEFT padding. A decoder-only model conditions on the token immediately before
+        # the first generated position; with right padding that token is [PAD] for every
+        # row that is not the longest in its batch, so the first sampled token of those
+        # rows is drawn from a corrupted context. The corruption is invisible in the output.
+        prev_side = getattr(sub.tokenizer, "padding_side", "right")
+        sub.tokenizer.padding_side = "left"
         enc = sub.tokenizer(chunk, return_tensors="pt", padding=True)
+        sub.tokenizer.padding_side = prev_side
         enc = {k: v.to(sub.model.device) for k, v in enc.items()
                if k in ("input_ids", "attention_mask")}
         plen = enc["input_ids"].shape[1]

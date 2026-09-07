@@ -53,6 +53,28 @@ def _load(p: Path) -> list[dict]:
     return [json.loads(l) for l in open(p)]
 
 
+#: antiSMASH switches prodigal to a different gene-calling mode above this per-sequence
+#: length. Crossing it would score two substrates with different gene callers, and the
+#: difference would read as a substrate effect.
+PRODIGAL_MODE_SWITCH_NT = 20000
+
+
+def _assert_scorable(budget_nt: int, sub) -> None:
+    if budget_nt >= PRODIGAL_MODE_SWITCH_NT:
+        raise SystemExit(
+            f"budget {budget_nt} >= {PRODIGAL_MODE_SWITCH_NT}: antiSMASH would switch "
+            f"prodigal gene-calling mode, so arms above and below the threshold would be "
+            f"scored by different callers."
+        )
+    ctx = (sub.meta or {}).get("max_seqlen")
+    if ctx and budget_nt > ctx:
+        raise SystemExit(
+            f"budget {budget_nt} exceeds {sub.id}'s usable context {ctx}. Measured on "
+            f"evo2-1b: NLL rises from 0.805 at 8,192 to 1.239 at 15,900, against a chance "
+            f"level of 1.386 — the arm would generate near-random sequence."
+        )
+
+
 def _novelty_params() -> dict:
     """Gate parameters were module constants recorded nowhere; two arms scored across an
     edit would be gated differently with nothing showing it."""
@@ -305,7 +327,18 @@ def main() -> int:
     # class-bearing iff something in the coordinate carries the class
     # the class must enter at GENERATION time for a target to mean anything
     class_bearing = args.seeded or arm.inference_control != "none"
+    # A per-class adapter carries the class in its WEIGHTS. Run without --row-class it
+    # would replicate one sample into all five confusion rows and self-divide lift to 1.0,
+    # producing a report that is structurally indistinguishable from a real result.
+    if args.adapter and not args.row_class and not class_bearing and not args.train_classes:
+        raise SystemExit(
+            "refusing to run: an adapter arm needs either --row-class (the class its "
+            "weights carry, for a per-class adapter) or --train-classes (for a pooled "
+            "adapter, whose weights carry no single class). Without one, five identical "
+            "rows would be published as a confusion matrix."
+        )
     cfg = GenConfig(budget_nt=args.budget_nt, batch_size=args.batch_size)
+    _assert_scorable(cfg.budget_nt, sub)
 
 
     rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,

@@ -240,17 +240,31 @@ def test_generation_config_is_frozen_and_hashed_like_scoring():
         assert k in genconfig.FROZEN, f"{k} is not frozen and could differ between arms"
 
 
-def test_generation_budget_matches_the_corpus_bound():
-    """A budget below the corpus bound silently handicaps the long classes: BETALACTONE's
-    real cores have a ~9 kb median, so a 4 kb budget makes it impossible for that arm to
-    produce anything resembling its own reference, and the deficit reads as a class effect."""
+MODEL_USABLE_CONTEXT = 8192          # evo2-1b config max_seqlen, measured (see below)
+
+
+def test_budget_and_corpus_bound_both_fit_the_model_context():
+    """Two constraints, and an earlier version of this test had them backwards.
+
+    A budget BELOW the corpus bound handicaps the long classes -- BETALACTONE's cores have
+    a ~9 kb median, so a 4 kb budget made it unable to reach its own reference.
+    But a budget or a corpus bound ABOVE the model's usable context is worse: measured on
+    evo2-1b, NLL of the last 1000 tokens rises 0.805 at 8,192 -> 1.040 at 12,000 -> 1.239
+    at 15,900, against ln(4) = 1.386 chance. Beyond ~10 kb the model is barely modelling.
+
+    So both must sit at or below the context, and the corpus bound is the one that has to
+    move -- generation cannot be stretched to cover data the model cannot read.
+    """
     from bgcbench.model.genconfig import FROZEN
+    assert FROZEN["budget_nt"] <= MODEL_USABLE_CONTEXT
     man = Path("/data2/ds85/bgcbench/manifest.json")
     if not man.exists():
         return
     bound = json.loads(man.read_text())["_build"]["max_len"]
-    assert FROZEN["budget_nt"] >= bound, (
-        f"budget {FROZEN['budget_nt']} < corpus bound {bound}: long classes handicapped")
+    assert bound <= MODEL_USABLE_CONTEXT, (
+        f"corpus bound {bound} exceeds the model's usable context "
+        f"{MODEL_USABLE_CONTEXT}: records are being trained on past the point where the "
+        f"model degrades toward chance, and the long classes carry the most of it")
 
 
 # REMOVED, both tautologies the uniformity audit identified:
@@ -268,8 +282,10 @@ def test_realised_hash_actually_discriminates_a_drifted_run():
     the same constant for every run whatever was passed -- which made the run directory
     collide and check_uniform unable to fire."""
     from bgcbench.model import genconfig as gc
-    a = gc.realised(n_per_row=200, budget_nt=16000, seed_len_nt=8)
-    b = gc.realised(n_per_row=150, budget_nt=16000, seed_len_nt=8)
+    from bgcbench.model.genconfig import FROZEN as F
+    a = gc.realised(n_per_row=F["n_per_row"], budget_nt=F["budget_nt"],
+                    seed_len_nt=F["seed_len_nt"])
+    b = gc.realised(n_per_row=150, budget_nt=F["budget_nt"], seed_len_nt=F["seed_len_nt"])
     assert gc.realised_hash(a) != gc.realised_hash(b), "a drifted run hashes identically"
     assert gc.config_hash() == gc.config_hash()
     assert gc.off_frozen(b)["n_per_row"]["realised"] == 150
@@ -395,3 +411,51 @@ def test_evo2_generation_is_single_call_not_block_wise():
     src = Path(gen.__file__).read_text()
     assert "inference_params_dict" not in src, (
         "block-wise cache carry-over is not equivalent; see FINDINGS 1.5b")
+
+
+def test_budget_respects_the_model_usable_context():
+    """MEASURED on evo2-1b (config max_seqlen 8192), NLL of the last 1000 tokens of a
+    prefix: 8,192 -> 0.805 (best), 10,000 -> 0.851, 12,000 -> 1.040, 15,900 -> 1.239,
+    against ln(4) = 1.386 chance. A 16,000 budget had every arm generating kilobases of
+    near-random sequence, and the long classes would have looked worst because their
+    references are longest."""
+    from bgcbench.model.genconfig import FROZEN
+    assert FROZEN["budget_nt"] <= 8192
+
+
+def test_budget_below_the_prodigal_mode_switch():
+    """antiSMASH switches prodigal gene-calling mode above 20,000 nt per sequence; arms on
+    either side would be scored by different callers."""
+    from bgcbench.model.genconfig import FROZEN
+    from bgcbench.run.arm import PRODIGAL_MODE_SWITCH_NT
+    assert FROZEN["budget_nt"] < PRODIGAL_MODE_SWITCH_NT
+
+
+def test_ragged_seeds_are_refused_not_silently_shortened():
+    """vortex batches only when all prompts are the same length, so a short seed changes
+    the decode path -- and the change correlates with the confusion row."""
+    from bgcbench.model.generate import _seed_text, usable_seed_pool
+    pool = [{"accession": "a", "sequence": "ACGT" * 10, "seq_len": 40},
+            {"accession": "b", "sequence": "AC", "seq_len": 2}]
+    ok = usable_seed_pool(pool, 8)
+    assert [r["accession"] for r in ok] == ["a"], "short record must be filtered out"
+    assert _seed_text(pool[0], 8) == "ACGTACGT"
+    try:
+        _seed_text(pool[1], 8)
+    except ValueError:
+        return
+    raise AssertionError("a short record silently produced a ragged prompt")
+
+
+def test_hf_generation_pads_left():
+    """A decoder-only model conditions on the token before the first generated position;
+    right padding makes that [PAD] for every row that is not the longest in its batch."""
+    from bgcbench.model import generate as gen
+    src = Path(gen.__file__).read_text()
+    assert 'padding_side = "left"' in src
+
+
+def test_adapter_arm_requires_a_class_coordinate():
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "refusing to run: an adapter arm needs either --row-class" in src

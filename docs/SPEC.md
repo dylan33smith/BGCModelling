@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v2.9 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
+**Status:** v3.0 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
 against corpus `0225546040b9` on 2026-09-06. §5–§9 NOT BUILT: `bgcbench/model/`,
 `bgcbench/stats/` and all of `bgcbench/conf/` are empty.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
@@ -652,7 +652,7 @@ verdicts. Scoring now submits opaque positional ids and maps back.
 | id | model | role | context |
 |---|---|---|---|
 | `evo2-1b` | Evo2 1B | primary substrate, all arms | [O] G2 |
-| `go-4b` | GenomeOcean 4B | second substrate, **same arms** | [O] G2 |
+| `go-4b` | GenomeOcean 4B | second substrate, same arms — **DEFERRED TO STAGE 2** [C] | [O] G2 |
 | `bgcfm` | published BGC-finetuned GenomeOcean | external published baseline, generation only, no training | [O] G2 |
 
 `bgcfm` is prior art run as-published: it establishes what an existing BGC generation model does

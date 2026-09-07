@@ -24,11 +24,16 @@ FROZEN = {
     # at the invocation site and nothing recorded or checked it.
     "n_per_row": 200,
 
-    # SPEC 7.1: identical for every arm. Set to the CORPUS BOUND (SPEC 4.7), not lower.
-    # A smaller budget silently handicaps the long classes -- BETALACTONE's real cores have
-    # a median of ~9 kb, so a 4 kb budget makes it impossible for that arm to produce
-    # anything resembling its own reference, and the deficit would read as a class effect.
-    "budget_nt": 16000,
+    # SPEC 7.1: identical for every arm, and bounded by the MODEL'S USABLE CONTEXT.
+    # evo2-1b's config max_seqlen is 8192. Measured per-token NLL on real >=15.9 kb cores,
+    # scoring the last 1000 tokens of a prefix of each length:
+    #   8,000 -> 0.809   8,192 -> 0.805 (best)   9,000 -> 0.818   10,000 -> 0.851
+    #   12,000 -> 1.040   14,000 -> 1.209   15,900 -> 1.239   (ln 4 = 1.386 is chance)
+    # So the model degrades progressively past ~10 kb and is near chance by 14 kb.
+    # An earlier value of 16000 was set to match the corpus bound WITHOUT checking the
+    # model: it would have had every arm generating 8 kb of near-chance sequence, and the
+    # long classes would have looked worst because their references are longest.
+    "budget_nt": 8192,
 
     # SPEC 7.3: identical decoding across arms.
     "temperature": 1.0,

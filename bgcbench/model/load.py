@@ -114,6 +114,14 @@ class Substrate:
         return "".join(c for c in text.upper() if c in "ACGTN")
 
 
+def _evo2_max_seqlen(m) -> int | None:
+    try:
+        cfg = m.model.config
+        return int(cfg["max_seqlen"] if isinstance(cfg, dict) else cfg.max_seqlen)
+    except Exception:
+        return None
+
+
 def _de_inference(module) -> int:
     """Evo2's checkpoint load creates some parameters under torch.inference_mode(), and an
     inference tensor cannot be saved for backward -- training dies at the first norm layer
@@ -153,7 +161,10 @@ def load(substrate_id: str, device: str = "cuda:0",
             approx_nt_per_token=1.0,
             model=m, tokenizer=tok,
             meta={"vocab_size": getattr(tok, "vocab_size", None),
-                  "de_inferenced_params": n_inf},
+                  "de_inferenced_params": n_inf,
+                  # the model's own configured context. Measured degradation past it:
+                  # NLL 0.805 at 8,192 -> 1.040 at 12,000 -> 1.239 at 15,900 (chance 1.386)
+                  "max_seqlen": _evo2_max_seqlen(m)},
         )
 
     if substrate_id in ("go-4b", "bgcfm") or "genomeocean" in substrate_id:

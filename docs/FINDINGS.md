@@ -106,6 +106,31 @@ terminates early enough to matter is a post-training measurement that has not be
 **Revisit only if that measurement shows early termination**, and if adopted, apply it to
 every arm and record the mode, since it changes outputs.
 
+### 1.5c Evo2-1B degrades toward chance past ~10 kb `[instrument]` `[design]`
+`evo2-1b`'s config `max_seqlen` is **8192**. A forward pass RUNS at 16k/32k/64k without
+OOM — StripedHyena's convolutions have no positional limit and only its 4 attention blocks
+of 25 do — so "it runs" was mistaken for "it works". Measured properly: mean NLL of the
+last 1000 tokens of a prefix, on real cores ≥15.9 kb [M]:
+
+| prefix length | NLL |
+|---|---|
+| 8,000 | 0.8090 |
+| **8,192** (config limit) | **0.8049** |
+| 9,000 | 0.8181 |
+| 10,000 | 0.8505 |
+| 12,000 | **1.0395** |
+| 14,000 | **1.2093** |
+| 15,900 | **1.2388** |
+
+ln(4) = 1.386 is chance. **The model degrades progressively past ~10 kb and is near chance
+by 14 kb.** `vortex` sizes its cache to prompt+tokens so long generation runs, but
+`config.max_seqlen` is what flash attention uses — the library's own comment notes the two
+diverging "leads to minor logit differences".
+**Paper:** both the generation budget and the CORPUS BOUND must sit at or below the usable
+context. A 16 kb bound trains on record tails the model reads at near-chance, and the long
+classes carry the most of it — so the deficit would have read as a class effect on exactly
+the axis the benchmark reports.
+
 ### 1.6 The three substrates terminate in three incompatible ways `[instrument]` `[design]`
 Base models, no fine-tuning, 4,000 nt budget, 12 probes each [M]:
 
