@@ -364,3 +364,13 @@ def test_arm_runner_actually_attaches_the_adapter():
     from bgcbench.run import arm as armmod
     src = Path(armmod.__file__).read_text()
     assert "attach_adapter(sub, args.adapter)" in src
+
+
+def test_per_class_adapter_generates_once_not_five_times():
+    """A per-class adapter IS the conditioning; it cannot be 'conditioned toward' another
+    class. Generating it five times would be five samples of ONE distribution reported as
+    five independent measurements, giving five identical confusion rows."""
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "row_class" in src
+    assert "one adapter, one row" in src

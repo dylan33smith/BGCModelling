@@ -6,11 +6,24 @@ generate -> antiSMASH -> class map -> novelty (per-arm AND corpus-level) -> scor
 One arm here means one (substrate, arm, stage); it generates toward EVERY benchmark class,
 because the K x K confusion matrix and the lift denominator both need the full row set.
 
-⚠ DEGENERATE COORDINATES (SPEC 6.0). With no conditioning channel in the input, an arm
-carrying no class-bearing factor produces the same generations regardless of target. Such
-an arm is generated ONCE and its output serves every row, which is also exactly the
-unconditioned marginal that lift divides by. Generating it five times would be five
-samples of one distribution reported as five measurements.
+⚠ WHERE THE CLASS ENTERS DECIDES HOW MANY TIMES AN ARM GENERATES (SPEC 6.0).
+
+  class enters at GENERATION time (seeded prompt, steering, iterative refine)
+      -> the target varies the output. Generate once PER TARGET; fills a whole row set.
+
+  class enters through the WEIGHTS (a per-class adapter)
+      -> one adapter is one distribution. It cannot be "conditioned toward TERPENE": the
+         adapter IS the conditioning. Generate ONCE and it fills exactly ONE row of the
+         matrix -- its own class's. The five per-class adapters together fill the 5x5.
+
+  class does not enter at all (base, pooled adapter, de novo)
+      -> one distribution serving every row, which is also the unconditioned marginal
+         that lift divides by.
+
+Getting this wrong is not just wasteful. Generating a RIPP adapter five times "toward"
+five different classes would be five samples of ONE distribution reported as five
+independent measurements, and the confusion matrix built from them would be five identical
+rows.
 """
 from __future__ import annotations
 
@@ -54,15 +67,17 @@ def ensure_corpus_reference() -> Path:
 
 
 def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
-            class_bearing: bool, cpus: int = 16) -> dict:
+            class_bearing: bool, cpus: int = 16, row_class: str | None = None) -> dict:
     mapping = build_map()["mapping"]
     corpus_fa = ensure_corpus_reference()
     by_target: dict[str, list[dict]] = {}
     pooled_ref = None
 
     targets = list(BENCHMARK_CLASSES)
-    if not class_bearing:
-        targets = targets[:1]          # SPEC 6.0: generate once, serve every row
+    if row_class:
+        targets = [row_class]          # weights carry the class: one adapter, one row
+    elif not class_bearing:
+        targets = targets[:1]          # nothing carries the class: one row set
 
     for cls in targets:
         seed_pool = _load(SPLITS / cls / "test.jsonl") if arm.seeded else None
@@ -89,7 +104,11 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
                                        substrate=sub.id, stage=stage,
                                        corpus_verdicts=cvs)
 
-    if not class_bearing:
+    if row_class:
+        # one adapter fills exactly its own row; the other rows belong to other adapters
+        by_target = {c: (by_target[row_class] if c == row_class else [])
+                     for c in BENCHMARK_CLASSES}
+    elif not class_bearing:
         one = by_target[targets[0]]
         by_target = {c: one for c in BENCHMARK_CLASSES}
 
@@ -100,6 +119,7 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         "arm": arm.arm_id, "substrate": sub.id, "stage": stage,
         "class_bearing": class_bearing, "n_per_class": n,
         "budget_nt": cfg.budget_nt,
+        "row_class": row_class,
         "per_class": {c: rates(by_target[c], c) for c in classes},
         "confusion": confusion(by_target, classes),
         "lift": lift(by_target, unconditioned, classes),
@@ -143,6 +163,10 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--budget-nt", type=int, default=4000)
     ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--row-class", default=None,
+                    help="the class this arm's WEIGHTS carry. Set for a per-class adapter: "
+                         "it generates once and fills that one row, rather than pretending "
+                         "to be conditioned toward five different targets.")
     ap.add_argument("--stage", default="stage1")
     ap.add_argument("--cpus", type=int, default=16)
     args = ap.parse_args()
@@ -156,10 +180,12 @@ def main() -> int:
                   seeded=args.seeded, seed_len_nt=args.seed_len,
                   adapter_path=args.adapter)
     # class-bearing iff something in the coordinate carries the class
-    class_bearing = bool(args.adapter) or args.seeded
+    # the class must enter at GENERATION time for a target to mean anything
+    class_bearing = args.seeded or arm.inference_control != "none"
     cfg = GenConfig(budget_nt=args.budget_nt, batch_size=args.batch_size)
 
-    rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus)
+    rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
+                  row_class=args.row_class)
     print(f"\narm={rep['arm']} substrate={rep['substrate']} "
           f"class_bearing={rep['class_bearing']} hit_eos={rep['hit_eos_rate']} "
           f"median_len={rep['median_len']}")
