@@ -44,16 +44,29 @@ _COMMENT = re.compile(r"#.*")
 #: product -> why it is lifted out of its antiSMASH category. Additions need a reason.
 PROMOTIONS: dict[str, str] = {
     "arylpolyene":
-        "category PKS is 42.8% multi-gene and cannot express arylpolyene's 66.9%; "
-        "its APE_KS trigger is a fatty-acid-like polyene synthase, not a canonical "
-        "modular or iterative polyketide.",
-    "betalactone":
-        "category `other` is a declared grab-bag that antiSMASH does not assert is "
-        "coherent, so membership carries no grouping information to preserve.",
+        "category PKS collapses to 15.2% multi-gene under the 8,192 nt bound while "
+        "arylpolyene holds 59.1%, and arylpolyene retains 76% of its records against "
+        "PKS's 41%; its APE_KS trigger is a fatty-acid-like polyene synthase, not a "
+        "canonical modular or iterative polyketide.",
+    "redox-cofactor":
+        "its antiSMASH category is RiPP, which under the 8,192 nt bound is 42.0% "
+        "multi-gene while redox-cofactor itself is 100% -- the category cannot express "
+        "it. Chosen over betalactone for the 100%-multi-gene anchor on RETENTION: both "
+        "are ~100% multi-gene under the bound, but redox-cofactor keeps 91% of its "
+        "records (10,207) against betalactone's 39% (7,863), and a class retained at 39% "
+        "enters the benchmark as a biased short-tail slice of itself. "
+        "⚠ IT IS A RiPP SUBTYPE, so REDOX_COFACTOR and RIPP are biologically nested even "
+        "though promotion makes them disjoint at class level (measured: 0 records carry "
+        "both once promoted). Off-diagonal mass between these two rows is expected and "
+        "must be read as relatedness, not as a specificity failure.",
 }
 
 #: the five classes the benchmark is defined over (SPEC 4.4.2). validate() enforces them.
-BENCHMARK_CLASSES = ("TERPENE", "NRPS", "RIPP", "ARYLPOLYENE", "BETALACTONE")
+#: SPEC 4.4.2. Four classes, all retaining >=76% of their records under the 8,192 nt bound
+#: that evo2-1b's usable context imposes. NRPS (32% retained, multi-gene 63%->11%) and PKS
+#: (41%, 57%->15%) were dropped: the bound removes precisely their multi-gene members, so
+#: they would have entered as biased short-tail subsamples on the axis the benchmark reports.
+BENCHMARK_CLASSES = ("TERPENE", "RIPP", "ARYLPOLYENE", "REDOX_COFACTOR")
 
 
 @dataclass
@@ -82,8 +95,11 @@ def build_map(rules: dict[str, Rule] | None = None) -> dict:
     if unknown:
         raise ValueError(f"PROMOTIONS names products antiSMASH does not define: "
                          f"{sorted(unknown)} — the rule set changed, revisit SPEC 4.4.2")
+    # hyphens become underscores: the class name is a path component in run directories
+    # and split paths, and `REDOX-COFACTOR` in a filename invites shell and glob trouble.
     mapping = {
-        name: (name.upper() if name in PROMOTIONS else r.category.upper())
+        name: (name.upper().replace("-", "_") if name in PROMOTIONS
+               else r.category.upper().replace("-", "_"))
         for name, r in rules.items()
     }
     return {
@@ -129,12 +145,12 @@ def validate(mapping: dict[str, str],
             f"revisited before any corpus is built."
         )
     for p in PROMOTIONS:
-        if mapping.get(p) != p.upper():
+        if mapping.get(p) != p.upper().replace("-", "_"):
             raise RuntimeError(f"promotion of {p!r} did not take effect (got "
                                f"{mapping.get(p)!r})")
     # a promoted product must not also survive under its old category name by accident
     for p in PROMOTIONS:
-        siblings = [k for k, v in mapping.items() if v == p.upper()]
+        siblings = [k for k, v in mapping.items() if v == p.upper().replace("-", "_")]
         if siblings != [p]:
             raise RuntimeError(f"class {p.upper()} is not exactly one product: {siblings}")
 

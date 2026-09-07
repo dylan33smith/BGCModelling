@@ -24,15 +24,21 @@ NEG = ROOT / "negatives"
 WORK = ROOT / "work"
 MANIFEST = ROOT / "manifest.json"
 
-MAX_LEN = 16000          # SPEC 4.7, fixed by G2
-COMMON_N = 1224          # SPEC 4.4.3, ARYLPOLYENE binds
+#: SPEC 4.7, fixed by G2 and by the MEASURED degradation curve. evo2-1b's config
+#: max_seqlen is 8192; NLL of the last 1000 tokens of a prefix reads 0.805 at 8,192,
+#: 1.040 at 12,000 and 1.239 at 15,900 against ln(4)=1.386 chance. A bound above the
+#: usable context trains on record tails the model reads at near-chance.
+MAX_LEN = 8192
+COMMON_N = 0             # SPEC 4.4.3: 0 = derive from the smallest class's effective_n
 NEG_PER_CLASS = 300      # SPEC 4.8: n>=300 bounds an observed-zero FPR below ~0.01
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--max-len", type=int, default=MAX_LEN)
-    ap.add_argument("--common-n", type=int, default=COMMON_N)
+    ap.add_argument("--common-n", type=int, default=COMMON_N,
+                    help="0 derives it from the smallest class's cluster count, so it "
+                         "cannot be a stale literal from a previous bound")
     ap.add_argument("--neg-per-class", type=int, default=NEG_PER_CLASS)
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--strata", action="store_true",

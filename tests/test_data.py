@@ -85,7 +85,8 @@ def test_benchmark_classes_survive_regeneration():
 def test_promotions_are_single_product_classes():
     m = classmap.build_map()["mapping"]
     for p in classmap.PROMOTIONS:
-        members = [k for k, v in m.items() if v == p.upper()]
+        cls = p.upper().replace("-", "_")   # hyphens are path components in run dirs
+        members = [k for k, v in m.items() if v == cls]
         assert members == [p]
 
 
@@ -101,8 +102,8 @@ def test_unmapped_is_not_folded_into_other():
 def test_hybrid_counts_for_every_class():
     """SPEC 3.3: a record counts for EVERY class its products map to."""
     m = classmap.build_map()["mapping"]
-    assert classmap.classify(["arylpolyene", "betalactone"], m) == [
-        "ARYLPOLYENE", "BETALACTONE"]
+    assert classmap.classify(["arylpolyene", "redox-cofactor"], m) == [
+        "ARYLPOLYENE", "REDOX_COFACTOR"]
 
 
 # ---------------------------------------------------------------------- split
