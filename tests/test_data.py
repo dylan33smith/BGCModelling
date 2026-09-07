@@ -411,7 +411,12 @@ def test_arm_runner_resolves_to_the_best_checkpoint():
     assert "rather than final" in src
 
 
-def test_stage1_n_is_the_agreed_value():
+def test_cli_defaults_come_from_the_frozen_config_not_literals():
+    """The n=150 defect happened because n was a CLI literal that a shell script overrode.
+    Every generation parameter's default must READ the frozen config, so changing the
+    agreed value in one place changes it everywhere and changes the hash."""
     from bgcbench.run import arm as armmod
     src = Path(armmod.__file__).read_text()
-    assert '"--n", type=int, default=200' in src
+    for key in ("n_per_row", "budget_nt", "batch_size"):
+        assert f'GEN_FROZEN["{key}"]' in src, f"--{key} default is not read from FROZEN"
+    assert 'default=200' not in src, "a hard-coded literal can drift from the frozen config"

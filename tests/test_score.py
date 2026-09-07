@@ -226,3 +226,48 @@ def test_corpus_novelty_fails_closed_when_reference_is_absent():
     except FileNotFoundError:
         return
     raise AssertionError("corpus novelty returned without a reference")
+
+
+def test_generation_config_is_frozen_and_hashed_like_scoring():
+    """The n=150 defect: n lived at the COMMAND-LINE INVOCATION SITE, not in any frozen
+    config, so a shell script passed a value nobody had agreed and nothing caught it.
+    Scoring had been frozen and hashed since SPEC 3; generation had no equivalent."""
+    from bgcbench.model import genconfig
+    h = genconfig.config_hash()
+    assert len(h) == 12 and h == genconfig.config_hash()
+    assert genconfig.FROZEN["n_per_row"] == 200
+    for k in ("budget_nt", "temperature", "top_k", "top_p", "rng_seed", "batch_size"):
+        assert k in genconfig.FROZEN, f"{k} is not frozen and could differ between arms"
+
+
+def test_generation_budget_matches_the_corpus_bound():
+    """A budget below the corpus bound silently handicaps the long classes: BETALACTONE's
+    real cores have a ~9 kb median, so a 4 kb budget makes it impossible for that arm to
+    produce anything resembling its own reference, and the deficit reads as a class effect."""
+    from bgcbench.model.genconfig import FROZEN
+    man = Path("/data2/ds85/bgcbench/manifest.json")
+    if not man.exists():
+        return
+    bound = json.loads(man.read_text())["_build"]["max_len"]
+    assert FROZEN["budget_nt"] >= bound, (
+        f"budget {FROZEN['budget_nt']} < corpus bound {bound}: long classes handicapped")
+
+
+def test_arms_generated_under_different_configs_cannot_be_compared():
+    from bgcbench.model.genconfig import check_uniform
+    check_uniform([{"arm": "A", "generation_config_hash": "x"},
+                   {"arm": "B", "generation_config_hash": "x"}])
+    try:
+        check_uniform([{"arm": "A", "generation_config_hash": "x"},
+                       {"arm": "B", "generation_config_hash": "y"}])
+    except RuntimeError:
+        return
+    raise AssertionError("arms under different generation configs compared silently")
+
+
+def test_run_directory_encodes_the_generation_config():
+    """A run under different generation settings must not silently overwrite or be
+    mistaken for another."""
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "{gen_config_hash()}" in src

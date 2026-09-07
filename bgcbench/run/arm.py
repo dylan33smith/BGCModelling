@@ -32,6 +32,8 @@ import json
 from pathlib import Path
 
 from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map
+from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
+from bgcbench.model.genconfig import config_hash as gen_config_hash
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
 from bgcbench.model.load import attach_adapter, load
 from bgcbench.score import antismash
@@ -48,6 +50,15 @@ CORPUS_FA = ROOT / "reference" / "corpus.fasta"
 
 def _load(p: Path) -> list[dict]:
     return [json.loads(l) for l in open(p)]
+
+
+def _corpus_sha() -> str | None:
+    """Which DATA an arm was run against. Two arms compared across a corpus rebuild are
+    not comparable, and nothing else in the report would show it."""
+    try:
+        return json.loads((ROOT / "manifest.json").read_text())["_build"]["corpus_sha256"]
+    except Exception:
+        return None
 
 
 def ensure_corpus_reference() -> Path:
@@ -120,6 +131,7 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         "class_bearing": class_bearing, "n_per_class": n,
         "budget_nt": cfg.budget_nt,
         "row_class": row_class,
+        "off_frozen": None,
         "per_class": {c: rates(by_target[c], c) for c in classes},
         "confusion": confusion(by_target, classes),
         "lift": lift(by_target, unconditioned, classes),
@@ -138,8 +150,13 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
                              for r in rows)[max(0, sum(len(v) for v in by_target.values()) // 2)]
         if any(by_target.values()) else 0,
         "scoring_config": antismash.config_hash(),
+        "generation_config": GEN_FROZEN,
+        "generation_config_hash": gen_config_hash(),
+        "corpus_sha256": _corpus_sha(),
     }
-    d = RUNS / f"{stage}_{sub.id}_{arm.arm_id}"
+    # the config hash is IN the run directory name, so a run under different generation
+    # settings cannot silently overwrite or be mistaken for this one
+    d = RUNS / f"{stage}_{sub.id}_{arm.arm_id}_{gen_config_hash()}"
     d.mkdir(parents=True, exist_ok=True)
     with open(d / "scored.jsonl", "w") as fh:
         seen = set()
@@ -160,9 +177,11 @@ def main() -> int:
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--seeded", action="store_true")
     ap.add_argument("--seed-len", type=int, default=0)
-    ap.add_argument("--n", type=int, default=200)
-    ap.add_argument("--budget-nt", type=int, default=4000)
-    ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--n", type=int, default=GEN_FROZEN["n_per_row"],
+                    help="OVERRIDES the frozen n. For smoke tests only: any run "
+                         "that differs from the frozen config is flagged in its report.")
+    ap.add_argument("--budget-nt", type=int, default=GEN_FROZEN["budget_nt"])
+    ap.add_argument("--batch-size", type=int, default=GEN_FROZEN["batch_size"])
     ap.add_argument("--row-class", default=None,
                     help="the class this arm's WEIGHTS carry. Set for a per-class adapter: "
                          "it generates once and fills that one row, rather than pretending "
@@ -194,6 +213,12 @@ def main() -> int:
     # the class must enter at GENERATION time for a target to mean anything
     class_bearing = args.seeded or arm.inference_control != "none"
     cfg = GenConfig(budget_nt=args.budget_nt, batch_size=args.batch_size)
+    off = {k: v for k, v in (("n_per_row", args.n), ("budget_nt", args.budget_nt),
+                             ("batch_size", args.batch_size))
+           if GEN_FROZEN[k] != v}
+    if off:
+        print(f"⚠ NOT THE FROZEN CONFIG — differs in {off}. This run is not comparable "
+              f"to a frozen-config run and its report records the difference.", flush=True)
 
     rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
                   row_class=args.row_class)

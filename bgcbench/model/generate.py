@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from bgcbench.model.genconfig import FROZEN
 from bgcbench.model.load import EVO2, Substrate
 
 
@@ -30,16 +31,23 @@ class ArmSpec:
     inference_control: str = "none"   # "none" | "steer" | "refine"
     adapter_path: str | None = None
     steer: dict[str, Any] = field(default_factory=dict)
-    temperature: float = 1.0
-    top_k: int = 4
-    top_p: float = 1.0
+    temperature: float = FROZEN["temperature"]
+    top_k: int = FROZEN["top_k"]
+    top_p: float = FROZEN["top_p"]
 
 
 @dataclass
 class GenConfig:
-    budget_nt: int = 16000
-    batch_size: int = 8
-    seed: int = 0
+    """Instantiated from the FROZEN config (SPEC 7). Do not construct one by hand for a
+    benchmark run -- use `GenConfig.frozen()`, so the values and the hash cannot diverge."""
+    budget_nt: int = FROZEN["budget_nt"]
+    batch_size: int = FROZEN["batch_size"]
+    seed: int = FROZEN["rng_seed"]
+
+    @classmethod
+    def frozen(cls) -> "GenConfig":
+        return cls(budget_nt=FROZEN["budget_nt"], batch_size=FROZEN["batch_size"],
+                   seed=FROZEN["rng_seed"])
 
 
 def _seed_text(rec: dict, n_nt: int) -> str:
