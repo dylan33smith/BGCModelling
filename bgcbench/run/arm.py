@@ -160,7 +160,7 @@ def main() -> int:
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--seeded", action="store_true")
     ap.add_argument("--seed-len", type=int, default=0)
-    ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--budget-nt", type=int, default=4000)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--row-class", default=None,
@@ -172,9 +172,20 @@ def main() -> int:
     args = ap.parse_args()
 
     sub = load(args.substrate)
-    if args.adapter:
-        sub = attach_adapter(sub, args.adapter)
-        print(f"attached adapter {args.adapter}", flush=True)
+    adapter = args.adapter
+    if adapter:
+        # SPEC 6.4: evaluate at the BEST held-out checkpoint, not the last. Point at an
+        # adapter DIRECTORY and this resolves to best/ automatically.
+        p = Path(adapter)
+        if (p / "BEST").exists():
+            meta = json.loads((p / "BEST").read_text())
+            if meta.get("path"):
+                adapter = meta["path"]
+                print(f"using BEST checkpoint (step {meta['step']}, "
+                      f"val {meta['val_loss']}) rather than final", flush=True)
+    if adapter:
+        sub = attach_adapter(sub, adapter)
+        print(f"attached adapter {adapter}", flush=True)
     arm = ArmSpec(arm_id=args.arm,
                   weight_state="base" if args.adapter is None else args.arm,
                   seeded=args.seeded, seed_len_nt=args.seed_len,

@@ -36,7 +36,13 @@ class TrainConfig:
     alpha: int = 32
     dropout: float = 0.05
     lr: float = 5e-5
-    epochs: int = 3
+    #: EARLY STOPPING replaces a guessed epoch count. Fixed epochs cannot know whether an
+    #: arm converged: measured on the first six arms, three still had headroom while two
+    #: had already turned over, and only luck kept the rest from being under-trained.
+    max_epochs: int = 12
+    eval_every: int = 25            # optimizer steps between held-out evaluations
+    patience: int = 4               # evaluations without improvement before stopping
+    min_delta: float = 1e-4         # smaller than this is not an improvement
     micro_batch: int = 1
     grad_accum: int = 16
     max_len_nt: int = 16000
@@ -47,7 +53,6 @@ class TrainConfig:
     #: "nucleotides" -> per-class loss weights make the classes contribute equally by token.
     balance: str = "records"
     min_classes_per_batch: int = 2
-    checkpoints: int = 5           # SPEC 6.4: >=5 for a monotone-slope manipulation check
     seed: int = 0
     targets: list[str] = field(default_factory=lambda: list(EVO2_LORA_TARGETS))
 
@@ -118,7 +123,8 @@ def _encode(sub, rec: dict, cfg: TrainConfig) -> list[int]:
 
 
 def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
-               val_records: list[dict] | None = None, device: str = "cuda:0") -> dict:
+               val_records: list[dict] | None = None, device: str = "cuda:0",
+               resume_from: str | None = None) -> dict:
     from peft import LoraConfig, get_peft_model
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -146,7 +152,13 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
     # autocast_adapter_dtype=False: peft 0.19's cast probes torch.float8_e8m0fnu, which
     # does not exist in torch 2.5.1, and raises before any training starts. The cast is the
     # failing step, so it is skipped; adapter dtype then follows the base model's.
-    model = get_peft_model(base, peft_cfg, autocast_adapter_dtype=False)
+    if resume_from:
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(base, resume_from, is_trainable=True,
+                                          autocast_adapter_dtype=False)
+        print(f"  resumed from {resume_from}", flush=True)
+    else:
+        model = get_peft_model(base, peft_cfg, autocast_adapter_dtype=False)
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     model.train()
@@ -165,14 +177,17 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
 
     batches = build_batches(records, cfg, rng)
     mixing = batch_class_mixing(batches)
-    total_steps = max(1, (len(batches) * cfg.epochs) // cfg.grad_accum)
-    ckpt_every = max(1, total_steps // cfg.checkpoints)
 
     log: list[dict] = []
     step = 0
     pad = 1 if sub.family == "evo2" else (sub.tokenizer.pad_token_id or 0)
+    best_val, best_step, since_improve = float("inf"), 0, 0
+    run_loss, run_n = 0.0, 0
+    stopped_early = False
 
-    for ep in range(cfg.epochs):
+    for ep in range(cfg.max_epochs):
+        if stopped_early:
+            break
         for bi, batch in enumerate(batches):
             ids = [_encode(sub, r, cfg) for r in batch]
             L = max(len(x) for x in ids)
@@ -182,14 +197,12 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
                 x[i, :len(seq)] = torch.tensor(seq, device=device)
                 mask[i, :len(seq)] = True
 
-            out = model(x)
-            logits = _unwrap(out)
+            logits = _unwrap(model(x))
             if logits is None:
                 raise RuntimeError("could not locate logits in model output")
             lp = torch.log_softmax(logits[:, :-1].float(), dim=-1)
-            tgt = x[:, 1:]
+            nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
             m = mask[:, 1:]
-            nll = -lp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
             if cls_w:
                 w = torch.tensor([cls_w.get(r["classes"][0], 1.0) for r in batch],
                                  device=device, dtype=nll.dtype).unsqueeze(1)
@@ -197,45 +210,64 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
             else:
                 loss = (nll * m).sum() / m.sum().clamp(min=1)
             (loss / cfg.grad_accum).backward()
+            # MEAN since the last evaluation, not the single batch that happened to land
+            # on a checkpoint -- a one-batch train loss is far too noisy to read a curve
+            # from, which is what made overfitting invisible on the first six arms.
+            run_loss += float(loss.item()); run_n += 1
 
             if (bi + 1) % cfg.grad_accum == 0:
                 torch.nn.utils.clip_grad_norm_(
                     [p for p in model.parameters() if p.requires_grad], 1.0)
                 opt.step(); opt.zero_grad(set_to_none=True)
                 step += 1
-                if step % ckpt_every == 0 or step == total_steps:
+
+                if step % cfg.eval_every == 0:
                     vl = evaluate(sub, model, val_records, cfg, device) \
                         if val_records else None
-                    log.append({"step": step, "epoch": ep,
-                                "train_loss": round(float(loss.item()), 5),
-                                "val_loss": vl})
-                    model.save_pretrained(str(out_dir / f"step_{step}"))
-                    print(f"  step {step}/{total_steps} train={loss.item():.4f} "
-                          f"val={vl}", flush=True)
+                    tl = round(run_loss / max(run_n, 1), 5)
+                    run_loss, run_n = 0.0, 0
+                    improved = vl is not None and vl < best_val - cfg.min_delta
+                    if improved:
+                        best_val, best_step, since_improve = vl, step, 0
+                        model.save_pretrained(str(out_dir / "best"))
+                    else:
+                        since_improve += 1
+                    log.append({"step": step, "epoch": ep, "train_loss": tl,
+                                "val_loss": vl, "improved": improved,
+                                "since_improve": since_improve})
+                    print(f"  step {step} ep{ep} train={tl} val={vl}"
+                          f"{'  *best*' if improved else f'  (no gain x{since_improve})'}",
+                          flush=True)
+                    if since_improve >= cfg.patience:
+                        print(f"  EARLY STOP: {cfg.patience} evaluations without "
+                              f"improvement; best val {best_val} at step {best_step}",
+                              flush=True)
+                        stopped_early = True
+                        break
 
     model.save_pretrained(str(out_dir / "final"))
 
-    # BEST CHECKPOINT, NOT THE LAST. Training uses a fixed epoch count with no early
-    # stopping, so `final` is whatever the last step happened to produce. Measured on the
-    # first six arms: W1 and W2_RIPP both had a `final` WORSE than their best checkpoint,
-    # so generating from `final` handicaps exactly those two arms and nothing else.
-    best = min(log, key=lambda d: (d["val_loss"] if d["val_loss"] is not None else 9e9)) \
-        if log else None
-    best_dir = None
-    if best is not None:
-        best_dir = out_dir / f"step_{best['step']}"
-        (out_dir / "BEST").write_text(json.dumps(
-            {"step": best["step"], "val_loss": best["val_loss"],
-             "path": str(best_dir),
-             "final_val_loss": log[-1]["val_loss"],
-             "final_is_best": best["step"] == log[-1]["step"]}, indent=2))
+    # BEST CHECKPOINT, NOT THE LAST. `final` is whatever the last step produced; measured
+    # on the first six arms, W1 and W2_RIPP both had a final WORSE than their best, which
+    # handicaps exactly those two arms. `best/` is written whenever val improves.
+    best_dir = (out_dir / "best") if (out_dir / "best").exists() else None
+    (out_dir / "BEST").write_text(json.dumps(
+        {"step": best_step, "val_loss": best_val if best_val < float("inf") else None,
+         "path": str(best_dir) if best_dir else None,
+         "final_val_loss": log[-1]["val_loss"] if log else None,
+         "final_is_best": bool(log) and log[-1]["step"] == best_step,
+         "stopped_early": stopped_early,
+         "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
+         "max_epochs": cfg.max_epochs}, indent=2))
 
     report = {"trainable_params": trainable, "total_params": total,
               "best_checkpoint": (str(best_dir) if best_dir else None),
-              "best_val_loss": (best["val_loss"] if best else None),
-              "final_is_best": (best["step"] == log[-1]["step"]) if log else None,
+              "best_val_loss": (best_val if best_val < float("inf") else None),
+              "final_is_best": bool(log) and log[-1]["step"] == best_step,
               "trainable_frac": round(trainable / max(total, 1), 6),
-              "rank": cfg.rank, "targets": cfg.targets, "epochs": cfg.epochs,
+              "rank": cfg.rank, "targets": cfg.targets,
+              "max_epochs": cfg.max_epochs, "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
+              "stopped_early": stopped_early, "best_step": best_step,
               "n_train": len(records), "batching": mixing, "log": log,
               "balance": cfg.balance, "class_weights": cls_w,
               "checkpoints": len(log)}

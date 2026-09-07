@@ -32,7 +32,11 @@ def main() -> int:
     ap.add_argument("--name", required=True)
     ap.add_argument("--classes", nargs="+", default=list(BENCHMARK_CLASSES))
     ap.add_argument("--rank", type=int, default=16)
-    ap.add_argument("--epochs", type=int, default=3)
+    ap.add_argument("--max-epochs", type=int, default=12)
+    ap.add_argument("--eval-every", type=int, default=25)
+    ap.add_argument("--patience", type=int, default=4)
+    ap.add_argument("--resume-from", default=None,
+                    help="continue training an existing adapter instead of starting over")
     ap.add_argument("--grad-accum", type=int, default=16)
     ap.add_argument("--max-len-nt", type=int, default=16000)
     ap.add_argument("--balance", choices=["records", "nucleotides"], default="records",
@@ -51,17 +55,22 @@ def main() -> int:
     if args.limit:
         train, val = train[:args.limit], val[:max(8, args.limit // 8)]
 
-    cfg = TrainConfig(rank=args.rank, epochs=args.epochs, grad_accum=args.grad_accum,
-                      max_len_nt=args.max_len_nt, balance=args.balance)
+    cfg = TrainConfig(rank=args.rank, max_epochs=args.max_epochs,
+                      eval_every=args.eval_every, patience=args.patience,
+                      grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
+                      balance=args.balance)
     out = ADAPTERS / f"{args.substrate}_{args.name}"
     print(f"training {args.name} on {sorted(args.classes)}: "
-          f"{len(train)} train / {len(val)} val, rank {cfg.rank}, {cfg.epochs} epochs",
-          flush=True)
-    rep = train_lora(sub, train, out, cfg, val_records=val)
+          f"{len(train)} train / {len(val)} val, rank {cfg.rank}, "
+          f"max {cfg.max_epochs} epochs, eval every {cfg.eval_every} steps, "
+          f"patience {cfg.patience}", flush=True)
+    rep = train_lora(sub, train, out, cfg, val_records=val,
+                     resume_from=args.resume_from)
     print(f"\ntrainable {rep['trainable_params']:,} / {rep['total_params']:,} "
           f"= {100*rep['trainable_frac']:.3f}%")
     print(f"batching: {rep['batching']}")
-    print(f"checkpoints: {rep['checkpoints']}  ->  {out}")
+    print(f"epochs run {rep['epochs_run']}/{rep['max_epochs']}  "
+          f"early_stop={rep['stopped_early']}  ->  {out}")
     print(f"best checkpoint: {rep['best_checkpoint']} (val {rep['best_val_loss']}) "
           f"| final_is_best={rep['final_is_best']}")
     if rep.get("class_weights"):

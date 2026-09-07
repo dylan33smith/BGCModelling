@@ -363,7 +363,7 @@ def test_arm_runner_actually_attaches_the_adapter():
     the base model and read as a null. Nothing in the output would have shown it."""
     from bgcbench.run import arm as armmod
     src = Path(armmod.__file__).read_text()
-    assert "attach_adapter(sub, args.adapter)" in src
+    assert "attach_adapter(sub, adapter)" in src
 
 
 def test_per_class_adapter_generates_once_not_five_times():
@@ -395,3 +395,23 @@ def test_pooled_balance_option_exists_and_is_token_aware():
     from bgcbench.model.train import TrainConfig
     assert TrainConfig().balance == "records"
     assert TrainConfig(balance="nucleotides").balance == "nucleotides"
+
+
+def test_training_uses_early_stopping_not_a_guessed_epoch_count():
+    from bgcbench.model.train import TrainConfig
+    c = TrainConfig()
+    assert c.max_epochs >= 8 and c.patience >= 2 and c.eval_every > 0
+    assert not hasattr(c, "epochs"), "a fixed epoch count cannot know whether an arm converged"
+
+
+def test_arm_runner_resolves_to_the_best_checkpoint():
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert '(p / "BEST").exists()' in src
+    assert "rather than final" in src
+
+
+def test_stage1_n_is_the_agreed_value():
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert '"--n", type=int, default=200' in src
