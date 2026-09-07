@@ -97,7 +97,29 @@ class Substrate:
         return "".join(c for c in text.upper() if c in "ACGTN")
 
 
-def load(substrate_id: str, device: str = "cuda:0") -> Substrate:
+def _de_inference(module) -> int:
+    """Evo2's checkpoint load creates some parameters under torch.inference_mode(), and an
+    inference tensor cannot be saved for backward -- training dies at the first norm layer
+    with "Inference tensors cannot be saved for backward". Measured on evo2-1b: 28 of 265
+    parameters. Cloning them OUTSIDE inference mode clears the flag; cloning inside would
+    just make more inference tensors."""
+    import torch
+    n = 0
+    with torch.inference_mode(False):
+        for mod in module.modules():
+            for name, prm in list(mod.named_parameters(recurse=False)):
+                if prm.is_inference():
+                    n += 1
+                setattr(mod, name, torch.nn.Parameter(prm.data.clone(),
+                                                      requires_grad=prm.requires_grad))
+            for name, buf in list(mod.named_buffers(recurse=False)):
+                if buf is not None:
+                    mod.register_buffer(name, buf.data.clone())
+    return n
+
+
+def load(substrate_id: str, device: str = "cuda:0",
+         trainable: bool = False) -> Substrate:
     if substrate_id.startswith("evo2"):
         from evo2 import Evo2
         name = {"evo2-1b": "evo2_1b_base", "evo2-7b": "evo2_7b"}.get(substrate_id,
@@ -105,6 +127,7 @@ def load(substrate_id: str, device: str = "cuda:0") -> Substrate:
         m = Evo2(name)
         tok = m.tokenizer
         eos = int(getattr(tok, "eos_id", 0))
+        n_inf = _de_inference(m.model) if trainable else 0
         return Substrate(
             id=substrate_id, family=EVO2, checkpoint=name,
             terminator_id=eos, terminator_str=chr(eos),
@@ -112,7 +135,8 @@ def load(substrate_id: str, device: str = "cuda:0") -> Substrate:
             native_stop=False,              # vortex hardcodes stop_at_eos=False
             approx_nt_per_token=1.0,
             model=m, tokenizer=tok,
-            meta={"vocab_size": getattr(tok, "vocab_size", None)},
+            meta={"vocab_size": getattr(tok, "vocab_size", None),
+                  "de_inferenced_params": n_inf},
         )
 
     if substrate_id in ("go-4b", "bgcfm") or "genomeocean" in substrate_id:
