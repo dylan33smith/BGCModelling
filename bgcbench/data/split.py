@@ -122,6 +122,17 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     cls_clusters: dict[str, dict[str, list[dict]]] = {}
     cls_ordered: dict[str, list[str]] = {}
     selected: dict[str, list[str]] = {}
+    # DERIVE common_n from the smallest class rather than carry a literal. A literal
+    # survives a bound change silently: 1224 was correct at a 16,000 nt bound and would
+    # have raised -- or worse, quietly shrunk a class -- at 8,192.
+    if not common_n:
+        counts = {}
+        for cls in classes:
+            counts[cls] = len({rep[r["accession"]] for r in records
+                               if cls in r["classes"]})
+        common_n = min(counts.values())
+        print(f"  common_n derived = {common_n} (smallest of {counts})", flush=True)
+
     for cls in classes:
         groups: dict[str, list[dict]] = defaultdict(list)
         for r in records:
@@ -291,6 +302,7 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
             **report_extra,
         }
     return {"classes": report, "max_len": max_len, "common_n": common_n,
+            "common_n_derived": True,
             "n_records_considered": len(records),
             "mibig_excluded_records": n_excluded_records,
             "mibig_exclusion_level": "cluster",

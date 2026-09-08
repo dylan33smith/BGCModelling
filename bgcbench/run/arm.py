@@ -36,7 +36,7 @@ from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map, mapping_hash
 from bgcbench.model import genconfig as gc
 from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
-from bgcbench.model.load import attach_adapter, load
+from bgcbench.model.load import attach_adapter, attach_intervention, load
 from bgcbench.score import antismash
 from bgcbench.score.endpoints import confusion, gene_count_profile, lift, rates, subclass_profile
 from bgcbench.score.novelty import Reference, corpus_novelty, write_corpus_fasta
@@ -317,7 +317,13 @@ def main() -> int:
                 adapter = meta["path"]
                 print(f"using BEST checkpoint (step {meta['step']}, "
                       f"val {meta['val_loss']}) rather than final", flush=True)
-    if adapter:
+    intervention = None
+    if adapter and str(adapter).endswith(".pt"):
+        sub, intervention = attach_intervention(sub, adapter)
+        print(f"attached intervention {adapter} "
+              f"({sub.meta.get('intervention_sites', {}).get('n_attention_sites')} sites)",
+              flush=True)
+    elif adapter:
         sub = attach_adapter(sub, adapter)
         print(f"attached adapter {adapter}", flush=True)
     arm = ArmSpec(arm_id=args.arm,
@@ -341,8 +347,15 @@ def main() -> int:
     _assert_scorable(cfg.budget_nt, sub)
 
 
-    rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
-                  row_class=args.row_class, train_classes=args.train_classes)
+    if intervention is not None:
+        # a hook, not merged weights: if it is not attached for the whole of generation the
+        # arm silently produces base-model output and reads as a null
+        with intervention.attached():
+            rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
+                          row_class=args.row_class, train_classes=args.train_classes)
+    else:
+        rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
+                      row_class=args.row_class, train_classes=args.train_classes)
     if rep["off_frozen"]:
         print(f"⚠ NOT THE FROZEN CONFIG — {rep['off_frozen']}. Recorded in the report; "
               f"this run is not comparable to a frozen-config run.", flush=True)

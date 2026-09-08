@@ -226,3 +226,25 @@ def attach_adapter(sub: Substrate, adapter_path: str) -> Substrate:
         sub.model = merged
     sub.meta["adapter"] = adapter_path
     return sub
+
+
+def attach_intervention(sub: Substrate, path: str) -> tuple[Substrate, object]:
+    """Attach a trained W3 conditioner (or an I1 direction set) for generation.
+
+    Returns the substrate and the LIVE intervention object -- the caller must keep it in
+    scope and hold its `attached()` context for the duration of generation. Unlike a LoRA
+    adapter, which is merged into the weights, this is a hook: if it is not attached during
+    generation the arm silently generates from the BASE MODEL and reads as a null.
+    """
+    import torch
+
+    from bgcbench.model.interventions import LearnedOffset
+    base = sub.model.model if sub.family == EVO2 else sub.model
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    iv = LearnedOffset(base, ck["hidden"], rank=ck.get("rank", 0))
+    iv.load_state_dict(ck["state_dict"])
+    dev = next(base.parameters()).device
+    iv = iv.to(dev)
+    sub.meta["intervention"] = path
+    sub.meta["intervention_sites"] = ck.get("sites")
+    return sub, iv

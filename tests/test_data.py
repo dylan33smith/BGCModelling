@@ -421,3 +421,68 @@ def test_cli_defaults_come_from_the_frozen_config_not_literals():
     for key in ("n_per_row", "budget_nt", "batch_size"):
         assert f'GEN_FROZEN["{key}"]' in src, f"--{key} default is not read from FROZEN"
     assert 'default=200' not in src, "a hard-coded literal can drift from the frozen config"
+
+
+def test_intervention_hooks_are_identity_at_init_and_fully_removable():
+    """Zero-init means the UNTRAINED W3 arm is bit-identical to the base model, so any
+    difference at step 0 is a bug. And a leaked hook would silently contaminate every
+    later arm run in the same process."""
+    import torch
+    import torch.nn as nn
+    from bgcbench.model.interventions import LearnedOffset, attention_sites
+
+    class Blk(nn.Module):
+        def __init__(s): super().__init__(); s.lin = nn.Linear(8, 8)
+        def forward(s, x): return s.lin(x)
+
+    class Toy(nn.Module):
+        def __init__(s):
+            super().__init__()
+            s.blocks = nn.ModuleList([nn.Module() for _ in range(2)])
+            for b in s.blocks: b.inner_mha_cls = Blk()
+        def forward(s, x):
+            for b in s.blocks: x = b.inner_mha_cls(x)
+            return x
+
+    m = Toy()
+    assert len(attention_sites(m)) == 2
+    x = torch.randn(1, 4, 8)
+    base = m(x).clone()
+    for rank in (0, 4):
+        iv = LearnedOffset(m, 8, rank=rank)
+        with iv.attached():
+            assert torch.allclose(base, m(x), atol=1e-5), f"rank {rank} not identity at init"
+            with torch.no_grad():
+                for p in iv.offsets: p.add_(1.0)
+            assert not torch.allclose(base, m(x), atol=1e-3), "offset had no effect"
+        assert torch.allclose(base, m(x), atol=1e-5), "hooks not removed"
+        assert not iv.is_attached()
+
+
+def test_w3_capacity_is_swept_not_fixed():
+    """The bare offset is 1364x below LoRA on the same model; a null there would say
+    'too few parameters', not 'activation conditioning does not work'."""
+    import torch.nn as nn
+    from bgcbench.model.interventions import LearnedOffset
+
+    class Blk(nn.Module):
+        def __init__(s): super().__init__(); s.lin = nn.Linear(8, 8)
+        def forward(s, x): return s.lin(x)
+
+    class Toy(nn.Module):
+        def __init__(s):
+            super().__init__(); s.blocks = nn.ModuleList([nn.Module() for _ in range(2)])
+            for b in s.blocks: b.inner_mha_cls = Blk()
+
+    m = Toy()
+    assert LearnedOffset(m, 8, rank=0).n_trainable() < LearnedOffset(m, 8, rank=4).n_trainable()
+
+
+def test_intervention_arm_attaches_hooks_for_the_whole_of_generation():
+    """A LoRA adapter is merged into the weights; an intervention is a HOOK. If it is not
+    attached during generation the arm silently produces base-model output and reads as a
+    null, with nothing in the artifact showing it."""
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert "with intervention.attached():" in src
+    assert "attach_intervention" in src

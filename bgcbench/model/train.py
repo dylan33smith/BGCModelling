@@ -62,6 +62,10 @@ class TrainConfig:
     #: token, so the pooled gradient is dominated by the long classes).
     #: "nucleotides" -> per-class loss weights make the classes contribute equally by token.
     balance: str = "records"
+    #: "lora" -> low-rank adapters on the linear layers (W1/W1n/W2)
+    #: "offset" -> per-attention-site learned conditioner (W3), see interventions.py
+    method: str = "lora"
+    offset_rank: int = 16
     min_classes_per_batch: int = 2
     seed: int = 0
     targets: list[str] = field(default_factory=lambda: list(EVO2_LORA_TARGETS))
@@ -138,6 +142,8 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
     from peft import LoraConfig, get_peft_model
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    if cfg.method == "offset":
+        return _train_offset(sub, records, out_dir, cfg, val_records, device)
     rng = random.Random(cfg.seed)
     torch.manual_seed(cfg.seed)
 
@@ -315,4 +321,144 @@ def evaluate(sub, model, records: list[dict], cfg: TrainConfig,
         nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
         tot += float(nll.mean().item()); n += 1
     model.train()
+    return round(tot / max(n, 1), 5)
+
+
+# --------------------------------------------------------------------------------------
+# W3 -- learned per-attention-site conditioner (SPEC 6; see interventions.py for why this
+# is not KV-prefix tuning on this architecture).
+# --------------------------------------------------------------------------------------
+
+def _train_offset(sub, records, out_dir, cfg, val_records, device):
+    import random as _r
+
+    from bgcbench.model.interventions import LearnedOffset, site_report
+
+    base = sub.model.model if sub.family == "evo2" else sub.model
+    for p in base.parameters():
+        p.requires_grad_(False)            # the BASE MODEL is frozen; only the conditioner trains
+    hidden = int(getattr(base.config, "hidden_size", None)
+                 if not isinstance(base.config, dict) else base.config["hidden_size"])
+    iv = LearnedOffset(base, hidden, rank=cfg.offset_rank).to(device)
+    sites = site_report(base)
+    print(f"  {sites['n_attention_sites']} attention sites of {sites['n_blocks']} blocks "
+          f"(coverage {sites['coverage']}); trainable {iv.n_trainable():,}", flush=True)
+
+    rng = _r.Random(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    cls_w: dict[str, float] = {}
+    if cfg.balance == "nucleotides":
+        per: dict[str, int] = {}
+        for r in records:
+            per[r["classes"][0]] = per.get(r["classes"][0], 0) + r["seq_len"]
+        if per:
+            tgt = sum(per.values()) / len(per)
+            cls_w = {c: tgt / nt for c, nt in per.items()}
+
+    opt = torch.optim.AdamW([p for p in iv.parameters() if p.requires_grad],
+                            lr=cfg.lr, weight_decay=0.01, betas=(0.9, 0.95))
+    batches = build_batches(records, cfg, rng)
+    mixing = batch_class_mixing(batches)
+    pad = 1 if sub.family == "evo2" else (sub.tokenizer.pad_token_id or 0)
+    log, step = [], 0
+    best_val, best_step, since = float("inf"), 0, 0
+    run_loss, run_n, stopped = 0.0, 0, False
+
+    with iv.attached():
+        for ep in range(cfg.max_epochs):
+            if stopped:
+                break
+            for bi, batch in enumerate(batches):
+                ids = [_encode(sub, r, cfg) for r in batch]
+                L = max(len(x) for x in ids)
+                x = torch.full((len(ids), L), pad, dtype=torch.long, device=device)
+                mask = torch.zeros((len(ids), L), dtype=torch.bool, device=device)
+                for i, sq in enumerate(ids):
+                    x[i, :len(sq)] = torch.tensor(sq, device=device)
+                    mask[i, :len(sq)] = True
+                logits = _unwrap(base(x))
+                lp = torch.log_softmax(logits[:, :-1].float(), dim=-1)
+                nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
+                m = mask[:, 1:]
+                if cls_w:
+                    w = torch.tensor([cls_w.get(r["classes"][0], 1.0) for r in batch],
+                                     device=device, dtype=nll.dtype).unsqueeze(1)
+                    loss = (nll * m * w).sum() / (m * w).sum().clamp(min=1)
+                else:
+                    loss = (nll * m).sum() / m.sum().clamp(min=1)
+                (loss / cfg.grad_accum).backward()
+                run_loss += float(loss.item()); run_n += 1
+                if (bi + 1) % cfg.grad_accum == 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        [p for p in iv.parameters() if p.requires_grad], 1.0)
+                    opt.step(); opt.zero_grad(set_to_none=True)
+                    step += 1
+                    if step % cfg.eval_every == 0:
+                        vl = _eval_offset(sub, base, val_records, cfg, device) \
+                            if val_records else None
+                        tl = round(run_loss / max(run_n, 1), 5)
+                        run_loss, run_n = 0.0, 0
+                        imp = vl is not None and vl < best_val - cfg.min_delta
+                        if imp:
+                            best_val, best_step, since = vl, step, 0
+                            torch.save({"state_dict": iv.state_dict(),
+                                        "rank": cfg.offset_rank, "hidden": hidden,
+                                        "sites": sites}, out_dir / "best.pt")
+                        else:
+                            since += 1
+                        log.append({"step": step, "epoch": ep, "train_loss": tl,
+                                    "val_loss": vl, "improved": imp})
+                        print(f"  step {step} ep{ep} train={tl} val={vl}"
+                              f"{'  *best*' if imp else f'  (no gain x{since})'}",
+                              flush=True)
+                        if since >= cfg.patience:
+                            print(f"  EARLY STOP: best val {best_val} at step {best_step}",
+                                  flush=True)
+                            stopped = True
+                            break
+
+    (out_dir / "BEST").write_text(json.dumps(
+        {"step": best_step, "val_loss": best_val if best_val < float("inf") else None,
+         "path": str(out_dir / "best.pt") if (out_dir / "best.pt").exists() else None,
+         "final_val_loss": log[-1]["val_loss"] if log else None,
+         "final_is_best": bool(log) and log[-1]["step"] == best_step,
+         "stopped_early": stopped, "method": "offset"}, indent=2))
+    report = {"train_config": {k: v for k, v in __import__("dataclasses").asdict(cfg).items()},
+              "train_config_hash": train_config_hash(cfg), "resumed_from": None,
+              "method": "offset", "sites": sites,
+              "trainable_params": iv.n_trainable(),
+              "total_params": sum(p.numel() for p in base.parameters()),
+              "trainable_frac": round(iv.n_trainable()
+                                      / max(sum(p.numel() for p in base.parameters()), 1), 8),
+              "max_epochs": cfg.max_epochs, "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
+              "stopped_early": stopped, "best_step": best_step,
+              "best_checkpoint": str(out_dir / "best.pt"),
+              "best_val_loss": best_val if best_val < float("inf") else None,
+              "final_is_best": bool(log) and log[-1]["step"] == best_step,
+              "rank": cfg.offset_rank, "targets": ["attention_sites"],
+              "n_train": len(records), "batching": mixing, "log": log,
+              "balance": cfg.balance, "class_weights": cls_w}
+    (out_dir / "train_report.json").write_text(json.dumps(report, indent=2))
+    return report
+
+
+@torch.no_grad()
+def _eval_offset(sub, base, records, cfg, device, limit: int = 32):
+    """Held-out loss WITH the conditioner attached -- it is already attached by the caller's
+    context manager, so this measures the intervened model, which is what the manipulation
+    check needs."""
+    by: dict[str, list[dict]] = {}
+    for r in records:
+        by.setdefault(r["classes"][0], []).append(r)
+    picked: list[dict] = []
+    per = max(1, limit // max(len(by), 1))
+    for v in by.values():
+        picked.extend(v[:per])
+    tot, n = 0.0, 0
+    for r in (picked or records[:limit]):
+        ids = _encode(sub, r, cfg)
+        x = torch.tensor([ids], device=device)
+        lp = torch.log_softmax(_unwrap(base(x))[:, :-1].float(), dim=-1)
+        tot += float((-lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)).mean().item())
+        n += 1
     return round(tot / max(n, 1), 5)

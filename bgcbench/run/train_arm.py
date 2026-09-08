@@ -32,6 +32,13 @@ def main() -> int:
     ap.add_argument("--name", required=True)
     ap.add_argument("--classes", nargs="+", default=list(BENCHMARK_CLASSES))
     ap.add_argument("--rank", type=int, default=16)
+    ap.add_argument("--method", choices=["lora", "offset"], default="lora",
+                    help="'offset' is W3: a learned per-attention-site conditioner. It is "
+                         "not KV-prefix tuning -- see interventions.py for why that is not "
+                         "implementable on this architecture.")
+    ap.add_argument("--offset-rank", type=int, default=16,
+                    help="capacity of the W3 conditioner. 0 = bare offset (7,680 params, "
+                         "~1364x below LoRA, so a null would be capacity-limited).")
     ap.add_argument("--max-epochs", type=int, default=12)
     ap.add_argument("--eval-every", type=int, default=25)
     ap.add_argument("--patience", type=int, default=4)
@@ -60,7 +67,8 @@ def main() -> int:
     cfg = TrainConfig(rank=args.rank, max_epochs=args.max_epochs,
                       eval_every=args.eval_every, patience=args.patience,
                       grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
-                      balance=args.balance)
+                      balance=args.balance, method=args.method,
+                      offset_rank=args.offset_rank)
     out = ADAPTERS / f"{args.substrate}_{args.name}"
     print(f"training {args.name} on {sorted(args.classes)}: "
           f"{len(train)} train / {len(val)} val, rank {cfg.rank}, "
