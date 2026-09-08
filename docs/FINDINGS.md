@@ -485,3 +485,43 @@ set that preceded the 8,192 nt reorientation, and two of the classes no longer e
 numbers above are read from the manifest of the splits actually trained on. The drop is
 expected rather than surprising: cluster selection takes `common_n` clusters per class and
 hybrids are over-represented among the long records the 8,192 nt bound excludes.
+
+---
+
+## 6. Stage 1 results — FROZEN 2026-09-08, before any comparison to prior work
+
+**SPEC 10.1 step 2.** Written, hashed and committed *before* unblinding, because a blind rebuild
+cannot otherwise distinguish "the new code found a real correction" from "the new code has a bug".
+
+Bundle: `/data2/ds85/bgcbench/runs/STAGE1_FROZEN_f50c43b09042609c.json`
+sha256[:16] = **f50c43b09042609c** — 8 run directories.
+
+Regime: **de novo**, `evo2-1b`, n=200/row, budget 8,192 nt, `batch_size` 100, antiSMASH 8.0.4
+(`ee8c025c1593`), corpus `c74154974aff`. Every arm `off_frozen: {}`.
+
+| arm | trained on | core median | detected | on-target | rate | p vs floor |
+|---|---|---|---|---|---|---|
+| `W0` base | — | — | 0 | 0 | 0.000 | — |
+| `W1` pooled LoRA | all 4 | — | 0 | 0 | 0.000 | 1.000 |
+| `W1n` nt-balanced | all 4 | — | 0 | 0 | 0.000 | 1.000 |
+| `W3` conditioner | all 4 | — | 0 | 0 | 0.000 | 1.000 |
+| `W2_TERPENE` | TERPENE | 1,182 | 0 | 0 | 0.000 | 1.000 |
+| `W2_RIPP` | RIPP | 1,931 | 0 | 0 | 0.000 | 1.000 |
+| `W2_REDOX_COFACTOR` | REDOX_COFACTOR | 3,031 | 1 | 0 | 0.005 | 0.500 |
+| `W2_ARYLPOLYENE` | ARYLPOLYENE | 3,579 | 3 | 3 | 0.015 | 0.124 |
+
+Instrument, same run: oracle (real held-out cores) **1.000** detect / 1.000 on-target, n=60/class;
+negative controls (real non-BGC DNA) **0.000**, n=300/class. Full dynamic range at both ends.
+
+**Four detections in 1,600 generations, three on-target, none significant at n=200.**
+
+Standing observations, recorded before unblinding:
+* `hit_eos = 0.0` on **all eight arms** — not one generation ever emitted a terminator, and every
+  arm ran the full 8,192 nt against class cores of median 1.2–3.6 kb.
+* Detection rank-orders exactly with class core length (0, 0, 1, 3).
+* The only arm producing on-target output was the **class-exclusive** one; the pooled arm saw the
+  same records plus three other classes and produced nothing.
+* `W3`'s manipulation check PASSES (delta 0.0188, landed true), so its zero is a **negative**;
+  `W1` vs `W1n` is **uninformative** — both at the floor, and 1.5e-4 apart on held-out loss, which
+  is below the measured noise floor (4a.7).
+* No generation on any arm matched a known BGC.
