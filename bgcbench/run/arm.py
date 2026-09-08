@@ -306,7 +306,16 @@ def main() -> int:
                     help="OVERRIDES the frozen n. For smoke tests only: any run "
                          "that differs from the frozen config is flagged in its report.")
     ap.add_argument("--budget-nt", type=int, default=GEN_FROZEN["budget_nt"])
-    ap.add_argument("--batch-size", type=int, default=GEN_FROZEN["batch_size"])
+    # FROZEN, not merely defaulted. Passing a different value is refused unless the run
+    # also declares --off-frozen, because batch size changes the frozen hash and therefore
+    # which runs are comparable to which. See genconfig.FROZEN["batch_size"].
+    ap.add_argument("--batch-size", type=int, default=None,
+                    help=f"frozen at {GEN_FROZEN['batch_size']}; sized from measured memory "
+                         f"(2.08 GB model + 0.429 GB per in-flight sequence at the 8,192 nt "
+                         f"budget). A different value requires --off-frozen.")
+    ap.add_argument("--off-frozen", action="store_true",
+                    help="acknowledge that this run departs from the frozen generation "
+                         "config and is NOT comparable to frozen-config runs.")
     ap.add_argument("--train-classes", nargs="+", default=None,
                     help="the classes this arm's WEIGHTS were trained on. Sets the SPEC 3.8 "
                          "per-arm novelty reference. Omit for an untrained arm.")
@@ -356,7 +365,19 @@ def main() -> int:
             "adapter, whose weights carry no single class). Without one, five identical "
             "rows would be published as a confusion matrix."
         )
-    cfg = GenConfig(budget_nt=args.budget_nt, batch_size=args.batch_size)
+    # The frozen batch size is used unless the run explicitly declares otherwise. A silent
+    # override would change the frozen hash -- and therefore the run directory and the
+    # comparability of the result -- without anyone deciding to.
+    batch_size = GEN_FROZEN["batch_size"] if args.batch_size is None else args.batch_size
+    if batch_size != GEN_FROZEN["batch_size"] and not args.off_frozen:
+        raise SystemExit(
+            f"refusing to run: --batch-size {batch_size} differs from the frozen "
+            f"{GEN_FROZEN['batch_size']}. Batch size is part of the frozen generation "
+            f"config, so changing it changes the run hash and makes this run "
+            f"non-comparable to every frozen-config arm. Pass --off-frozen to declare "
+            f"that deliberately."
+        )
+    cfg = GenConfig(budget_nt=args.budget_nt, batch_size=batch_size)
     _assert_scorable(cfg.budget_nt, sub)
 
 

@@ -459,3 +459,41 @@ def test_adapter_arm_requires_a_class_coordinate():
     from bgcbench.run import arm as armmod
     src = Path(armmod.__file__).read_text()
     assert "refusing to run: an adapter arm needs either --row-class" in src
+
+
+def test_generation_batch_size_is_frozen_not_merely_defaulted():
+    """The batch size is part of the frozen generation config, so changing it changes the
+    run hash and therefore which runs are comparable to which. It used to be a plain CLI
+    default, which meant a single flag could silently move a run into a different
+    comparability class -- the same failure mode as the n=150 shell script that motivated
+    freezing generation in the first place.
+
+    It is sized from a measurement, not chosen: 2.08 GB model + CUDA context, plus 0.429 GB
+    per in-flight sequence at the 8,192 nt budget. n=200 in one batch needs 87.9 GB and
+    does not fit an 80 GB card; 100 is the largest exact divisor of 200 that does.
+    """
+    from bgcbench.model.genconfig import FROZEN
+    assert FROZEN["batch_size"] == 100, "the frozen batch size moved"
+    assert FROZEN["n_per_row"] % FROZEN["batch_size"] == 0, \
+        "batch size does not divide n, so the last batch is ragged"
+
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    assert 'ap.add_argument("--batch-size", type=int, default=None' in src, \
+        "batch size is a plain CLI default again, so it can be overridden silently"
+    assert "--off-frozen" in src, "no way to declare a deliberate departure"
+    assert "refusing to run: --batch-size" in src, \
+        "a batch size differing from frozen is not refused"
+
+
+def test_frozen_batch_fits_the_card_it_was_sized_for():
+    """A frozen batch size that does not fit is a run that dies an hour in. The sizing
+    model is recorded next to the value so it can be rechecked on other hardware."""
+    from bgcbench.model.genconfig import FROZEN
+    BASELINE_GB, PER_SEQ_GB, CARD_GB = 2.08, 0.429, 80.0
+    need = BASELINE_GB + PER_SEQ_GB * FROZEN["batch_size"]
+    assert need < CARD_GB * 0.85, f"frozen batch needs {need:.1f} GB of a {CARD_GB} GB card"
+    # and the value is the largest exact divisor of n that fits
+    bigger = [b for b in range(FROZEN["batch_size"] + 1, FROZEN["n_per_row"] + 1)
+              if FROZEN["n_per_row"] % b == 0 and BASELINE_GB + PER_SEQ_GB * b < CARD_GB * 0.85]
+    assert not bigger, f"a larger divisor would also fit: {bigger}"
