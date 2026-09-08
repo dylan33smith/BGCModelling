@@ -1,0 +1,9 @@
+{
+  "step": 425,
+  "val_loss": 2.17099,
+  "path": "seed_then_construct/ok/best.pt",
+  "final_val_loss": 2.17099,
+  "final_is_best": true,
+  "stopped_early": false,
+  "method": "offset"
+}

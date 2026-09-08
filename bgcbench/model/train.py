@@ -143,6 +143,11 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
 
     out_dir.mkdir(parents=True, exist_ok=True)
     if cfg.method == "offset":
+        if resume_from:
+            raise ValueError(
+                "--resume-from is not supported for --method offset: it was accepted and "
+                "SILENTLY DISCARDED, so a run that looked resumed started from scratch."
+            )
         return _train_offset(sub, records, out_dir, cfg, val_records, device)
     rng = random.Random(cfg.seed)
     torch.manual_seed(cfg.seed)
@@ -334,6 +339,12 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
 
     from bgcbench.model.interventions import LearnedOffset, site_report
 
+    # SEED FIRST. LoRA's path seeds before peft builds its matrices; this one constructed
+    # LearnedOffset's low-rank A from the UNSEEDED global RNG and seeded afterwards, so the
+    # default rank>0 run was not reproducible under the seed its own report recorded.
+    rng = _r.Random(cfg.seed)
+    torch.manual_seed(cfg.seed)
+
     base = sub.model.model if sub.family == "evo2" else sub.model
     for p in base.parameters():
         p.requires_grad_(False)            # the BASE MODEL is frozen; only the conditioner trains
@@ -344,8 +355,6 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
     print(f"  {sites['n_attention_sites']} attention sites of {sites['n_blocks']} blocks "
           f"(coverage {sites['coverage']}); trainable {iv.n_trainable():,}", flush=True)
 
-    rng = _r.Random(cfg.seed)
-    torch.manual_seed(cfg.seed)
     cls_w: dict[str, float] = {}
     if cfg.balance == "nucleotides":
         per: dict[str, int] = {}
@@ -417,6 +426,22 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                             stopped = True
                             break
 
+    # SPEC 6.4 MANIPULATION CHECK, two-sided. Held-out loss measured only WITH the
+    # conditioner attached cannot say whether the conditioner did anything -- it is one
+    # number with no reference. Zero-init makes the unintervened model an exact baseline,
+    # so both are measurable and their difference IS the check.
+    manip = None
+    if val_records:
+        with_iv = _eval_offset(sub, base, val_records, cfg, device)   # hooks still attached
+        without_iv = None
+        if not iv.is_attached():
+            without_iv = _eval_offset(sub, base, val_records, cfg, device)
+        manip = {"val_loss_with_intervention": with_iv,
+                 "val_loss_without_intervention": without_iv,
+                 "delta": (None if without_iv is None else round(without_iv - with_iv, 5)),
+                 "landed": (None if without_iv is None
+                            else bool(without_iv - with_iv > cfg.min_delta))}
+
     (out_dir / "BEST").write_text(json.dumps(
         {"step": best_step, "val_loss": best_val if best_val < float("inf") else None,
          "path": str(out_dir / "best.pt") if (out_dir / "best.pt").exists() else None,
@@ -432,7 +457,12 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                                       / max(sum(p.numel() for p in base.parameters()), 1), 8),
               "max_epochs": cfg.max_epochs, "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
               "stopped_early": stopped, "best_step": best_step,
-              "best_checkpoint": str(out_dir / "best.pt"),
+              # only claim a checkpoint that exists: a run ending before its first
+              # evaluation wrote none, and naming one anyway sends generation at a
+              # nonexistent file
+              "best_checkpoint": (str(out_dir / "best.pt")
+                                  if (out_dir / "best.pt").exists() else None),
+              "manipulation_check": manip,
               "best_val_loss": best_val if best_val < float("inf") else None,
               "final_is_best": bool(log) and log[-1]["step"] == best_step,
               "rank": cfg.offset_rank, "targets": ["attention_sites"],

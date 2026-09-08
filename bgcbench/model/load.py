@@ -229,7 +229,11 @@ def attach_adapter(sub: Substrate, adapter_path: str) -> Substrate:
 
 
 def attach_intervention(sub: Substrate, path: str) -> tuple[Substrate, object]:
-    """Attach a trained W3 conditioner (or an I1 direction set) for generation.
+    """Attach a trained W3 conditioner for generation.
+
+    ⚠ W3 ONLY. It builds a LearnedOffset and loads a strict state_dict; there is no I1
+    path here, and no I1 construction, alpha or runner exists anywhere in the repo yet.
+    An earlier version of this docstring advertised I1 support the body does not have.
 
     Returns the substrate and the LIVE intervention object -- the caller must keep it in
     scope and hold its `attached()` context for the duration of generation. Unlike a LoRA

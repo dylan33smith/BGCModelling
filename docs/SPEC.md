@@ -1,6 +1,6 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v3.0 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
+**Status:** v3.1 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
 against corpus `0225546040b9` on 2026-09-06. §5–§9 NOT BUILT: `bgcbench/model/`,
 `bgcbench/stats/` and all of `bgcbench/conf/` are empty.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
@@ -723,10 +723,16 @@ Arms are **factors**, not a flat list. Composability is the point: an arm is a c
   ARYLPOLYENE, so its per-class results would be confounded by class frequency. The "was everything
   undertrained?" objection it would answer is answered better, and empirically, by **G8**.
 - `W2` per-class adapter — class enters through *which weights are loaded*.
-- `W3` **prefix tuning** — learned key/value states supplied to **every attention layer**, not a
-  learned vector at the input embedding only. The input-only variant (prompt tuning) is a strictly
-  weaker mechanism and is not what this arm tests. §6.5 covers the architectural asymmetry this
-  creates between substrates.
+- `W3` **learned per-attention-site conditioner** — a trainable vector (plus an optional low-rank
+  term) added at every attention site, learned by gradient descent on a FROZEN base model.
+  **AMENDED 2026-09-07 from "prefix tuning / learned key-value states" — see §12.A1.** The
+  input-only variant (prompt tuning) is a strictly weaker mechanism and is not what this arm
+  tests; §6.5 covers the architectural asymmetry between substrates.
+  It pairs with `I1`, which injects a DERIVED direction at the same sites: W3 learns the
+  direction, I1 derives it from class means. One code path (`model/interventions.py`).
+  **Capacity is swept, not fixed** — the bare offset is 7,680 parameters against LoRA's
+  10,475,520 on the same model, so a null at that capacity would say "too few parameters"
+  rather than "activation-space conditioning does not work". Default rank 16 = 253,440.
 
 **Adapter capacity is a declared, defended parameter, not an inherited default.**
 Rank is chosen by a **sweep on held-out loss of the target class** — never on the benchmark
@@ -839,7 +845,7 @@ negative.
 |---|---|
 | checkpoint selection | the arm is evaluated at its BEST held-out checkpoint, not its last. Training uses a fixed epoch count with no early stopping, so `final` is whatever the last step produced; measured on the first six arms, `W1` and `W2_RIPP` both had a `final` worse than their best, which would have handicapped exactly those two arms |
 | `W1`/`W2` | training loss falls on held-out data of the target class; monotone across ≥5 checkpoints |
-| `W3` | prefix changes next-token distribution measurably vs no prefix |
+| `W3` | held-out loss WITH the conditioner attached vs WITHOUT it, on the same records. Zero-init makes the unintervened model an exact baseline, so the difference is measurable rather than asserted. A one-sided number — loss with the conditioner only — is not a check: it has no reference |
 | `I1` | the injected direction changes an independent readout of class in activations |
 | `I2` | the retained span is present in the re-seeded prompt and absent from scored text |
 | `S1` | seed present in prompt, absent from scored span |
@@ -864,11 +870,13 @@ optimisation is trusted. It is a speed change and must be shown to be only that.
 Some arms cannot be implemented identically on every substrate, and the honest response is to state
 the asymmetry rather than pretend equivalence.
 
-- **`W3` prefix tuning** attaches learned key/value states to attention layers. Substrates whose
-  architecture is not uniformly attention (e.g. hybrid convolution/attention stacks) expose fewer
-  attachment points than a standard transformer. **Record, for each substrate: total layers,
-  attention layers, and the count actually carrying a prefix.** An arm attached at 4 of 25 layers
-  on one substrate and 32 of 32 on another is not the same arm, and the comparison must say so.
+- **`W3`** attaches a learned conditioner at each attention site. Substrates whose architecture is
+  not uniformly attention (e.g. hybrid convolution/attention stacks) expose far fewer attachment
+  points than a standard transformer: **measured, Evo2-1B has 4 attention blocks of 25 (blocks
+  3, 10, 17, 24) — 16% coverage.** **Record, for each substrate: total blocks, attention sites,
+  and the count actually carrying the conditioner**, and record them in the RUN artifact, not only
+  the training one. An arm attached at 4 of 25 sites on one substrate and 32 of 32 on another is
+  not the same arm, and the comparison must say so.
 - **`I1` activation steering** requires a defined residual stream at the injection site; the same
   constraint applies.
 - **Context limit** differs by substrate and is a measurement (§5, G2), not something to equalise.
@@ -1116,6 +1124,30 @@ scoring cost. **The 7B is not required.**
 **G8 now gates the class set and is the last gate before code.** G1 also carries G7's throughput measurement.
 **G5**  It sets the dynamic range every arm is measured against, and if
 any class's ceiling is low the whole benchmark for that class is compressed toward the floor.
+
+**Amendments** (§0 requires every spec change to be filed here, dated).
+
+**A1 — 2026-09-07. `W3` is a learned per-attention-site conditioner, not KV-prefix tuning.**
+The original text specified "learned key/value states supplied to every attention layer". That is
+**not implementable on this substrate**, established by inspection [M]:
+* peft's `PrefixTuning` injects through `past_key_values` and requires
+  `prepare_inputs_for_generation`. Vortex's model has neither — its forward is
+  `(x, inference_params_dict=None, padding_mask=None)`, with no HuggingFace KV interface.
+* The attention kernel is `FlashSelfAttention` over a **packed** `qkv` of shape `(b, s, 3, h, d)`.
+  Packed self-attention requires q, k and v to share a sequence length; a KV prefix by definition
+  makes k/v longer than q. There is no hook point that prepends to k/v alone.
+* The inference path *does* split them (`_update_kvcache_attention(qkv[:,:,0], qkv[:,:,1:], …)`)
+  but only under `inference_params`, so training and generation would need two different prefix
+  mechanisms that had to agree exactly — a correctness risk larger than the arm is worth.
+
+⚠ **The paper must not describe `W3` as prefix tuning.** Prefix tuning is a named published method
+with a different mechanism and a different capacity profile. The built arm keeps the three
+properties the arm exists to test — learned by gradient descent, applied at every attention layer,
+not input-only — and is described as what it is.
+
+*This amendment was filed late: the change was first recorded only in a code comment
+(`interventions.py`), which §0 forbids. A §10 unblinding diff run against the unamended text would
+have flagged it as an implementation discrepancy rather than a decision.*
 
 **Open decisions — require sign-off, not measurement.**
 

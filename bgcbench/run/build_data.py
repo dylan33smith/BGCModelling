@@ -157,7 +157,12 @@ def main() -> int:
     with open(CORPUS, "rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             h.update(chunk)
-    mf.update(MANIFEST, "_build", {"max_len": args.max_len, "common_n": args.common_n,
+    # the DERIVED common_n, not the CLI flag: --common-n 0 means "derive", and recording
+    # the 0 would have published a manifest saying the benchmark used n=0 per class
+    mf.update(MANIFEST, "_build", {"max_len": args.max_len,
+                                   "common_n": rep.get("common_n", args.common_n),
+                                   "common_n_source": ("derived" if not args.common_n
+                                                       else "cli"),
                                    "corpus": str(CORPUS),
                                    "corpus_sha256": h.hexdigest(),
                                    "corpus_records": sum(1 for _ in open(CORPUS))})

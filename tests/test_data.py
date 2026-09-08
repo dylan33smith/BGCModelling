@@ -478,11 +478,123 @@ def test_w3_capacity_is_swept_not_fixed():
     assert LearnedOffset(m, 8, rank=0).n_trainable() < LearnedOffset(m, 8, rank=4).n_trainable()
 
 
-def test_intervention_arm_attaches_hooks_for_the_whole_of_generation():
-    """A LoRA adapter is merged into the weights; an intervention is a HOOK. If it is not
-    attached during generation the arm silently produces base-model output and reads as a
-    null, with nothing in the artifact showing it."""
+def _toy_model(n_sites=3, hidden=8):
+    import torch.nn as nn
+
+    class Blk(nn.Module):
+        def __init__(s):
+            super().__init__(); s.lin = nn.Linear(hidden, hidden)
+        def forward(s, x): return s.lin(x)
+
+    class Toy(nn.Module):
+        def __init__(s):
+            super().__init__()
+            s.blocks = nn.ModuleList([nn.Module() for _ in range(n_sites)])
+            for b in s.blocks: b.inner_mha_cls = Blk()
+        def forward(s, x):
+            for b in s.blocks: x = b.inner_mha_cls(x)
+            return x
+    return Toy()
+
+
+def test_intervention_arm_records_that_the_hooks_actually_fired():
+    """BEHAVIOURAL. An intervention is a HOOK, not merged weights: if it is not attached
+    during generation the arm silently emits base-model output and reads as a null. The
+    artifact must attest the hooks were LIVE, not that the code intended them to be."""
     from bgcbench.run import arm as armmod
     src = Path(armmod.__file__).read_text()
-    assert "with intervention.attached():" in src
-    assert "attach_intervention" in src
+    assert "intervention_attached=" in src, "no artifact field attests the hooks fired"
+    # the attestation must be taken from INSIDE the attached() context, not before it
+    i_ctx = src.index("with intervention.attached():")
+    i_call = src.index("intervention=intervention)")
+    assert i_ctx < i_call, "provenance recorded outside the attached context"
+
+
+def test_learned_offset_gradient_reaches_the_parameters():
+    """The offset path trains a conditioner on a FROZEN base. If gradient does not reach
+    it, training is a no-op that still reports a loss curve."""
+    import torch
+    from bgcbench.model.interventions import LearnedOffset
+    m = _toy_model()
+    for p in m.parameters():
+        p.requires_grad_(False)
+    iv = LearnedOffset(m, 8, rank=4)
+    before = [p.detach().clone() for p in iv.parameters()]
+    opt = torch.optim.SGD(iv.parameters(), lr=0.5)
+    with iv.attached():
+        loss = m(torch.randn(2, 3, 8)).pow(2).mean()
+        loss.backward()
+    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in iv.parameters()), \
+        "no gradient reached the conditioner"
+    opt.step()
+    assert any(not torch.equal(a, b) for a, b in zip(before, iv.parameters())), \
+        "an optimiser step did not change the conditioner"
+
+
+def test_learned_offset_is_reproducible_under_its_recorded_seed():
+    """The low-rank A was built from the UNSEEDED global RNG before manual_seed ran, so the
+    default rank>0 run was not reproducible under the seed its own report recorded."""
+    import torch
+    from bgcbench.model.interventions import LearnedOffset
+    m = _toy_model()
+    torch.manual_seed(123); a = LearnedOffset(m, 8, rank=4)
+    torch.manual_seed(123); b = LearnedOffset(m, 8, rank=4)
+    assert all(torch.equal(x, y) for x, y in zip(a.parameters(), b.parameters()))
+    from bgcbench.model import train as tr
+    src = Path(tr.__file__).read_text()
+    body = src[src.index("def _train_offset"):]
+    assert body.index("torch.manual_seed") < body.index("LearnedOffset(base"), \
+        "the conditioner is constructed before the seed is set"
+
+
+def test_direction_injection_and_its_control_actually_steer():
+    """I1 had zero test coverage. It shares the hook path with W3, so a regression there
+    would silently disable steering while the arm still reported numbers."""
+    import torch
+    from bgcbench.model.interventions import DirectionInjection, random_direction_control
+    m = _toy_model()
+    x = torch.randn(1, 3, 8)
+    base = m(x).clone()
+    d = torch.ones(3, 8)
+    iv = DirectionInjection(m, 8, d, alpha=2.0)
+    with iv.attached():
+        assert not torch.allclose(base, m(x), atol=1e-4), "direction had no effect"
+    assert torch.allclose(base, m(x), atol=1e-6), "hooks not removed"
+    ctrl = random_direction_control(m, 8, seed=0, alpha=2.0)
+    with ctrl.attached():
+        assert not torch.allclose(base, m(x), atol=1e-4)
+    # alpha=0 must be an exact no-op, so the control can be magnitude-matched at zero
+    z = DirectionInjection(m, 8, d, alpha=0.0)
+    with z.attached():
+        assert torch.allclose(base, m(x), atol=1e-6)
+    try:
+        DirectionInjection(m, 8, torch.ones(2, 8), alpha=1.0)   # wrong site count
+    except ValueError:
+        return
+    raise AssertionError("a site-count mismatch was accepted; some layers would be unsteered")
+
+
+def test_w3_capacity_and_sites_reach_the_run_provenance():
+    """SPEC 6.5. Two W3 runs at different ranks must not collide on one run directory --
+    that is the destructive-overwrite defect a prior audit found."""
+    from bgcbench.model import genconfig as gc
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    for f in ("intervention_method", "intervention_rank", "intervention_sites"):
+        assert f + "=" in src, f"{f} missing from the realised provenance"
+    a = gc.realised(intervention_rank=16, intervention_method="offset")
+    b = gc.realised(intervention_rank=64, intervention_method="offset")
+    assert gc.realised_hash(a) != gc.realised_hash(b), "two ranks share one run hash"
+
+
+def test_offset_training_refuses_resume_rather_than_ignoring_it():
+    from bgcbench.model.train import TrainConfig, train_lora
+    cfg = TrainConfig(method="offset")
+    try:
+        train_lora(None, [], Path("/tmp/x_never_written"), cfg, resume_from="somewhere")
+    except ValueError as e:
+        assert "resume" in str(e).lower()
+        return
+    except Exception:
+        raise AssertionError("resume was not refused before any work began")
+    raise AssertionError("--resume-from was silently discarded")

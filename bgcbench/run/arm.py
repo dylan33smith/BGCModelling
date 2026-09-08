@@ -126,7 +126,8 @@ def ensure_corpus_reference() -> Path:
 
 def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
             class_bearing: bool, cpus: int = 16, row_class: str | None = None,
-            train_classes: list[str] | None = None) -> dict:
+            train_classes: list[str] | None = None,
+            intervention: object | None = None) -> dict:
     mapping = build_map()["mapping"]
     corpus_fa = ensure_corpus_reference()
     by_target: dict[str, list[dict]] = {}
@@ -213,6 +214,18 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         substrate=sub.id, checkpoint=sub.checkpoint,
         scoring_config=antismash.config_hash(), corpus_sha256=_corpus_sha(),
         termination_mode=sub.termination_mode,
+        # SPEC 6.5: an arm attached at 4 of 25 sites is not the same arm as one at 32 of
+        # 32, and a W3 run at rank 16 is not the one at rank 64. Without these in the
+        # REALISED hash both collide on one run directory and the loser is destroyed.
+        intervention_method=("offset" if intervention is not None else None),
+        intervention_rank=(getattr(intervention, "rank", None)
+                           if intervention is not None else None),
+        intervention_trainable=(intervention.n_trainable()
+                                if intervention is not None else None),
+        intervention_sites=((sub.meta or {}).get("intervention_sites")
+                            if intervention is not None else None),
+        intervention_attached=(bool(intervention.is_attached())
+                               if intervention is not None else None),
         classmap_hash=mapping_hash(mapping),
         novelty=_novelty_params(),
     )
@@ -311,7 +324,7 @@ def main() -> int:
         # SPEC 6.4: evaluate at the BEST held-out checkpoint, not the last. Point at an
         # adapter DIRECTORY and this resolves to best/ automatically.
         p = Path(adapter)
-        if (p / "BEST").exists():
+        if p.is_dir() and (p / "BEST").exists():
             meta = json.loads((p / "BEST").read_text())
             if meta.get("path"):
                 adapter = meta["path"]
@@ -351,8 +364,11 @@ def main() -> int:
         # a hook, not merged weights: if it is not attached for the whole of generation the
         # arm silently produces base-model output and reads as a null
         with intervention.attached():
+            # recorded from INSIDE the context, so the artifact attests that the hooks were
+            # live when the numbers were produced rather than that the code intended it
             rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
-                          row_class=args.row_class, train_classes=args.train_classes)
+                          row_class=args.row_class, train_classes=args.train_classes,
+                          intervention=intervention)
     else:
         rep = run_arm(sub, arm, args.n, cfg, args.stage, class_bearing, cpus=args.cpus,
                       row_class=args.row_class, train_classes=args.train_classes)
