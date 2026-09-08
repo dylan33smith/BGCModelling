@@ -51,7 +51,9 @@ def main() -> int:
     ap.add_argument("--offset-rank", type=int, default=16,
                     help="capacity of the W3 conditioner. 0 = bare offset (7,680 params, "
                          "~1364x below LoRA, so a null would be capacity-limited).")
-    ap.add_argument("--max-epochs", type=int, default=12)
+    ap.add_argument("--max-epochs", type=int, default=40,
+                    help="SPEC 12.A2: high enough that the cap never binds, so early "
+                         "stopping is the single termination rule for every arm.")
     ap.add_argument("--eval-every", type=int, default=25)
     ap.add_argument("--patience", type=int, default=4)
     ap.add_argument("--resume-from", default=None,

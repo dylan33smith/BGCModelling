@@ -732,3 +732,46 @@ def test_training_length_bound_is_derived_from_the_build_not_a_literal():
     src = Path(train_arm.__file__).read_text()
     assert 'default=corpus_max_len()' in src, "--max-len-nt is not derived from the build"
     assert 'default=16000' not in src, "the stale 16000 literal is still the default"
+
+
+def test_epoch_cap_must_not_bind_and_convergence_is_recorded():
+    """SPEC 12.A2. §6.0a's principle is "early stopping, not a guessed epoch count", but at
+    `max_epochs=12` the cap terminated W2_REDOX_COFACTOR on two independent passes while the
+    other six arms early-stopped at 6-12. Its residual slope over the last five checkpoints
+    was 1.62e-3 against a measured trajectory-noise floor of up to 5.1e-4 -- ~3x, so it was
+    cut off mid-descent, and one class's arm was trained to a different rule than the rest.
+
+    The defect was visible the whole time as `stopped_early: false` and went unread for a
+    day because no field named it. Both report paths now record `converged`.
+    """
+    from bgcbench.model.train import TrainConfig
+    assert TrainConfig().max_epochs >= 40, \
+        "the epoch cap is back at a value measured to bind on a benchmark class"
+
+    from bgcbench.model import train as trainmod
+    src = Path(trainmod.__file__).read_text()
+    assert src.count('"converged": stopped_early') == 2, \
+        "the LoRA path does not record whether early stopping actually fired"
+    assert '"converged": stopped' in src, "the offset path does not record convergence"
+
+    from bgcbench.run import train_arm
+    assert 'default=40' in Path(train_arm.__file__).read_text(), \
+        "the CLI default still overrides the spec's cap"
+
+
+def test_no_published_arm_silently_failed_to_converge():
+    """A red test against the ARTIFACTS, not the source: any adapter whose report says it
+    exhausted its epochs is an arm that stopped for the wrong reason, and it must not sit
+    in the published adapters directory unnoticed."""
+    import json as _json
+    A = Path("/data2/ds85/bgcbench/adapters")
+    if not A.exists():
+        return
+    bad = []
+    for rep in sorted(A.glob("*/train_report.json")):
+        r = _json.loads(rep.read_text())
+        # older artifacts predate the field; `stopped_early` carries the same fact
+        conv = r.get("converged", r.get("stopped_early"))
+        if conv is False:
+            bad.append(f"{rep.parent.name} (ran {r['epochs_run']}/{r['max_epochs']} epochs)")
+    assert not bad, "arms that hit the epoch cap instead of converging: " + "; ".join(bad)

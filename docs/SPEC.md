@@ -794,8 +794,10 @@ the base for the composable `S` and `I` factors from that data rather than assum
 Arms differ in their DATA, never in how they are optimised. Any difference in training
 procedure between arms is a confound on the axis the benchmark reports.
 
-* **Early stopping, not a guessed epoch count** [C]. `max_epochs=12`, held-out evaluation
-  every 25 optimizer steps, `patience=4`, `min_delta=1e-4`. A fixed count cannot know
+* **Early stopping, not a guessed epoch count** [C]. `max_epochs=40`, held-out evaluation
+  every 25 optimizer steps, `patience=4`, `min_delta=1e-4`. **AMENDED 2026-09-08: `max_epochs`
+  12 -> 40, and the cap must not bind — see §12.A2.** A cap that terminates a run is a
+  guessed epoch count wearing early stopping's name. A fixed count cannot know
   whether an arm converged — measured on a first pass at 3 epochs, three of six arms still
   had headroom while two had already turned over, and only luck kept the rest from being
   under-trained.
@@ -1148,6 +1150,32 @@ not input-only — and is described as what it is.
 *This amendment was filed late: the change was first recorded only in a code comment
 (`interventions.py`), which §0 forbids. A §10 unblinding diff run against the unamended text would
 have flagged it as an implementation discrepancy rather than a decision.*
+
+**A2 — 2026-09-08. `max_epochs` 12 -> 40, and a binding cap is a protocol failure, not a result.**
+
+§6.0a's stated principle is "early stopping, not a guessed epoch count". Measured on two
+independent training passes, `W2_REDOX_COFACTOR` **hit the 12-epoch cap both times without early
+stopping firing**, and on the second pass its last checkpoint was its best — the signature of a run
+still descending when it was cut off.
+
+The residual slope is real, not noise. Over its final five checkpoints it improved **1.62e-3**,
+against a measured trajectory-noise floor of **up to 5.1e-4** (FINDINGS 4a.7) — roughly 3x. So
+for one of four classes the epoch count, not convergence, decided when training stopped, while the
+other six arms early-stopped at 6-12 epochs. Comparing a converged arm against a truncated one
+confounds the axis the benchmark reports (method) with one it does not (training budget).
+
+The cap is therefore raised to a value chosen so that it **never binds**, leaving `patience` as the
+single termination rule for every arm. It is not tuned to where any arm converges: a cap set from
+one arm's observed convergence is the same guessed count with an extra step.
+
+**Every training report now records `converged` (did early stopping fire), and a run that exhausts
+its epochs is reported as a failure to converge rather than as a trained arm.** The defect was
+visible in the overnight artifacts as `stopped_early: false` and went unread for a day because
+nothing was looking at that field.
+
+Raising the cap does not perturb the six arms that early-stopped: they terminate before it either
+way. It changes their `train_config_hash`, which is correct — the config genuinely differs — and
+all arms are retrained together so no comparison spans two values.
 
 **Open decisions — require sign-off, not measurement.**
 

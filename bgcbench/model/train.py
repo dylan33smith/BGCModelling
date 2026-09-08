@@ -51,7 +51,12 @@ class TrainConfig:
     #: EARLY STOPPING replaces a guessed epoch count. Fixed epochs cannot know whether an
     #: arm converged: measured on the first six arms, three still had headroom while two
     #: had already turned over, and only luck kept the rest from being under-trained.
-    max_epochs: int = 12
+    #: SPEC 12.A2: chosen so the cap NEVER BINDS, leaving `patience` as the single
+    #: termination rule for every arm. At 12 it bound on W2_REDOX_COFACTOR twice, whose
+    #: residual slope (1.62e-3 over its last five checkpoints) is ~3x the measured
+    #: trajectory-noise floor -- so one class was cut off mid-descent while the other six
+    #: converged, confounding method with training budget.
+    max_epochs: int = 40
     eval_every: int = 25            # optimizer steps between held-out evaluations
     patience: int = 4               # evaluations without improvement before stopping
     min_delta: float = 1e-4         # smaller than this is not an improvement
@@ -294,7 +299,7 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
          "path": str(best_dir) if best_dir else None,
          "final_val_loss": log[-1]["val_loss"] if log else None,
          "final_is_best": bool(log) and log[-1]["step"] == best_step,
-         "stopped_early": stopped_early,
+         "stopped_early": stopped_early, "converged": stopped_early,
          "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
          "max_epochs": cfg.max_epochs}, indent=2))
 
@@ -311,7 +316,11 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
               "trainable_frac": round(trainable / max(total, 1), 6),
               "rank": cfg.rank, "targets": cfg.targets,
               "max_epochs": cfg.max_epochs, "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
-              "stopped_early": stopped_early, "best_step": best_step,
+              # SPEC 12.A2: a run that exhausts its epochs did NOT converge. It was
+              # visible as stopped_early:false in the overnight artifacts and went unread
+              # for a day because nothing named it.
+              "stopped_early": stopped_early, "converged": stopped_early,
+              "best_step": best_step,
               "n_train": len(records), "batching": mixing, "log": log,
               "balance": cfg.balance, "class_weights": cls_w,
               "checkpoints": len(log)}
@@ -496,7 +505,7 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
               "trainable_frac": round(iv.n_trainable()
                                       / max(sum(p.numel() for p in base.parameters()), 1), 8),
               "max_epochs": cfg.max_epochs, "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
-              "stopped_early": stopped, "best_step": best_step,
+              "stopped_early": stopped, "converged": stopped, "best_step": best_step,
               # only claim a checkpoint that exists: a run ending before its first
               # evaluation wrote none, and naming one anyway sends generation at a
               # nonexistent file
