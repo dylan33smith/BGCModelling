@@ -401,6 +401,32 @@ held-out loss, early stopping and checkpoint selection were never affected.
 **Paper:** the class a record was *assigned* and the class it *first maps to* are different
 facts. Only the split directory knows the first one, so the loader has to carry it.
 
+### 4a.6 A pipeline of arms is a pipeline of code versions `[design]` `[instrument]`
+The overnight pass trained seven arms as one shell pipeline. Each arm is a separate
+process, and a process imports whatever is on disk when it starts — so two commits that
+landed mid-run split the pass into **three code versions**: five arms
+(`W2_TERPENE`, `W2_RIPP`, `W2_ARYLPOLYENE`, `W2_REDOX_COFACTOR`, `W1`) on one, `W1n` and
+`W3` on another. Nothing refused, nothing warned, and the seven reports looked uniform.
+
+It surfaced by luck. One of those commits added two fields to `TrainConfig`, so the two
+groups' recorded config dicts have **different key sets** — five carry 16 keys, two carry
+18. A change that had not touched the dataclass would have left no trace anywhere.
+
+**`train_config_hash` structurally cannot catch this.** It hashes the config, and the
+config is precisely what is *supposed* to be identical between arms that differ only in
+their data. The identity of the code that read that config is a separate fact and needs a
+separate field. `provenance.code_version()` now records the commit and whether the tree was
+dirty, in every training report. Dirty is recorded rather than forbidden — it is the
+truthful answer during development, and its absence is what would let a run from
+uncommitted code pass as a run from the commit it happens to sit on.
+
+Magnitude, for calibration: retraining `W2_TERPENE` under the corrected code moved its best
+held-out loss by **5e-5** (0.94038 → 0.94033), with the same epoch count and the same best
+step. Small — but "small" is a measurement obtained by re-running, not a licence to publish
+arms built by different code.
+**Paper:** "every arm measured identically" is a claim about the code as much as the config,
+and only one of the two was being recorded.
+
 ## 5. Standing limitations to disclose
 
 ### 5.1 Negative controls are GC-poorer than the cores `[limitation]`
