@@ -427,6 +427,33 @@ arms built by different code.
 **Paper:** "every arm measured identically" is a claim about the code as much as the config,
 and only one of the two was being recorded.
 
+### 4a.7 Training is not reproducible under the seed its own report records `[instrument]` `[stats]`
+`W2_ARYLPOLYENE` was retrained under a commit whose only differences on the LoRA path are
+`_cls` substitutions, two unused `TrainConfig` fields and a provenance field — and its
+record order is **exactly** invariant to that fix (verified element-wise, not as a set).
+Same data, same order, same seed, same length bound, same rank. **Every one of its 15
+checkpoints still moved**, by up to **2.4e-4**; the other two completed arms moved by up to
+**4.5e-4** and **5.1e-4**.
+
+Decomposed: **forward evaluation is exactly deterministic.** Five repeated `evaluate()`
+calls on identical weights return one distinct value, spread **0.0**. So each recorded val
+loss is an exact read — the divergence is in the **backward pass** (non-deterministic CUDA
+kernels; Evo2 runs FlashAttention and TransformerEngine, neither of which offers a
+deterministic backward here). Two runs of the same arm follow different trajectories.
+
+**What this invalidates.** `min_delta = 1e-4` (§6.0a) is **below the noise floor** — early
+stopping's "improved" test and best-checkpoint selection are partly selecting noise. And
+overnight, `W1` and `W1n` differed by **7e-5** in best held-out loss, an order of magnitude
+below the floor: as run, that contrast was unmeasurable, and reporting it either way would
+have been reporting a coin flip.
+
+**What survives comfortably.** W3's conditioner delta of **0.0173** and W1's **0.0337** are
+34x and 66x the floor.
+**Paper:** held-out loss needs the same treatment §8.3 already gives the endpoint — a
+resolution measured on the instrument, with no difference read below it. A seed in a report
+is a claim of reproducibility, and here it was not one. A replicate of `W2_ARYLPOLYENE`
+under an identical commit is queued to put a number on the floor.
+
 ## 5. Standing limitations to disclose
 
 ### 5.1 Negative controls are GC-poorer than the cores `[limitation]`
