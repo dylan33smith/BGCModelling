@@ -43,7 +43,17 @@ FROZEN = {
 
     # batch size affects padding and kernel selection, not the sampling distribution, but
     # it is recorded so two runs are fully reconstructible from the artifacts.
-    "batch_size": 8,
+    #
+    # RAISED 8 -> 50 (2026-09-08) for throughput, not for any scientific reason. Generation
+    # is autoregressive over 8,192 tokens, so wall time is dominated by the number of
+    # SEQUENTIAL passes: 200/8 = 25 batches against 200/50 = 4. At batch 8 the measured W0
+    # run took 62 min and occupied 5.5 GB of an 80 GB card -- the card was idle, not busy.
+    # 50 divides 200 exactly, so no batch is ragged, and projects to ~24 GB.
+    #
+    # ⚠ This changes the frozen hash, so every arm must be generated at this value and the
+    # batch-8 W0 run is NOT comparable to anything produced after it. That is the intended
+    # behaviour of the hash, and W0 is regenerated rather than reconciled.
+    "batch_size": 50,
 
     # SPEC 6 S1. An unrecorded invocation-site default of 0 made `--seeded` without an
     # explicit length a SILENT DE NOVO ARM -- the prompt was the empty string and nothing
