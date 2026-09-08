@@ -16,6 +16,7 @@ from pathlib import Path
 from bgcbench.data.classmap import BENCHMARK_CLASSES
 from bgcbench.model.load import load
 from bgcbench.model.train import TrainConfig, train_lora
+from bgcbench.provenance import corpus_max_len
 
 ROOT = Path("/data2/ds85/bgcbench")
 SPLITS = ROOT / "splits"
@@ -56,7 +57,12 @@ def main() -> int:
     ap.add_argument("--resume-from", default=None,
                     help="continue training an existing adapter instead of starting over")
     ap.add_argument("--grad-accum", type=int, default=16)
-    ap.add_argument("--max-len-nt", type=int, default=16000)
+    ap.add_argument("--max-len-nt", type=int, default=corpus_max_len(),
+                    help="training length bound. DERIVED from the manifest's built corpus "
+                         "bound, not carried as a literal: the default was 16000, left "
+                         "over from before the 8,192 nt reorientation and above the "
+                         "model's own context. No record can exceed the build bound, so "
+                         "the excess was dead configuration that still entered the hash.")
     ap.add_argument("--balance", choices=["records", "nucleotides"], default="records",
                     help="'records' gives every record equal weight -- equal-n, but NOT "
                          "equal tokens (measured 3.4x nucleotide imbalance). "

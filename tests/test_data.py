@@ -691,3 +691,44 @@ def test_class_key_is_the_assigned_split_not_the_first_antismash_product():
     assert '"split_class"' in src, "train_arm does not tag records with their split"
     assert '_load(SPLITS / c / "train.jsonl", c)' in src, \
         "train records are loaded without their assigned class"
+
+
+def test_artifacts_record_which_code_version_produced_them():
+    """The overnight pass ran seven arms as one pipeline; each arm is its own process and
+    imports whatever is on disk when it starts. Two commits landed mid-run, so five arms
+    were trained by one version of train.py and two by another. Nothing refused and nothing
+    warned -- it surfaced only because `TrainConfig` had gained two fields, so the two
+    groups' config dicts had different KEY SETS. A change that had not touched the
+    dataclass would have left no trace.
+
+    `train_config_hash` structurally cannot catch this: it hashes the config, and the
+    config is exactly what is identical between arms meant to differ only in data.
+    """
+    from bgcbench.provenance import code_version
+    v = code_version()
+    assert set(v) >= {"commit", "dirty"}, "code_version does not record commit and dirtiness"
+    assert v["commit"], "no commit recorded"
+
+    from bgcbench.model import train as trainmod
+    src = Path(trainmod.__file__).read_text()
+    # both report sites -- LoRA and offset -- or one arm family is unprovenanced
+    assert src.count('"code_version": code_version()') == 2, \
+        "a training report is written without recording the code that produced it"
+
+
+def test_training_length_bound_is_derived_from_the_build_not_a_literal():
+    """`--max-len-nt` defaulted to 16000, a leftover from before the 8,192 nt
+    reorientation and above the model's own context -- the same class of error already
+    fixed once for the generation budget. No training record can exceed the bound the
+    splits were built at, so the excess was dead configuration that still entered the
+    run hash and made two otherwise identical arms hash differently."""
+    import json as _json
+    from bgcbench.provenance import corpus_max_len
+
+    built = _json.loads(Path("/data2/ds85/bgcbench/manifest.json").read_text())["_build"]["max_len"]
+    assert corpus_max_len() == built, "training bound does not follow the built corpus bound"
+
+    from bgcbench.run import train_arm
+    src = Path(train_arm.__file__).read_text()
+    assert 'default=corpus_max_len()' in src, "--max-len-nt is not derived from the build"
+    assert 'default=16000' not in src, "the stale 16000 literal is still the default"

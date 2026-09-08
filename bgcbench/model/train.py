@@ -25,6 +25,8 @@ from pathlib import Path
 
 import torch
 
+from bgcbench.provenance import code_version
+
 #: All plain nn.Linear in Evo2-1B. `projections` is TransformerEngine's TELinear (21 of
 #: them) and is left alone. Enumerated from the loaded model, not assumed.
 EVO2_LORA_TARGETS = ["l1", "l2", "l3", "out_filter_dense", "Wqkv", "out_proj"]
@@ -298,6 +300,9 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
 
     report = {"train_config": {k: v for k, v in __import__("dataclasses").asdict(cfg).items()},
               "train_config_hash": train_config_hash(cfg),
+              # WHICH CODE read that config: two arms meant to differ only in data can
+              # still be produced by different versions of this file. See provenance.py.
+              "code_version": code_version(),
               "resumed_from": resume_from,
               "trainable_params": trainable, "total_params": total,
               "best_checkpoint": (str(best_dir) if best_dir else None),
@@ -484,6 +489,7 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
          "stopped_early": stopped, "method": "offset"}, indent=2))
     report = {"train_config": {k: v for k, v in __import__("dataclasses").asdict(cfg).items()},
               "train_config_hash": train_config_hash(cfg), "resumed_from": None,
+              "code_version": code_version(),
               "method": "offset", "sites": sites,
               "trainable_params": iv.n_trainable(),
               "total_params": sum(p.numel() for p in base.parameters()),
