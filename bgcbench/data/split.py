@@ -125,13 +125,14 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     # DERIVE common_n from the smallest class rather than carry a literal. A literal
     # survives a bound change silently: 1224 was correct at a 16,000 nt bound and would
     # have raised -- or worse, quietly shrunk a class -- at 8,192.
+    # SPEC 12.A3: common_n counts RECORDS, not clusters. A cluster's non-representative
+    # members are ordinary training data -- they cannot leak, because the split boundary is
+    # drawn at the cluster. Counting clusters here trained every arm on 656 records where
+    # 9,400-91,600 sat behind the same wall.
     if not common_n:
-        counts = {}
-        for cls in classes:
-            counts[cls] = len({rep[r["accession"]] for r in records
-                               if cls in r["classes"]})
+        counts = {cls: sum(1 for r in records if cls in r["classes"]) for cls in classes}
         common_n = min(counts.values())
-        print(f"  common_n derived = {common_n} (smallest of {counts})", flush=True)
+        print(f"  common_n derived = {common_n} RECORDS (smallest of {counts})", flush=True)
 
     for cls in classes:
         groups: dict[str, list[dict]] = defaultdict(list)
@@ -139,15 +140,23 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
             if cls in r["classes"]:
                 groups[rep[r["accession"]]].append(r)
         ordered = sorted(groups, key=lambda k: (_frac(k), k))
-        if len(ordered) < common_n:
+        avail = sum(len(v) for v in groups.values())
+        if avail < common_n:
             raise RuntimeError(
-                f"{cls}: only {len(ordered)} clusters at max_len={max_len}, below "
+                f"{cls}: only {avail} records at max_len={max_len}, below "
                 f"common_n={common_n}. SPEC 4.4.2 must be revisited before building — "
                 f"silently shrinking one class breaks equal-n."
             )
+        # take whole clusters, in the deterministic order, until the RECORD budget is met
+        take, got = [], 0
+        for ck in ordered:
+            if got >= common_n:
+                break
+            take.append(ck)
+            got += len(groups[ck])
         cls_clusters[cls] = groups
         cls_ordered[cls] = ordered          # per class; `ordered` alone leaks the last one
-        selected[cls] = ordered[:common_n]
+        selected[cls] = take
 
     # --- components: linked by shared genome OR shared cluster -----------------------
     uf = _Union()
@@ -167,8 +176,11 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
 
     # per-component, per-class selected-cluster counts
     sel_of = {cls: set(selected[cls]) for cls in classes}
+    # RECORD counts, not cluster counts: the 0.8/0.1/0.1 target is now over records, so a
+    # component's weight is how many records it carries, not how many clusters.
     counts: dict[object, dict[str, int]] = {
-        c: {cls: sum(1 for ck in v if ck in sel_of[cls]) for cls in classes}
+        c: {cls: sum(len(cls_clusters[cls][ck]) for ck in v if ck in sel_of[cls])
+            for cls in classes}
         for c, v in members.items()
     }
 
@@ -219,9 +231,31 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
     record_split = {r["accession"]: cluster_split[rep[r["accession"]]] for r in records}
     (out_dir / "record_split.json").write_text(json.dumps(record_split))
 
-    # --- per class: take common_n clusters, honouring the global assignment ----------
+    # --- per class: take the selected clusters' records, honouring the global assignment
     report: dict[str, dict] = {}
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # PASS 1 -- raw buckets per class, every member of every assigned cluster.
+    raw: dict[str, dict[str, list[dict]]] = {}
+    for cls in classes:
+        clusters = cls_clusters[cls]
+        b: dict[str, list[dict]] = {k: [] for k in FRACS}
+        for ck in selected[cls]:
+            part = split_of_comp[comp_of_cluster[ck]]
+            b[part].extend(sorted(clusters[ck], key=lambda r: r["accession"]))
+        raw[cls] = b
+
+    # EQUAL RECORDS, ENFORCED (SPEC 12.A3). Component chaining makes the greedy's realised
+    # counts lumpy, so the target alone does not guarantee equality -- trim every class to
+    # the smallest realised count per split. Deterministic: accession order, no seed.
+    # Trimming records is safe; it cannot create leakage, only reduce volume.
+    equal_n = {k: min(len(raw[cls][k]) for cls in classes) for k in FRACS}
+    print(f"  equal records per class per split: {equal_n}", flush=True)
+    trimmed_off = {cls: sum(len(raw[cls][k]) - equal_n[k] for k in FRACS) for cls in classes}
+    for cls in classes:
+        for k in FRACS:
+            raw[cls][k] = sorted(raw[cls][k], key=lambda r: r["accession"])[:equal_n[k]]
+
     for cls in classes:
         clusters = cls_clusters[cls]
         chosen = selected[cls]
@@ -229,9 +263,7 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
             recs = sorted(clusters[ck], key=lambda r: r["accession"])
             return next((r for r in recs if r["accession"] == ck), recs[0])
 
-        buckets: dict[str, list[dict]] = {k: [] for k in FRACS}
-        for ck in chosen:
-            buckets[split_of_comp[comp_of_cluster[ck]]].append(_pick(ck))
+        buckets = raw[cls]
 
         # LEAK REMOVAL HAPPENS HERE, WITH BACKFILL, so equal-n survives it.
         # Previously verify() deleted leaking held-out records and rewrote the files after
@@ -283,6 +315,12 @@ def build(corpus_path: Path, out_dir: Path, classes: tuple[str, ...],
         report[cls] = {
             "clusters_available": len(clusters),
             "clusters_used": len(chosen),
+            # SPEC 12.A3: clusters bound statistical independence, records bound training
+            # signal. Both are reported because they answer different questions.
+            "records_available": sum(len(v) for v in clusters.values()),
+            "records_trimmed_for_equality": trimmed_off[cls],
+            "records_per_cluster": round(
+                sum(len(v) for v in clusters.values()) / max(len(clusters), 1), 2),
             "n": {k: len(v) for k, v in buckets.items()},
             "genomes": {k: len({r["genome_accession"] for r in v})
                         for k, v in buckets.items()},

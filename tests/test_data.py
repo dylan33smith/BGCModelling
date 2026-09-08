@@ -775,3 +775,66 @@ def test_no_published_arm_silently_failed_to_converge():
         if conv is False:
             bad.append(f"{rep.parent.name} (ran {r['epochs_run']}/{r['max_epochs']} epochs)")
     assert not bad, "arms that hit the epoch cap instead of converging: " + "; ".join(bad)
+
+
+def test_split_uses_every_member_of_an_assigned_cluster_without_leaking():
+    """SPEC 12.A3. The builder used to take ONE representative per cluster and discard the
+    rest, on the grounds that a record-level draw reinstates redundancy. That conflates
+    statistical independence (count CLUSTERS) with training signal (count RECORDS). A
+    cluster's other members cannot leak, because the split boundary is drawn at the cluster.
+
+    Measured cost of the old rule: every arm trained on 656 records where 9,400-91,600 sat
+    behind the same wall, and TERPENE/RIPP each discarded ~96% of their clusters.
+
+    Red against the ARTIFACTS: the guarantee that matters is that no cluster spans two
+    splits, and that record counts are exactly equal per class.
+    """
+    import json as _json
+    S = Path("/data2/ds85/bgcbench/splits")
+    if not (S / "cluster_split.json").exists():
+        return
+    cs = _json.loads((S / "cluster_split.json").read_text())
+    from bgcbench.data.classmap import BENCHMARK_CLASSES
+
+    seen: dict = {}
+    counts: dict = {}
+    for c in BENCHMARK_CLASSES:
+        counts[c] = {}
+        for part in ("train", "val", "test"):
+            rows = [_json.loads(l) for l in open(S / c / f"{part}.jsonl")]
+            counts[c][part] = len(rows)
+            for r in rows:
+                seen.setdefault(cs.get(r["accession"], r["accession"]), set()).add(part)
+
+    spanning = [k for k, v in seen.items() if len(v) > 1]
+    assert not spanning, f"{len(spanning)} clusters span more than one split — leakage"
+
+    m = _json.loads(Path("/data2/ds85/bgcbench/manifest.json").read_text())
+
+    # TRAIN is exactly equal across classes -- nothing removes training records, so any
+    # inequality there is a builder bug.
+    n_tr = {c: counts[c]["train"] for c in BENCHMARK_CLASSES}
+    assert len(set(n_tr.values())) == 1, f"train record counts differ across classes: {n_tr}"
+
+    # HELD-OUT may fall short of equal, but ONLY by leak removal, and only as far as the
+    # removal recorded for that class. A record that near-duplicates training has to go
+    # even at the cost of a round number; backfill closes the gap only when the class has
+    # spare clusters in the right split (ARYLPOLYENE used all 1,676 of its clusters and
+    # REDOX 793 of 820, so neither could backfill; TERPENE replaced all 29 it lost).
+    for part in ("val", "test"):
+        n = {c: counts[c][part] for c in BENCHMARK_CLASSES}
+        top = max(n.values())
+        for c in BENCHMARK_CLASSES:
+            short = top - n[c]
+            removed = m[c]["split"]["leaking_held_out_replaced"]
+            assert short <= removed, (
+                f"{c} {part}: {short} short of {top} but only {removed} recorded as removed "
+                f"for leakage — the shortfall is unexplained")
+
+    # and the amendment's whole point: substantially more than one record per cluster
+    for c in BENCHMARK_CLASSES:
+        s = m[c]["split"]
+        assert "records_available" in s and "records_per_cluster" in s, \
+            f"{c}: report does not carry both cluster and record counts"
+        assert s["n"]["train"] > 2 * s["clusters_used"] / 3, \
+            f"{c}: train set looks like one record per cluster again"

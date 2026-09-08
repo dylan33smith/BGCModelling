@@ -435,11 +435,17 @@ dataset exists**.
 common_n = min over the class set of effective_n@16k  =  1,224   (ARYLPOLYENE binds)
 ```
 
-Per class: cluster the length-bounded corpus (§4.4), select `common_n` distinct clusters, take
-**one representative per cluster** — never a uniform draw over records, which would over-represent
-large clusters and reinstate the redundancy clustering exists to remove. The representative is the
-mmseqs cluster representative, so selection is deterministic and needs no seed. Split 0.8/0.1/0.1
-by cluster (§4.6).
+Per class: cluster the length-bounded corpus (§4.4), assign **clusters** to train/val/test, and
+take **every record in an assigned cluster** up to a common RECORD budget. Splitting by cluster is
+what prevents leakage; discarding a cluster's other members does not add safety, it only removes
+training signal. **AMENDED 2026-09-08 from "one representative per cluster" — see §12.A3.**
+
+`common_n` is therefore a count of RECORDS, derived as the minimum across classes of the records
+available behind their clusters, and each split is trimmed to the smallest class so record counts
+are exactly equal per class per split. Selection order is the deterministic `_frac`-ordered cluster
+order, so it still needs no seed. Cluster counts are reported alongside record counts, because the
+two answer different questions: clusters bound **statistical independence**, records bound
+**training signal**.
 
 Result: five classes x 1,224 clusters, ~980 train each.
 - `W2` (per-class) trains on one class's ~980.
@@ -1176,6 +1182,38 @@ nothing was looking at that field.
 Raising the cap does not perturb the six arms that early-stopped: they terminate before it either
 way. It changes their `train_config_hash`, which is correct — the config genuinely differs — and
 all arms are retrained together so no comparison spans two values.
+
+**A3 — 2026-09-08. `common_n` counts RECORDS, not clusters; a cluster's non-representative members are training data, not redundancy to discard.**
+
+§4.4.3 as written selected `common_n` clusters and took one representative from each, on the
+stated grounds that a draw over records "would over-represent large clusters and reinstate the
+redundancy clustering exists to remove". That rationale conflates two different jobs the dataset
+does:
+
+* **Statistical independence** — the unit for a held-out claim. Near-duplicates are not independent
+  samples, so the right count here is CLUSTERS, and one-per-cluster is correct.
+* **Training signal** — how much gradient the arm sees. Here a cluster's other members are ordinary
+  training data. They cannot leak, because the split boundary is drawn at the cluster.
+
+Measured cost of the conflation, at the 8,192 nt bound: REDOX_COFACTOR has 10,207 records behind
+820 clusters (12.4 per cluster), and the build trained on **820** of them. Because §4.4.3 then binds
+every class to the smallest, TERPENE dropped 22,870 clusters to 820 (**96.4% discarded**) and RIPP
+21,036 to 820 (**96.1%**). Every arm trained on **656** records where 9,400–91,600 were available
+behind the same leakage wall — and the prior codebase's comparable adapter, which did produce
+measurable output, trained on **7,250**.
+
+Under this amendment each class gets ~10,100 records (~8,080 train), a **12-15x** increase, with the
+cluster-level split and its near-duplicate verification unchanged. Cluster counts continue to be
+reported, so any claim resting on independence uses them and not the record counts.
+
+⚠ Equal RECORDS is chosen over equal CLUSTERS deliberately. Records-per-cluster varies by class
+(REDOX 12.4, TERPENE 5.1), so equal clusters would hand one arm ~2.4x another's gradient volume —
+the confound §6.0a exists to prevent. Equal records matches what the trainer actually sees. It
+costs cluster-count equality, which is therefore reported per class rather than assumed.
+
+⚠ The surrounding §4.4.3 prose still carried pre-reorientation numbers (`1,224`, `@16k`, "five
+classes", ARYLPOLYENE binding). Those were stale before this amendment and are not what the
+builder computes; the builder derives `common_n` and always did.
 
 **Open decisions — require sign-off, not measurement.**
 
