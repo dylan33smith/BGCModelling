@@ -83,6 +83,21 @@ def _unwrap(o):
     return None
 
 
+def _cls(r: dict) -> str:
+    """The class this record was ASSIGNED to at split time -- the directory it was loaded
+    from -- and NOT `classes[0]`.
+
+    ⚠ For a hybrid, `classes[0]` is whichever antiSMASH product happened to sort first, and
+    it is routinely a class the benchmark does not contain. Measured on the pooled training
+    set: 18 of 2624 records key to NRPS or OTHER under `classes[0]`. That invented two
+    spurious strata, made the nucleotide-balancing denominator 6 instead of 4, and handed
+    those 18 records per-record loss weights of 22.9x and 56.3x against ~0.6-0.9x for
+    everything else -- so a handful of hybrids dominated whatever batch they landed in.
+    Falls back to `classes[0]` so a caller that did not tag its records still works.
+    """
+    return r.get("split_class") or r["classes"][0]
+
+
 def build_batches(records: list[dict], cfg: TrainConfig,
                   rng: random.Random) -> list[list[dict]]:
     """Length-bucketed batches that still mix classes (SPEC 6.4a)."""
@@ -101,7 +116,7 @@ def build_batches(records: list[dict], cfg: TrainConfig,
         # carries several classes whenever the window does
         by_cls: dict[str, list[dict]] = {}
         for r in chunk:
-            by_cls.setdefault(r["classes"][0], []).append(r)
+            by_cls.setdefault(_cls(r), []).append(r)
         for v in by_cls.values():
             rng.shuffle(v)
         interleaved: list[dict] = []
@@ -119,7 +134,7 @@ def batch_class_mixing(batches: list[list[dict]]) -> dict:
     """Report the guard rather than assert it: with micro_batch=1 no batch can mix, and
     that is a fact about the batch size, not a failure."""
     sizes = [len(b) for b in batches]
-    mixed = [len({r["classes"][0] for r in b}) for b in batches]
+    mixed = [len({_cls(r) for r in b}) for b in batches]
     multi = sum(1 for m in mixed if m > 1)
     return {"n_batches": len(batches),
             "median_batch_size": sorted(sizes)[len(sizes) // 2] if sizes else 0,
@@ -191,7 +206,7 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
     if cfg.balance == "nucleotides":
         per: dict[str, int] = {}
         for r in records:
-            per[r["classes"][0]] = per.get(r["classes"][0], 0) + r["seq_len"]
+            per[_cls(r)] = per.get(_cls(r), 0) + r["seq_len"]
         if per:
             target = sum(per.values()) / len(per)
             cls_w = {c: target / nt for c, nt in per.items()}
@@ -225,7 +240,7 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
             nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
             m = mask[:, 1:]
             if cls_w:
-                w = torch.tensor([cls_w.get(r["classes"][0], 1.0) for r in batch],
+                w = torch.tensor([cls_w.get(_cls(r), 1.0) for r in batch],
                                  device=device, dtype=nll.dtype).unsqueeze(1)
                 loss = (nll * m * w).sum() / (m * w).sum().clamp(min=1)
             else:
@@ -312,7 +327,7 @@ def evaluate(sub, model, records: list[dict], cfg: TrainConfig,
     # class happened to be typed first.
     by_cls: dict[str, list[dict]] = {}
     for r in records:
-        by_cls.setdefault(r["classes"][0], []).append(r)
+        by_cls.setdefault(_cls(r), []).append(r)
     picked: list[dict] = []
     if by_cls:
         per = max(1, limit // len(by_cls))
@@ -359,7 +374,7 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
     if cfg.balance == "nucleotides":
         per: dict[str, int] = {}
         for r in records:
-            per[r["classes"][0]] = per.get(r["classes"][0], 0) + r["seq_len"]
+            per[_cls(r)] = per.get(_cls(r), 0) + r["seq_len"]
         if per:
             tgt = sum(per.values()) / len(per)
             cls_w = {c: tgt / nt for c, nt in per.items()}
@@ -390,7 +405,7 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                 nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
                 m = mask[:, 1:]
                 if cls_w:
-                    w = torch.tensor([cls_w.get(r["classes"][0], 1.0) for r in batch],
+                    w = torch.tensor([cls_w.get(_cls(r), 1.0) for r in batch],
                                      device=device, dtype=nll.dtype).unsqueeze(1)
                     loss = (nll * m * w).sum() / (m * w).sum().clamp(min=1)
                 else:
@@ -426,21 +441,40 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                             stopped = True
                             break
 
-    # SPEC 6.4 MANIPULATION CHECK, two-sided. Held-out loss measured only WITH the
-    # conditioner attached cannot say whether the conditioner did anything -- it is one
-    # number with no reference. Zero-init makes the unintervened model an exact baseline,
-    # so both are measurable and their difference IS the check.
+    # SPEC 6.4 MANIPULATION CHECK, two-sided, AT THE CHECKPOINT GENERATION WILL USE.
+    #
+    # ⚠ This block sits AFTER `with iv.attached()` has exited, so the hooks are GONE here.
+    # The first version of it measured `with_iv` at this indentation and called the result
+    # "hooks still attached" in a comment; both of its measurements were therefore of the
+    # unintervened base model. delta was 0.0 BY CONSTRUCTION and `landed` was false for
+    # every conditioner that could ever be trained -- a check that cannot fail its subject
+    # and cannot pass it either. Attachment is now established explicitly per measurement
+    # and VERIFIED, not narrated.
+    #
+    # It also loads best.pt first: the arm that generates is the best checkpoint (SPEC
+    # 6.4), so a check run on the final step's weights is a check on a different model
+    # than the one the endpoint is read from.
     manip = None
     if val_records:
-        with_iv = _eval_offset(sub, base, val_records, cfg, device)   # hooks still attached
-        without_iv = None
-        if not iv.is_attached():
-            without_iv = _eval_offset(sub, base, val_records, cfg, device)
+        ckpt = out_dir / "best.pt"
+        at = "final"
+        if ckpt.exists():
+            iv.load_state_dict(torch.load(ckpt, map_location=device)["state_dict"])
+            at = "best"
+        with iv.attached():
+            if not iv.is_attached():
+                raise RuntimeError("manipulation check: hooks are not attached for the "
+                                   "intervened measurement")
+            with_iv = _eval_offset(sub, base, val_records, cfg, device)
+        if iv.is_attached():
+            raise RuntimeError("manipulation check: hooks leaked past the context, so the "
+                               "unintervened measurement would not be unintervened")
+        without_iv = _eval_offset(sub, base, val_records, cfg, device)
         manip = {"val_loss_with_intervention": with_iv,
                  "val_loss_without_intervention": without_iv,
-                 "delta": (None if without_iv is None else round(without_iv - with_iv, 5)),
-                 "landed": (None if without_iv is None
-                            else bool(without_iv - with_iv > cfg.min_delta))}
+                 "delta": round(without_iv - with_iv, 5),
+                 "landed": bool(without_iv - with_iv > cfg.min_delta),
+                 "measured_at": at}
 
     (out_dir / "BEST").write_text(json.dumps(
         {"step": best_step, "val_loss": best_val if best_val < float("inf") else None,
@@ -479,7 +513,7 @@ def _eval_offset(sub, base, records, cfg, device, limit: int = 32):
     check needs."""
     by: dict[str, list[dict]] = {}
     for r in records:
-        by.setdefault(r["classes"][0], []).append(r)
+        by.setdefault(_cls(r), []).append(r)
     picked: list[dict] = []
     per = max(1, limit // max(len(by), 1))
     for v in by.values():

@@ -22,8 +22,19 @@ SPLITS = ROOT / "splits"
 ADAPTERS = ROOT / "adapters"
 
 
-def _load(p: Path) -> list[dict]:
-    return [json.loads(l) for l in open(p)]
+def _load(p: Path, cls: str) -> list[dict]:
+    """Tag every record with the split it came from.
+
+    ⚠ Without this the trainer keyed on `classes[0]`, which for a hybrid is whichever
+    antiSMASH product sorted first -- so 18 of the 2624 pooled training records keyed to
+    NRPS or OTHER, classes the benchmark does not contain. See `train._cls`.
+    """
+    out = []
+    for line in open(p):
+        r = json.loads(line)
+        r["split_class"] = cls
+        out.append(r)
+    return out
 
 
 def main() -> int:
@@ -59,8 +70,8 @@ def main() -> int:
     # records in --classes order made the pooled arm checkpoint-selected on one class.
     train, val = [], []
     for c in args.classes:
-        train += _load(SPLITS / c / "train.jsonl")
-        val += _load(SPLITS / c / "val.jsonl")
+        train += _load(SPLITS / c / "train.jsonl", c)
+        val += _load(SPLITS / c / "val.jsonl", c)
     if args.limit:
         train, val = train[:args.limit], val[:max(8, args.limit // 8)]
 

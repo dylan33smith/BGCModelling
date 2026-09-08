@@ -362,6 +362,45 @@ anywhere to contradict it.
 **Paper:** a config value is only real if something consumes it. Grep for the consumer, not
 the declaration.
 
+### 4a.4 A manipulation check placed outside its own context measures nothing `[design]` `[instrument]`
+The SPEC 6.4 two-sided check for W3 sat one indentation level **outside** the
+`with iv.attached()` block that owns the hooks, while a comment on its first line asserted
+"hooks still attached". Both of its measurements were therefore of the unintervened base
+model, and it guarded the second one with `if not iv.is_attached()` — a condition that is
+always true there. The published result was
+`delta: 0.0, landed: false`, which is what it would have reported for **every possible
+conditioner**, including a perfect one.
+
+Measured after the fix, on the same `best.pt`: **with 0.90423, without 0.92148, delta
+0.01725, landed true.** The arm had landed the whole time; W3's own training curve had
+already moved 0.017 nats, which is the contradiction that gave it away. For scale, W1
+(LoRA, 10.5 M trainable) reaches 0.88778 on the same held-out pool — so the 253 K-parameter
+conditioner captures **about half** of LoRA's held-out gain at 1/41 the parameters.
+**Paper:** a check whose two arms can be shown to be the same computation is not a weak
+check, it is a decoration. Attachment is now established per measurement and *verified* —
+`raise` on both branches — rather than narrated in a comment. It also loads the best
+checkpoint first, so the check applies to the model generation will actually use.
+
+### 4a.5 Keying a pooled arm on `classes[0]` invents strata the benchmark does not have `[design]` `[data]`
+The trainer took each record's class as `classes[0]`, the first antiSMASH product in its
+list. For a hybrid that is whichever product sorted first, not the class the record was
+assigned to at split time. Measured on the pooled training set: **18 of 2624 records
+(0.7%)** keyed to `NRPS` or `OTHER` — classes the four-class benchmark does not contain.
+
+Three consequences, in increasing order of damage: the batch-mixing diagnostic counted six
+classes; the nucleotide-balancing denominator became `sum/6` instead of `sum/4` (a uniform
+scale, harmless inside a weighted mean); and those 18 records received per-record loss
+weights of **22.9x (OTHER) and 56.3x (NRPS)** against 0.56–0.94 for everything else. With
+`micro_batch=1` and `grad_accum=16`, one such record dominates the accumulated gradient of
+the window it lands in. That is W1n's entire mechanism, contaminated.
+
+Corrected weights, keyed on the assigned split: TERPENE **1.359**, RIPP **1.098**,
+REDOX_COFACTOR **0.865**, ARYLPOLYENE **0.835** — monotone in the inverse of each class's
+total nucleotides, which is what the arm was for. The val splits are clean (0 misfiled), so
+held-out loss, early stopping and checkpoint selection were never affected.
+**Paper:** the class a record was *assigned* and the class it *first maps to* are different
+facts. Only the split directory knows the first one, so the loader has to carry it.
+
 ## 5. Standing limitations to disclose
 
 ### 5.1 Negative controls are GC-poorer than the cores `[limitation]`
@@ -383,6 +422,13 @@ question, but it is circular in the strict sense. The MiBIG partition (24,694 of
 in-class records, held out at build time and read once) is the partial external answer.
 
 ### 5.3 Hybrid records count for every class they map to `[limitation]`
-Per-class hybrid fractions in the built corpus: TERPENE 3.9%, RIPP 8.2%, BETALACTONE 13.2%,
-ARYLPOLYENE 18.5%, **NRPS 30.1%**. NRPS's rate in particular bounds how exclusively its
-numbers can be read.
+Per-class hybrid fractions in the **built four-class splits**: TERPENE 1.0%, RIPP 1.5%
+(2.2% multi-product), REDOX_COFACTOR 3.4%, **ARYLPOLYENE 10.1%**. ARYLPOLYENE's rate bounds
+how exclusively its numbers can be read.
+
+[CORRECTED] An earlier version of this entry quoted TERPENE 3.9%, RIPP 8.2%, BETALACTONE
+13.2%, ARYLPOLYENE 18.5%, NRPS 30.1%. Those were corpus-wide fractions from the five-class
+set that preceded the 8,192 nt reorientation, and two of the classes no longer exist. The
+numbers above are read from the manifest of the splits actually trained on. The drop is
+expected rather than surprising: cluster selection takes `common_n` clusters per class and
+hybrids are over-represented among the long records the 8,192 nt bound excludes.

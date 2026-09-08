@@ -598,3 +598,96 @@ def test_offset_training_refuses_resume_rather_than_ignoring_it():
     except Exception:
         raise AssertionError("resume was not refused before any work began")
     raise AssertionError("--resume-from was silently discarded")
+
+
+def test_manipulation_check_actually_compares_intervened_to_unintervened():
+    """SPEC 6.4. The first version of this check sat OUTSIDE `with iv.attached()` and
+    measured the unintervened base model TWICE, so `delta` was 0.0 by construction and
+    `landed` was false for every conditioner that could ever be trained. A check that
+    cannot pass its subject is worse than no check: it reported the W3 arm as not landing
+    when the arm's own training curve had moved 0.017 nats.
+
+    This runs `_train_offset` end to end on a toy substrate, so it exercises the control
+    flow rather than the docstring.
+    """
+    import tempfile
+
+    import torch
+    import torch.nn as nn
+    from bgcbench.model.train import TrainConfig, train_lora
+
+    V, H = 16, 8
+
+    class Blk(nn.Module):
+        def __init__(s): super().__init__(); s.lin = nn.Linear(H, H)
+        def forward(s, x): return s.lin(x)
+
+    class Toy(nn.Module):
+        def __init__(s):
+            super().__init__()
+            s.config = type("C", (), {"hidden_size": H})()
+            s.emb = nn.Embedding(V, H)
+            s.blocks = nn.ModuleList([nn.Module() for _ in range(2)])
+            for b in s.blocks:
+                b.inner_mha_cls = Blk()
+            s.head = nn.Linear(H, V)
+        def forward(s, x):
+            h = s.emb(x)
+            for b in s.blocks:
+                h = b.inner_mha_cls(h)
+            return s.head(h)
+
+    class Tok:
+        pad_token_id = 0
+        def __call__(s, text):
+            return {"input_ids": [(ord(c) % (V - 1)) + 1 for c in text]}
+
+    class Sub:
+        family = "toy"
+        model = Toy()
+        tokenizer = Tok()
+        def training_text(s, seq): return seq
+
+    sub = Sub()
+    rng = __import__("random").Random(0)
+    def rec(i):
+        seq = "".join(rng.choice("ACGT") for _ in range(24))
+        return {"sequence": seq, "seq_len": len(seq),
+                "classes": ["TERPENE" if i % 2 else "RIPP"]}
+    train = [rec(i) for i in range(16)]
+    val = [rec(100 + i) for i in range(4)]
+
+    cfg = TrainConfig(method="offset", offset_rank=2, micro_batch=1, grad_accum=1,
+                      eval_every=1, patience=100, max_epochs=3, lr=0.05)
+    with tempfile.TemporaryDirectory() as td:
+        rep = train_lora(sub, train, Path(td), cfg, val_records=val, device="cpu")
+
+    m = rep["manipulation_check"]
+    assert m is not None, "no manipulation check was produced"
+    assert m["val_loss_with_intervention"] != m["val_loss_without_intervention"], (
+        "the two sides of the manipulation check are identical, which means both were "
+        "measured on the same model -- the hooks were not attached for the intervened one")
+    assert m["delta"] != 0.0, "delta is exactly zero; the check is measuring itself"
+    assert m["measured_at"] in ("best", "final")
+
+
+def test_class_key_is_the_assigned_split_not_the_first_antismash_product():
+    """A hybrid's `classes[0]` is whichever antiSMASH product sorted first, which is
+    routinely a class the benchmark does not contain. Keying on it put 18 of the 2624
+    pooled training records into NRPS/OTHER strata, made the nucleotide-balancing
+    denominator 6 instead of 4, and gave those records loss weights of 22.9x and 56.3x."""
+    from bgcbench.model.train import _cls
+
+    hybrid = {"classes": ["NRPS", "RIPP"], "split_class": "RIPP", "seq_len": 10}
+    plain = {"classes": ["RIPP"], "split_class": "RIPP", "seq_len": 10}
+    assert _cls(hybrid) == "RIPP", "hybrid keyed to a class the benchmark does not contain"
+    assert _cls(plain) == "RIPP"
+    # untagged records still work, so a caller that forgets is degraded, not broken
+    assert _cls({"classes": ["TERPENE"]}) == "TERPENE"
+
+    # and the loader must supply the tag, or _cls silently falls back to the broken key
+    from bgcbench.run import train_arm
+    src = Path(train_arm.__file__).read_text()
+    assert '"split_class"' in src, "train_arm does not tag records with their split"
+    assert '_load(SPLITS / c / "train.jsonl", c)' in src, \
+        "train records are loaded without their assigned class"

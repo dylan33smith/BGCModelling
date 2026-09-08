@@ -12,3 +12,12 @@
 __pycache__/
 *.py[cod]
 .venv/
+
+# Artifacts live on /data2, never in the repo (CLAUDE.md). These three were committed by
+# accident in ec67f04: a W3 smoke-test run directory, an empty debug log, and a prodigal
+# temp file antiSMASH left in the cwd. The smoke run was moved to
+# /data2/ds85/bgcbench/work/w3_smoke.
+/seed_then_construct/
+/activations_debug.log
+/tmp.prodigal.stdin.*
+*.pt
