@@ -44,16 +44,22 @@ FROZEN = {
     # batch size affects padding and kernel selection, not the sampling distribution, but
     # it is recorded so two runs are fully reconstructible from the artifacts.
     #
-    # RAISED 8 -> 50 (2026-09-08) for throughput, not for any scientific reason. Generation
-    # is autoregressive over 8,192 tokens, so wall time is dominated by the number of
-    # SEQUENTIAL passes: 200/8 = 25 batches against 200/50 = 4. At batch 8 the measured W0
-    # run took 62 min and occupied 5.5 GB of an 80 GB card -- the card was idle, not busy.
-    # 50 divides 200 exactly, so no batch is ragged, and projects to ~24 GB.
+    # RAISED 8 -> 100 (2026-09-08) for throughput, not for any scientific reason. Generation
+    # is autoregressive over 8,192 tokens, so wall time is set by the number of SEQUENTIAL
+    # passes: n/batch_size. At batch 8 the measured W0 run took 62 min while occupying
+    # 5.5 GB of an 80 GB card -- the card was idle, not busy.
+    #
+    # SIZED FROM A MEASUREMENT, not picked. Model + CUDA context is 2.08 GB and each
+    # in-flight sequence costs 0.429 GB at the 8,192 nt budget, so:
+    #     batch   8 ->  5.5 GB, 25 passes      batch 100 -> 45.0 GB,  2 passes
+    #     batch  50 -> 23.5 GB,  4 passes      batch 200 -> 87.9 GB -- EXCEEDS the 80 GB card
+    # Generating all 200 at once does not fit. 100 is the largest exact divisor of 200 that
+    # does, with ~35 GB of headroom, and leaves no ragged batch.
     #
     # ⚠ This changes the frozen hash, so every arm must be generated at this value and the
     # batch-8 W0 run is NOT comparable to anything produced after it. That is the intended
     # behaviour of the hash, and W0 is regenerated rather than reconciled.
-    "batch_size": 50,
+    "batch_size": 100,
 
     # SPEC 6 S1. An unrecorded invocation-site default of 0 made `--seeded` without an
     # explicit length a SILENT DE NOVO ARM -- the prompt was the empty string and nothing
