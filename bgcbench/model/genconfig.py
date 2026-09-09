@@ -61,6 +61,15 @@ FROZEN = {
     # behaviour of the hash, and W0 is regenerated rather than reconciled.
     "batch_size": 100,
 
+    # SPEC 7: TERMINATOR FLOOR. Measured with the terminator finally visible, Evo2 emits its
+    # stop token after TWO nucleotides from the de novo prompt -- 56% of base generations and
+    # 91% of fine-tuned ones. Without a floor an unconditioned arm produces nothing to score.
+    # One number, identical for every arm and class, injecting no class information: a
+    # decoding policy, not a conditioning channel (SPEC 4.3 is not in tension).
+    # 1000 sits below every benchmark class's median core (1,154-3,593 nt), so it forbids the
+    # immediate collapse without dictating the length of a cluster.
+    "min_new_tokens": 1000,
+
     # SPEC 6 S1. An unrecorded invocation-site default of 0 made `--seeded` without an
     # explicit length a SILENT DE NOVO ARM -- the prompt was the empty string and nothing
     # in any artifact showed it. Value itself is set by gate G3.

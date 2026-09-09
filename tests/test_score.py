@@ -497,3 +497,101 @@ def test_frozen_batch_fits_the_card_it_was_sized_for():
     bigger = [b for b in range(FROZEN["batch_size"] + 1, FROZEN["n_per_row"] + 1)
               if FROZEN["n_per_row"] % b == 0 and BASELINE_GB + PER_SEQ_GB * b < CARD_GB * 0.85]
     assert not bigger, f"a larger divisor would also fit: {bigger}"
+
+
+def _stub_vortex_tokenizer():
+    """A stand-in with vortex CharLevelTokenizer's exact decode semantics."""
+    class T:
+        eos_id = 0
+        pad_id = 1
+        vocab_size = 512
+        def clamp(self, n): return max(32, min(int(n), self.vocab_size))
+        def decode_token(self, t): return chr(self.clamp(t))
+        def tokenize(self, s): return list(s.encode())
+        def detokenize(self, ids): return "".join(self.decode_token(i) for i in ids)
+    return T()
+
+
+def test_evo2_terminator_survives_decoding_and_is_distinguishable():
+    """The terminator was searched for as chr(0) in the DECODED string, but vortex decodes
+    with chr(max(32, min(id, vocab))) — ids 0 (EOS), 1 (PAD) and 32 (space) all render as a
+    space. So `truncate_at_terminator` could never fire and `hit_eos` was 0.0 in all 13
+    Stage 1 run reports: a structural zero of the METRIC, not a property of the model.
+
+    Measured once the shim was installed: Evo2 emits its stop token after TWO nucleotides
+    from the de novo prompt — 56% of base generations, 91% of fine-tuned. Every frozen
+    Stage 1 sequence was ~8,190 nt of post-termination sampling.
+    """
+    from bgcbench.model.load import EVO2_TERMINATOR_SENTINEL, _install_terminator_shim
+
+    tok = _stub_vortex_tokenizer()
+    # the defect, reproduced: without the shim the terminator is invisible
+    assert tok.detokenize([0]) == tok.detokenize([1]) == tok.detokenize([32]) == " "
+    assert chr(0) not in tok.detokenize(tok.tokenize("ACGT") + [0])
+
+    assert _install_terminator_shim(tok, 0, EVO2_TERMINATOR_SENTINEL)
+    decoded = tok.detokenize(tok.tokenize("ACGT") + [0])
+    assert decoded == "ACGT" + EVO2_TERMINATOR_SENTINEL, decoded
+    assert tok.detokenize([0]) != tok.detokenize([1]), "EOS still collides with PAD"
+    assert tok.detokenize([0]) != tok.detokenize([32]), "EOS still collides with space"
+    assert EVO2_TERMINATOR_SENTINEL not in "ACGTN", "sentinel collides with the alphabet"
+
+
+def test_training_text_appends_the_REAL_terminator_not_the_display_sentinel():
+    """`terminator_str` is how the terminator LOOKS after decoding (a sentinel for Evo2).
+    Training text must append the form that ENCODES to the terminator id. Appending the
+    sentinel instead would teach the model to emit '*' (id 42) rather than its own stop
+    token (id 0) — a bug introduced while fixing the one above, and caught by G10's T1."""
+    from bgcbench.model.load import Substrate
+
+    sub = Substrate(id="x", family="evo2", checkpoint="c", terminator_id=0,
+                    terminator_str="*", terminator_encode_str=chr(0),
+                    appends_terminator=False, native_stop=False, approx_nt_per_token=1.0,
+                    tokenizer=_stub_vortex_tokenizer())
+    ids = sub.tokenizer.tokenize(sub.training_text("ACGT"))
+    assert ids[-1] == sub.terminator_id, f"training text ends in {ids[-1]}, not the terminator"
+    assert "*" not in sub.training_text("ACGT"), "the display sentinel leaked into training"
+
+
+def test_clean_masks_rather_than_deletes_so_the_reading_frame_survives():
+    """Deletion shifts the frame by one base and destroys every downstream ORF, and ORFs are
+    what the scoring stack is built on. Measured on the frozen bundle: 1,422 of 1,600
+    generations (88.9%) lost at least one character, mean 3.13 — and every one of those
+    characters was the model's own terminator."""
+    from bgcbench.model.load import Substrate
+
+    dirty = "AC*GT NNAC"
+    out = Substrate.clean(dirty)
+    assert len(out) == len(dirty), "clean() changed the length — the frame is shifted"
+    assert set(out) <= set("ACGTN"), out
+    assert out == "ACNGTNNNAC", out
+
+
+def test_terminator_suppression_restores_the_sampler_it_patched():
+    """The floor is applied by swapping the module-level `sample` vortex imported. A leaked
+    patch would silently alter every later arm in the same process."""
+    import vortex.model.generation as vg
+    from bgcbench.model.generate import suppress_terminator
+    from bgcbench.model.load import Substrate
+
+    sub = Substrate(id="x", family="evo2", checkpoint="c", terminator_id=0,
+                    terminator_str="*", appends_terminator=False, native_stop=False,
+                    approx_nt_per_token=1.0)
+    before = vg.sample
+    try:
+        with suppress_terminator(sub, 10):
+            assert vg.sample is not before, "suppression never took effect"
+            raise RuntimeError("boom")
+    except RuntimeError:
+        pass
+    assert vg.sample is before, "sampler patch leaked past the context"
+
+
+def test_min_new_tokens_is_frozen_and_below_every_class_median():
+    """Without a floor an unconditioned arm terminates at 2 nt and produces nothing to
+    score. The floor is one number, identical for every arm and class, injecting no class
+    information — a decoding policy, not a conditioning channel."""
+    from bgcbench.model.genconfig import FROZEN
+    assert FROZEN["min_new_tokens"] >= 500, "floor too low to clear the 2 nt collapse"
+    # must not dictate cluster length: it sits below every benchmark class's median core
+    assert FROZEN["min_new_tokens"] < 1154, "floor exceeds TERPENE's median core"

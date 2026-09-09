@@ -35,8 +35,21 @@ def check(sub, n_probe: int, budget_nt: int) -> dict:
         if sub.family == "evo2":
             ids = list(sub.tokenizer.tokenize("ACGT"))
             res["T1_tokenize_ACGT"] = [int(x) for x in ids]
-            res["T1_terminator_roundtrip"] = (
-                int(sub.tokenizer.tokenize(sub.terminator_str)[0]) == sub.terminator_id)
+            # BOTH DIRECTIONS. Testing only encode is how this gate passed while the
+            # property it gates was false: vortex decodes with chr(max(32, min(id, vocab))),
+            # so ids 0/1/32 all render as a space and the DECODE direction failed silently
+            # for the whole of Stage 1.
+            # encode the TRAINING form (must yield the real id), decode the display form
+            enc_ok = int(sub.tokenizer.tokenize(
+                sub.terminator_encode_str or sub.terminator_str)[0]) == sub.terminator_id
+            dec = sub.tokenizer.detokenize([sub.terminator_id])
+            res["T1_terminator_decodes_to"] = repr(dec)
+            res["T1_decode_distinguishable"] = (
+                dec != sub.tokenizer.detokenize([1])
+                and dec != sub.tokenizer.detokenize([32]))
+            res["T1_terminator_roundtrip"] = bool(
+                enc_ok and dec == sub.terminator_str
+                and res["T1_decode_distinguishable"])
         else:
             enc = sub.tokenizer("ACGTACGTACGT")["input_ids"]
             res["T1_tokenize"] = enc
@@ -48,17 +61,29 @@ def check(sub, n_probe: int, budget_nt: int) -> dict:
     # T2 -- training text carries a terminator
     tt = sub.training_text("ACGTACGT")
     if sub.family == "evo2":
-        res["T2_training_text_has_terminator"] = tt.endswith(sub.terminator_str)
-        res["T2_training_text_ids_tail"] = [int(x) for x in sub.tokenizer.tokenize(tt)][-3:]
+        # check the TOKENS, not the characters: terminator_str is the display sentinel and
+        # training text carries the encode form, so a string comparison tests the wrong thing
+        tail = [int(x) for x in sub.tokenizer.tokenize(tt)]
+        res["T2_training_text_has_terminator"] = bool(tail and tail[-1] == sub.terminator_id)
+        res["T2_training_text_ids_tail"] = tail[-3:]
     else:
         ids = sub.tokenizer(tt)["input_ids"]
         res["T2_training_text_has_terminator"] = sub.terminator_id in ids
         res["T2_training_text_ids_tail"] = ids[-3:]
 
-    # T3 -- detectable in output
+    # T3 -- detectable in MODEL-DECODED output, not in a probe string we built ourselves.
+    # Building the probe in Python guarantees the terminator is present as a character, which
+    # is exactly the assumption that failed: the model's terminator never survived decoding.
+    # Round-tripping through the tokenizer is what makes this test able to fail.
     if sub.terminator_str:
-        probe = "ACGT" * 10 + sub.terminator_str + "TTTT" * 10
+        if sub.family == "evo2":
+            ids = [int(x) for x in sub.tokenizer.tokenize("ACGT" * 10)] \
+                + [sub.terminator_id] + [int(x) for x in sub.tokenizer.tokenize("TTTT" * 10)]
+            probe = sub.tokenizer.detokenize(ids)
+        else:
+            probe = "ACGT" * 10 + sub.terminator_str + "TTTT" * 10
         body, hit = sub.truncate_at_terminator(probe)
+        res["T3_probe_is_decoded_output"] = (sub.family == "evo2")
         res["T3_truncation_works"] = bool(hit and len(body) == 40)
     else:
         res["T3_truncation_works"] = "n/a — BPE substrate detects on ids"

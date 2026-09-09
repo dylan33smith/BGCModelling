@@ -14,6 +14,8 @@ Two things this handles that are easy to get wrong:
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,11 +45,12 @@ class GenConfig:
     budget_nt: int = FROZEN["budget_nt"]
     batch_size: int = FROZEN["batch_size"]
     seed: int = FROZEN["rng_seed"]
+    min_new_tokens: int = FROZEN["min_new_tokens"]
 
     @classmethod
     def frozen(cls) -> "GenConfig":
         return cls(budget_nt=FROZEN["budget_nt"], batch_size=FROZEN["batch_size"],
-                   seed=FROZEN["rng_seed"])
+                   seed=FROZEN["rng_seed"], min_new_tokens=FROZEN["min_new_tokens"])
 
 
 def _seed_text(rec: dict, n_nt: int) -> str:
@@ -153,6 +156,57 @@ def _run(sub: Substrate, arm: ArmSpec, prompts: list[str],
     return _run_hf(sub, arm, prompts, cfg)
 
 
+#: Masking value for a suppressed token. NOT -inf: vortex's `sample()` runs
+#: `torch.where(logits == -inf, 0, logits)`, which would turn a -inf mask into a logit of
+#: ZERO -- i.e. it would make the suppressed token MORE likely, not less. A large finite
+#: negative survives that rewrite and is removed by top-k filtering.
+SUPPRESSED_LOGIT = -1e9
+
+
+@contextmanager
+def suppress_terminator(sub, n_positions: int):
+    """Forbid the terminator for the first `n_positions` sampled tokens (Evo2 only).
+
+    ⚠ WHY THIS IS NEEDED. Measured once the terminator was made visible: from the bare de
+    novo prompt Evo2 emits its stop token after TWO nucleotides -- 56% of base generations
+    and 91% of fine-tuned ones, first terminator at index 2. Unconditioned de novo
+    generation on this substrate collapses immediately, so without a floor there is nothing
+    to score and the arm cannot produce a benchmark measurement at all.
+
+    This is a DECODING POLICY, not a conditioning channel: it is one number, identical for
+    every arm and every class, and it injects no class information. It is the same fix the
+    prior project applied to GenomeOcean, where EOS firing straight after the seed produced
+    61/200 empty generations and a min-token floor took the arm from 0.400 to 0.580.
+
+    vortex offers no logits-processor hook, so this swaps the module-level `sample` that
+    `generation.py` imported at line 9. The swap is restored on exit even if the body
+    raises; a leaked patch would silently alter every later arm in the same process.
+    """
+    if n_positions <= 0 or sub.family != EVO2:
+        yield {"suppressed_positions": 0}
+        return
+    import vortex.model.generation as vg
+    orig = vg.sample
+    eos = int(sub.terminator_id)
+    state = {"calls": 0, "suppressed_positions": 0}
+
+    def wrapped(logits, **kw):
+        if state["calls"] < n_positions:
+            # CLONE FIRST. vortex hands back an inference tensor and an in-place write to
+            # one raises outside InferenceMode; the clone is an ordinary tensor.
+            logits = logits.clone()
+            logits[..., eos] = SUPPRESSED_LOGIT
+            state["suppressed_positions"] += 1
+        state["calls"] += 1
+        return orig(logits, **kw)
+
+    vg.sample = wrapped
+    try:
+        yield state
+    finally:
+        vg.sample = orig
+
+
 def _run_evo2(sub, arm, prompts, cfg):
     texts, hits = [], []
     # Evo2 batches only when prompts are uniform length; de novo prompts are all empty and
@@ -161,9 +215,10 @@ def _run_evo2(sub, arm, prompts, cfg):
         chunk = prompts[i:i + cfg.batch_size]
         # a truly empty prompt has nothing to condition on; vortex needs at least one token
         chunk = [p if p else "A" for p in chunk]
-        out = sub.model.generate(prompt_seqs=chunk, n_tokens=cfg.budget_nt,
-                                 temperature=arm.temperature, top_k=arm.top_k,
-                                 top_p=arm.top_p, verbose=0)
+        with suppress_terminator(sub, cfg.min_new_tokens):
+            out = sub.model.generate(prompt_seqs=chunk, n_tokens=cfg.budget_nt,
+                                     temperature=arm.temperature, top_k=arm.top_k,
+                                     top_p=arm.top_p, verbose=0)
         seqs = list(out[0]) if isinstance(out, tuple) else list(out.sequences)
         for s in seqs:
             # Evo2 returns ONLY the continuation, so there is no prompt to strip.

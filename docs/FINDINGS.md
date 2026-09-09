@@ -516,8 +516,12 @@ negative controls (real non-BGC DNA) **0.000**, n=300/class. Full dynamic range 
 **Four detections in 1,600 generations, three on-target, none significant at n=200.**
 
 Standing observations, recorded before unblinding:
-* `hit_eos = 0.0` on **all eight arms** — not one generation ever emitted a terminator, and every
-  arm ran the full 8,192 nt against class cores of median 1.2–3.6 kb.
+* `hit_eos = 0.0` on **all eight arms**, and every arm ran the full 8,192 nt against class
+  cores of median 1.2–3.6 kb.
+  **[INCORRECT — see 4a.8]** This was read as "not one generation ever emitted a terminator".
+  It is a structural zero of the METRIC: the terminator could not survive decoding, so the
+  detector could never fire. The models were emitting terminators the whole time — after
+  **2 nt**.
 * Detection rank-orders exactly with class core length (0, 0, 1, 3).
 * The only arm producing on-target output was the **class-exclusive** one; the pooled arm saw the
   same records plus three other classes and produced nothing.
@@ -525,3 +529,48 @@ Standing observations, recorded before unblinding:
   `W1` vs `W1n` is **uninformative** — both at the floor, and 1.5e-4 apart on held-out loss, which
   is below the measured noise floor (4a.7).
 * No generation on any arm matched a known BGC.
+
+---
+
+## 7. The termination defect — found at §10 reconciliation, 2026-09-08
+
+### 4a.8 A terminator that cannot survive decoding makes every generation post-mortem `[instrument]` `[design]`
+vortex's `CharLevelTokenizer` decodes with `chr(max(32, min(id, vocab)))`, so ids **0 (EOS),
+1 (PAD) and 32 (space) all render as a space** and are indistinguishable. `Substrate` searched
+the DECODED string for `chr(0)`, which can never appear. Consequences, in order of damage:
+
+1. **`hit_eos` was a structural zero** in all 13 Stage 1 run reports — a property of the
+   metric, not of the model.
+2. **`clean()` then DELETED that space**, shifting the reading frame by one base and
+   destroying every ORF downstream of it. Measured on the frozen bundle: **1,422 of 1,600
+   generations (88.9%)** lost at least one character, mean 3.13, up to 13. Recovered by
+   patching the decoder and regenerating: **231 of 231 dropped characters were id 0** — the
+   model's own stop token, nothing else.
+3. **Generation ran 8,192 nt past the stop.** With the terminator made visible, Evo2 emits it
+   at index **2** — in 56% of base generations and **91%** of fine-tuned ones. Every sequence
+   in `STAGE1_FROZEN_f50c43b09042609c` is ~8,190 nt of **post-termination sampling**.
+
+**Gate G10 passed while the property it gates was false.** T1 tested only the ENCODE
+direction; T3 tested truncation on a probe string built in Python, never on model output.
+Both now test the direction that failed, and T1 additionally requires the decoded terminator
+to be distinguishable from PAD and space.
+
+⚠ **Two earlier findings were measured on post-termination output and are not safe to read
+as written:** 4a.7 (training non-determinism moving the endpoint by ±1/200) and the §12.A3
+data-volume null. Both need re-measurement before they can be cited.
+
+**Paper:** a round-trip test must test the round trip. Encoding a terminator proves nothing
+about whether you can ever detect one.
+
+### 4a.9 Unconditioned generation collapses immediately on this substrate `[data]` `[design]`
+With termination fixed, the honest de novo measurement is that the model stops at **2 nt**.
+An arm that terminates immediately produces nothing to score, so a `min_new_tokens` floor is
+required for the regime to yield a measurement at all. It is a **decoding policy, not a
+conditioning channel** — one number, identical for every arm and class, carrying no class
+information, so SPEC 4.3 is not in tension. The prior project applied the same fix to
+GenomeOcean, where EOS firing straight after the seed gave 61/200 empty generations.
+
+At a 1,000 nt floor, `W2_RIPP` terminates at a median of **3,402 nt** against a training
+median of 2,154 — the right scale for the first time. Detection was still **0/40**, so the
+termination defect was real and is **not** what separates this rebuild from the prior work.
+

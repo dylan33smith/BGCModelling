@@ -61,10 +61,18 @@ class Substrate:
     family: str
     checkpoint: str
     terminator_id: int
+    #: How the terminator LOOKS IN DECODED OUTPUT, for detection. For Evo2 this is a
+    #: sentinel, because chr(0) cannot survive vortex's decoder (see
+    #: `_install_terminator_shim`). NEVER append this to training text.
     terminator_str: str
     appends_terminator: bool          # does the tokenizer add it at encode time?
     native_stop: bool                 # can generation stop on it without post-processing?
     approx_nt_per_token: float
+    #: What training text appends so the tokenizer emits `terminator_id`. This MUST encode
+    #: to the real token: appending the DISPLAY sentinel instead would teach the model to
+    #: emit '*' (id 42) rather than its own stop token (id 0). Empty when the tokenizer
+    #: appends a terminator itself.
+    terminator_encode_str: str = ""
     model: Any = None
     tokenizer: Any = None
     meta: dict = field(default_factory=dict)
@@ -96,7 +104,8 @@ class Substrate:
         """
         if self.appends_terminator:
             return sequence
-        return sequence + self.terminator_str
+        # the ENCODE form, not the display sentinel -- see the field comments above
+        return sequence + (self.terminator_encode_str or self.terminator_str)
 
     # ---- termination ---------------------------------------------------------------
     def truncate_at_terminator(self, text: str) -> tuple[str, bool]:
@@ -108,11 +117,52 @@ class Substrate:
 
     @staticmethod
     def clean(text: str) -> str:
-        """Keep only nucleotide characters. Applied AFTER terminator detection, never
-        before -- stripping first would delete the terminator and make hit_eos always
-        False."""
-        return "".join(c for c in text.upper() if c in "ACGTN")
+        """MASK non-nucleotide characters to N. Never delete them.
 
+        ⚠ This used to delete, and deletion SHIFTS THE READING FRAME by one base, destroying
+        every ORF downstream of the deleted character -- and ORFs are what the whole scoring
+        stack is built on. Measured on the frozen Stage 1 bundle: 1,422 of 1,600 generations
+        (88.9%) lost at least one character this way, mean 3.13, up to 13. Every one of those
+        characters was the model's OWN TERMINATOR (id 0), recovered by patching the decoder
+        and regenerating: 231 of 231 dropped characters across 60 records were id 0.
+
+        Masking preserves coordinates, so a stray byte costs one codon rather than the rest
+        of the sequence."""
+        return "".join(c if c in "ACGTN" else "N" for c in text.upper())
+
+
+
+#: A character that cannot occur in a nucleotide string, used to make Evo2's terminator
+#: visible after decoding. See `_install_terminator_shim`.
+EVO2_TERMINATOR_SENTINEL = "*"
+
+
+def _install_terminator_shim(tok, eos_id: int, sentinel: str) -> bool:
+    """Make Evo2's terminator survive detokenisation.
+
+    ⚠ vortex's CharLevelTokenizer decodes with `chr(max(32, min(id, vocab)))`, so ids 0
+    (EOS), 1 (PAD) and 32 (space) ALL render as a space and are indistinguishable. Searching
+    the decoded string for chr(0) therefore could never match: `hit_eos` was 0.0 in all 13
+    Stage 1 run reports, and that was a structural zero of the METRIC, not a property of the
+    model. Measured after this shim: the fine-tuned de novo arms emit their first terminator
+    at index 2 in 49 of 60 records, so every frozen artifact is ~8,190 nt of POST-termination
+    sampling.
+
+    Gate G10 missed it because T1 only tested the encode direction and T3 tested truncation
+    on a probe string built in Python, never on model output.
+
+    `detokenize` is `"".join(map(self.decode_token, ids))`, so overriding `decode_token` on
+    the instance is sufficient and is not monkeypatching library internals beyond that call.
+    """
+    orig = getattr(tok, "decode_token", None)
+    if orig is None:
+        return False
+
+    def decode_token(token, _orig=orig, _eos=int(eos_id), _s=sentinel):
+        return _s if int(token) == _eos else _orig(token)
+
+    tok.decode_token = decode_token
+    return True
 
 def _evo2_max_seqlen(m) -> int | None:
     try:
@@ -152,10 +202,14 @@ def load(substrate_id: str, device: str = "cuda:0",
         m = Evo2(name)
         tok = m.tokenizer
         eos = int(getattr(tok, "eos_id", 0))
+        shimmed = _install_terminator_shim(tok, eos, EVO2_TERMINATOR_SENTINEL)
         n_inf = _de_inference(m.model) if trainable else 0
         return Substrate(
             id=substrate_id, family=EVO2, checkpoint=name,
-            terminator_id=eos, terminator_str=chr(eos),
+            # the SENTINEL, not chr(eos): chr(0) cannot survive vortex's decoder
+            terminator_id=eos,
+            terminator_str=(EVO2_TERMINATOR_SENTINEL if shimmed else chr(eos)),
+            terminator_encode_str=chr(eos),
             appends_terminator=False,       # verified: tokenize("ACGT") -> [65,67,71,84]
             native_stop=False,              # vortex hardcodes stop_at_eos=False
             approx_nt_per_token=1.0,
@@ -164,7 +218,8 @@ def load(substrate_id: str, device: str = "cuda:0",
                   "de_inferenced_params": n_inf,
                   # the model's own configured context. Measured degradation past it:
                   # NLL 0.805 at 8,192 -> 1.040 at 12,000 -> 1.239 at 15,900 (chance 1.386)
-                  "max_seqlen": _evo2_max_seqlen(m)},
+                  "max_seqlen": _evo2_max_seqlen(m),
+                  "terminator_shim": shimmed},
         )
 
     if substrate_id in ("go-4b", "bgcfm") or "genomeocean" in substrate_id:
