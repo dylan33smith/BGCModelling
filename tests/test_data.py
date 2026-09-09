@@ -863,11 +863,21 @@ def test_lineage_prompts_are_one_uniform_width():
     two formats match."""
     from bgcbench.data.taxonomy import LINEAGE_WIDTH, canonical
 
-    long_tag = "|d__Bacteria;p__" + "x" * 300
     short_tag = "|d__Bacteria|"
-    for t in (long_tag, short_tag, "|d__X;p__Y;c__Z|"):
-        assert len(canonical(t)) == LINEAGE_WIDTH, f"{t[:20]}... -> {len(canonical(t))}"
+    for t in (short_tag, "|d__X;p__Y;c__Z|"):
+        c = canonical(t)
+        assert len(c) == LINEAGE_WIDTH, f"{t[:20]}... -> {len(c)}"
+        # ⚠ PAD, NEVER TRUNCATE. Truncating to a uniform width cut 100% of lineages, lost
+        # genus and species for ~98%, and severed the family name mid-word -- conditioning
+        # the model at order level while looking like it used the full phylogeny.
+        assert c.startswith(t), "the lineage was altered, not padded"
+        assert c.rstrip() == t, "padding is not pure trailing whitespace"
     assert canonical("") == "", "an absent lineage must stay absent, not become padding"
+    try:
+        canonical("|d__Bacteria;p__" + "x" * 300)
+        raise AssertionError("an over-long lineage was silently truncated")
+    except ValueError:
+        pass
     # a real split must collapse to ONE width, or generation fragments again
     import json as _json
     p = Path("/data2/ds85/bgcbench/splits/TERPENE/test.jsonl")

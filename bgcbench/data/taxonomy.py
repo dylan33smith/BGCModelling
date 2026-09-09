@@ -40,22 +40,44 @@ def load_table(path: Path = TAX_SOURCE) -> dict[str, str]:
     return tax
 
 
-#: FIXED PROMPT WIDTH. vortex batches only when prompts share a length, and real lineages run
-#: 22-186 characters (median 114) -- 200 generations fragmented into 43 buckets, which is
-#: ~3 hours of wall time against minutes for one batch. Canonicalising to one width makes
-#: every prompt batchable and is applied IDENTICALLY in training and generation, so the two
-#: formats match. 82 is the 1st percentile: 99% of lineages are truncated (losing the species
-#: and sometimes genus tail), 1% are right-padded with the format's own '|' delimiter.
-#: Truncation demonstrably keeps the signal: measured on truncated lineages, GC moved
-#: 0.453 -> 0.654, onto the real-core value.
-LINEAGE_WIDTH = 82
+#: FIXED PROMPT WIDTH, RIGHT-PADDED WITH SPACES. vortex batches only when prompts share a
+#: length, and real lineages run 22-186 characters (median 114) -- 200 generations fragmented
+#: into 43 buckets, ~3 hours of wall time against minutes for one batch. One width makes every
+#: prompt batchable, and it is applied IDENTICALLY in training and generation so the two
+#: formats match.
+#:
+#: ⚠ PAD, DO NOT TRUNCATE. An earlier version truncated to 82 characters, which was uniform
+#: but silently discarded taxonomy: measured on 400 records, 100% were cut, genus and species
+#: were lost for ~98%, and the family name was severed mid-word ("f__Gloeobactera"). That
+#: conditions the model at roughly ORDER level. 186 is the longest lineage in the table, so
+#: padding to it keeps every lineage COMPLETE and loses nothing.
+#:
+#: The model learns the format either way -- under truncation, 0 of 200 generations continued
+#: the taxonomy instead of emitting DNA -- because training and generation agree. Padding
+#: simply means there is nothing to learn around.
+LINEAGE_WIDTH = 186
+
+#: Right-padding character. A space is a single byte (id 32) in Evo2's byte tokenizer and
+#: cannot be confused with a nucleotide, so `clean()` would mask it rather than mistake it
+#: for sequence. It never reaches the output: Evo2 returns only the continuation.
+LINEAGE_PAD = " "
 
 
 def canonical(tag: str, width: int = LINEAGE_WIDTH) -> str:
-    """One fixed-width lineage string, so every prompt in a batch has the same length."""
+    """One fixed-width lineage, padded with spaces. The lineage itself is never cut.
+
+    Raises if a tag exceeds `width` rather than truncating it: silently losing taxonomy is
+    the failure this replaced, and a longer lineage appearing later should be loud.
+    """
     if not tag:
         return ""
-    return tag[:width] if len(tag) >= width else tag + "|" * (width - len(tag))
+    if len(tag) > width:
+        raise ValueError(
+            f"lineage is {len(tag)} characters, above LINEAGE_WIDTH={width}: "
+            f"{tag[:60]}... Raise the width rather than truncating -- truncation costs "
+            f"genus and species and severs the family name mid-word."
+        )
+    return tag + LINEAGE_PAD * (width - len(tag))
 
 
 def attach(records: list[dict], table: dict[str, str] | None = None,
