@@ -679,10 +679,21 @@ def test_hits_ledger_fields_exist_in_the_scored_record():
     src = Path(armmod.__file__).read_text()
     block = src[src.index("# ---- HITS LEDGER"):src.index('with open(d / "hits.jsonl"')]
     pulled = set(re.findall(r'r\.get\("([a-z_]+)"\)', block))
-    # every field pulled from the scored record must actually be in its schema
-    extra = {"prefix_kind", "prefix_tag", "prefix_source_accession", "prefix_source_genome",
-             "gate", "containment_worst"}
-    unknown = pulled - set(REQUIRED) - extra
-    assert not unknown, f"hits ledger reads fields the scored record does not define: {unknown}"
+    # ⚠ EVERY field the ledger pulls must be in REQUIRED. An earlier version of this test
+    # whitelisted the prefix fields as "extra", so it PASSED while record.build() silently
+    # dropped them and every hit recorded a null lineage -- indistinguishable from "no
+    # lineage was used". A whitelist here defeats the only check that catches that.
+    # Check against what build() ACTUALLY WRITES, not against a whitelist. A whitelist is
+    # what let this test pass while the prefix fields were being dropped.
+    import re as _re
+    from bgcbench.score import record as recmod
+    rsrc = Path(recmod.__file__).read_text()
+    body = rsrc[rsrc.index("def build("):]
+    written = set(_re.findall(r'^\s+"([a-z_]+)":', body, _re.M))
+    unknown = pulled - set(REQUIRED) - written
+    assert not unknown, f"hits ledger reads fields the scored record never writes: {unknown}"
+    for must in ("prefix_tag", "prefix_source_genome", "prefix_source_accession"):
+        assert must in REQUIRED, \
+            f"{must} is not in the scored record schema, so the ledger will write null"
     for must in ("prefix_tag", "prefix_source_genome", "on_target", "products"):
         assert must in block, f"hits ledger does not record {must}"

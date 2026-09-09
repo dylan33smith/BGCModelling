@@ -15,6 +15,7 @@ from bgcbench.score.novelty import Reference
 REQUIRED = (
     "generation_id", "stage", "applicable", "arm", "substrate", "target_class",
     "seed_accession", "seed_core_gene_count", "seed_seq_len",
+    "prefix_kind", "prefix_tag", "prefix_source_accession", "prefix_source_genome",
     "sequence", "seq_len", "hit_eos", "scored_ok", "detected", "products",
     "observed_classes", "on_target", "region_table", "n_cds", "coding_density",
     "produced_core_genes", "containment", "novel",
@@ -74,6 +75,13 @@ def build(generations: list[dict], verdicts: dict[str, dict],
             "seed_accession": g.get("seed_accession"),
             "seed_core_gene_count": g.get("seed_core_gene_count"),
             "seed_seq_len": g.get("seed_seq_len"),
+            # WHICH ORGANISM'S LINEAGE prompted this generation. Carried through because the
+            # scored record is the only thing the hits ledger reads: dropping it here wrote
+            # null for every hit, which is indistinguishable from "no lineage was used".
+            "prefix_kind": g.get("prefix_kind"),
+            "prefix_tag": g.get("prefix_tag"),
+            "prefix_source_accession": g.get("prefix_source_accession"),
+            "prefix_source_genome": g.get("prefix_source_genome"),
             "sequence": g["sequence"],
             "seq_len": len(g["sequence"]),
             "hit_eos": g.get("hit_eos"),

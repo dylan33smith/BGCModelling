@@ -574,3 +574,53 @@ At a 1,000 nt floor, `W2_RIPP` terminates at a median of **3,402 nt** against a 
 median of 2,154 — the right scale for the first time. Detection was still **0/40**, so the
 termination defect was real and is **not** what separates this rebuild from the prior work.
 
+
+---
+
+## 8. Stage 1 with the phylogeny prefix — FROZEN 2026-09-09
+
+Bundle: `/data2/ds85/bgcbench/runs/STAGE1_TAX_FROZEN_4f754b369b13eaf3.json`
+sha256[:16] = **4f754b369b13eaf3** — 8 runs, 26 hits with full organism provenance.
+
+Regime: **de novo with Evo2's native GTDB lineage prefix**, `evo2-1b`, n=200/row, 8,192 nt,
+`batch_size` 100, `min_new_tokens` 1000, antiSMASH 8.0.4. Every arm `off_frozen: {}`.
+The prefix is loss-masked in training, space-padded to a uniform 186 characters, and drawn
+from held-out records. **No class token anywhere.**
+
+| arm | rows | n | det | on-target | rate | p | hit_eos | med len |
+|---|---|---|---|---|---|---|---|---|
+| `W0_tax` floor | 4 | 800 | 0 | 0 | 0.000 | — | 0.00 | 8192 |
+| `W2_TERPENE_tax` | 1 | 200 | 3 | **3** | 0.015 | 0.124 | 0.83 | 3271 |
+| `W2_RIPP_tax` | 1 | 200 | 0 | 0 | 0.000 | 1.000 | 0.83 | 2593 |
+| **`W2_ARYLPOLYENE_tax`** | 1 | 200 | 7 | **7** | **0.035** | **0.007** | 0.29 | 8192 |
+| `W2_REDOX_COFACTOR_tax` | 1 | 200 | 4 | 1 | 0.020 | 0.062 | 0.45 | 8192 |
+| `W1_tax` pooled | 4 | 800 | 4 | **0** | 0.005 | 0.062 | 0.84 | 2855 |
+| `W1n_tax` pooled | 4 | 800 | 4 | 1 | 0.005 | 0.062 | 0.83 | 2908 |
+| `W3_tax` conditioner | 4 | 800 | 4 | 1 | 0.005 | 0.062 | 0.39 | 8192 |
+
+### 8.1 The floor stayed at zero `[result]`
+`W0_tax` is the untrained model given the SAME lineage prompts: **0/800**. The prefix alone
+produces nothing. The adapter does the work; the prefix is what lets it express itself. That
+control is what makes the rest of the table readable.
+
+### 8.2 Class-exclusive training produces specificity; pooled training does not `[result]`
+Every per-class arm that detected anything was **perfectly on-target** — TERPENE 3/3,
+ARYLPOLYENE 7/7. The three pooled arms produced **12 detections and 2 on-target** between
+them, and their confusion rows are ~all zero. Pooled training yields BGC-like sequence with
+no class control. This is the contrast the benchmark exists to measure, and it is the first
+time it has had data rather than a floor-to-floor null.
+
+### 8.3 Termination returned `[result]`
+`hit_eos` 0.83 on TERPENE and RIPP at median 3,271 and 2,593 nt, against training medians of
+1,154 and 2,154. Those arms produce cluster-shaped objects rather than 8 kb continuations —
+the first time any arm in this project has.
+
+### 8.4 What is NOT established
+Only ARYLPOLYENE clears p<0.05, and it is the class with the longest real cores (3,593 nt
+median) — the same class that led the unprefixed run. TERPENE at 3/200 and REDOX at 1/200
+on-target are suggestive, not established. RIPP remains at zero in both regimes.
+
+⚠ These numbers are **not comparable to the unprefixed bundle `f50c43b09042609c`**: that one
+was measured before the terminator fix, on 656-record splits, with no prefix. Four things
+differ at once. The floor (0/800 here, 0/200 there) is the only directly comparable cell.
+
