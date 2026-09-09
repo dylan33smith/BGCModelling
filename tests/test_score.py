@@ -635,3 +635,33 @@ def test_evo2_generation_buckets_ragged_prompts_and_preserves_order():
     # ORDER: result i must correspond to prompt i
     assert texts == [p + "ACGT" for p in prompts], f"order not preserved: {texts}"
     assert len(hits) == len(prompts)
+
+
+def test_taxonomy_prefix_is_not_a_class_channel():
+    """A phylogeny prefix names an ORGANISM, never a compound class, so it must not make an
+    arm class-bearing and must not vary with the row being filled.
+
+    ⚠ The bug this pins: an earlier version set class_bearing whenever a prefix was present.
+    That broke SPEC 6.0's degenerate collapse -- an arm carrying the class NOWHERE, neither
+    in its weights nor its input, must fill every row from ONE distribution -- and it
+    quadrupled the cost of every pooled arm.
+
+    Taxa do correlate with the BGC classes they carry, and that is deliberately not treated
+    as a conditioning channel: it is a property of the organism distribution, not a label
+    handed to the model.
+    """
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+
+    cb = [l for l in src.splitlines() if l.strip().startswith("class_bearing =")]
+    assert len(cb) == 1, f"expected one class_bearing assignment, found {len(cb)}"
+    assert "prefix" not in cb[0], \
+        f"a taxonomy prefix still makes an arm class-bearing: {cb[0].strip()}"
+
+    # the pool must be built OUTSIDE the per-target loop, from the arm's training classes
+    pool = src.index("tax_pool = None")
+    loop = src.index("for cls in targets:")
+    assert pool < loop, "the lineage pool is built inside the target loop — it varies by row"
+    seg = src[pool:loop]
+    assert "row_class" in seg and "train_classes" in seg, \
+        "the pool does not follow the arm's training data"

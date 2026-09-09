@@ -141,14 +141,29 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
     elif not class_bearing:
         targets = targets[:1]          # nothing carries the class: one row set
 
+    # THE LINEAGE POOL FOLLOWS THE ARM'S TRAINING DATA, and is built once outside the target
+    # loop. For a per-class adapter that is its own class, matching what it trained on; for a
+    # pooled arm the union of its classes; for the untrained floor, all of them. Built inside
+    # the loop it would have drawn W0's lineages from whichever class sorted first, so the
+    # floor would see a narrower organism distribution than the arms it is the floor for.
+    tax_pool = None
+    if arm.prefix == "taxonomy":
+        from bgcbench.data import taxonomy
+        pool_classes = ([row_class] if row_class
+                        else (train_classes or list(BENCHMARK_CLASSES)))
+        tax_pool = [r for c in sorted(pool_classes)
+                    for r in _load(SPLITS / c / "test.jsonl")]
+        tax_pool.sort(key=lambda r: r["accession"])       # deterministic, seedless
+        cov = taxonomy.attach(tax_pool)
+        print(f"  lineage pool from {sorted(pool_classes)}: "
+              f"{cov['with_lineage']}/{cov['n']}, widths {cov['realised_widths']}", flush=True)
+
     for cls in targets:
-        need_pool = arm.seeded or arm.prefix == "taxonomy"
-        seed_pool = _load(SPLITS / cls / "test.jsonl") if need_pool else None
-        if seed_pool is not None and arm.prefix == "taxonomy":
-            from bgcbench.data import taxonomy
-            cov = taxonomy.attach(seed_pool)
-            print(f"  {cls}: lineage coverage {cov['with_lineage']}/{cov['n']}", flush=True)
-        gens = generate(sub, arm, cls, n, cfg, seed_pool=seed_pool, stage=stage)
+        seed_pool = _load(SPLITS / cls / "test.jsonl") if arm.seeded else None
+        if arm.seeded and arm.prefix == "taxonomy":
+            taxonomy.attach(seed_pool)     # seeded+prefixed: seeds keep their own lineages
+        gens = generate(sub, arm, cls, n, cfg, seed_pool=(seed_pool or tax_pool),
+                        stage=stage)
 
         # ⚠ EMPTY GENERATIONS STAY IN THE DENOMINATOR.
         # A draw whose terminator lands at position 0 cleans to "" -- a real outcome of a
@@ -363,9 +378,18 @@ def main() -> int:
                   adapter_path=args.adapter)
     # class-bearing iff something in the coordinate carries the class
     # the class must enter at GENERATION time for a target to mean anything
-    # a taxonomy prefix is drawn per TARGET CLASS, so it varies the output by target and the
-    # arm must generate once per row, exactly like the seeded regime
-    class_bearing = args.seeded or arm.inference_control != "none" or args.prefix != "none"
+    # ⚠ A TAXONOMY PREFIX IS NOT A CLASS CHANNEL. It names an organism, not a compound
+    # class, so it does NOT make an arm class-bearing. An earlier version set class_bearing
+    # whenever a prefix was present; that broke SPEC 6.0's degenerate collapse, because an
+    # arm carrying the class NOWHERE -- not in its weights, not in its input -- must fill
+    # every row from ONE distribution rather than generating four times.
+    #
+    # Taxa do correlate with which BGC classes they carry, so a lineage is not perfectly
+    # class-free in an information-theoretic sense. That is deliberately NOT treated as a
+    # conditioning channel here: it is a property of the organism distribution, not a label
+    # supplied to the model, and designing around it would mean discarding the model's own
+    # native input format to chase an effect the benchmark does not measure.
+    class_bearing = args.seeded or arm.inference_control != "none"
     # A per-class adapter carries the class in its WEIGHTS. Run without --row-class it
     # would replicate one sample into all five confusion rows and self-divide lift to 1.0,
     # producing a report that is structurally indistinguishable from a real result.
