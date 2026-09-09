@@ -372,11 +372,17 @@ def evaluate(sub, model, records: list[dict], cfg: TrainConfig,
         for v in by_cls.values():
             picked.extend(v[:per])
     for r in (picked or records[:limit]):
-        ids = _encode(sub, r, cfg)
+        ids, plen = _encode2(sub, r, cfg)
         x = torch.tensor([ids], device=device)
         logits = _unwrap(model(x))
         lp = torch.log_softmax(logits[:, :-1].float(), dim=-1)
         nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
+        # ⚠ SKIP THE PREFIX. It is masked in training, so scoring it here measures the
+        # model's ability to predict arbitrary GTDB text rather than BGC sequence -- and
+        # early stopping and best-checkpoint selection both read this number. Measured
+        # before the fix: val loss 3.00-3.36 on a prefixed arm against ~0.94 unprefixed,
+        # so the checkpoint was being chosen on lineage prediction.
+        nll = nll[:, plen:] if plen else nll
         tot += float(nll.mean().item()); n += 1
     model.train()
     return round(tot / max(n, 1), 5)
@@ -562,9 +568,11 @@ def _eval_offset(sub, base, records, cfg, device, limit: int = 32):
         picked.extend(v[:per])
     tot, n = 0.0, 0
     for r in (picked or records[:limit]):
-        ids = _encode(sub, r, cfg)
+        ids, plen = _encode2(sub, r, cfg)
         x = torch.tensor([ids], device=device)
         lp = torch.log_softmax(_unwrap(base(x))[:, :-1].float(), dim=-1)
-        tot += float((-lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)).mean().item())
+        nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
+        nll = nll[:, plen:] if plen else nll        # skip the prefix, as in evaluate()
+        tot += float(nll.mean().item())
         n += 1
     return round(tot / max(n, 1), 5)

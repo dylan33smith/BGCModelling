@@ -838,3 +838,42 @@ def test_split_uses_every_member_of_an_assigned_cluster_without_leaking():
             f"{c}: report does not carry both cluster and record counts"
         assert s["n"]["train"] > 2 * s["clusters_used"] / 3, \
             f"{c}: train set looks like one record per cluster again"
+
+
+def test_taxonomy_prefix_is_excluded_from_held_out_loss():
+    """The prefix is masked in TRAINING but `evaluate()` scored every position, so held-out
+    loss measured the model's ability to predict arbitrary GTDB text rather than BGC
+    sequence -- and early stopping AND best-checkpoint selection both read that number.
+
+    Measured on the first pilot: val loss 3.00-3.36 on a prefixed arm against ~0.94
+    unprefixed, and the 'best' checkpoint was chosen at step 50 on that basis."""
+    from bgcbench.model import train as trainmod
+    src = Path(trainmod.__file__).read_text()
+    body = src[src.index("def evaluate("):src.index("def _train_offset")]
+    assert "_encode2" in body, "evaluate() does not obtain the prefix length"
+    assert "nll[:, plen:]" in body, "evaluate() scores the prefix as if it were a target"
+    off = src[src.index("def _eval_offset"):]
+    assert "nll[:, plen:]" in off, "_eval_offset() scores the prefix as if it were a target"
+
+
+def test_lineage_prompts_are_one_uniform_width():
+    """vortex batches only when prompts share a length. Real lineages run 22-186 characters,
+    so 200 generations fragmented into 43 buckets -- ~3 hours against minutes for one batch.
+    Canonicalising to a fixed width is applied identically in training and generation, so the
+    two formats match."""
+    from bgcbench.data.taxonomy import LINEAGE_WIDTH, canonical
+
+    long_tag = "|d__Bacteria;p__" + "x" * 300
+    short_tag = "|d__Bacteria|"
+    for t in (long_tag, short_tag, "|d__X;p__Y;c__Z|"):
+        assert len(canonical(t)) == LINEAGE_WIDTH, f"{t[:20]}... -> {len(canonical(t))}"
+    assert canonical("") == "", "an absent lineage must stay absent, not become padding"
+    # a real split must collapse to ONE width, or generation fragments again
+    import json as _json
+    p = Path("/data2/ds85/bgcbench/splits/TERPENE/test.jsonl")
+    if p.exists():
+        from bgcbench.data.taxonomy import attach, load_table
+        recs = [_json.loads(l) for l in open(p)]
+        rep = attach(recs, load_table())
+        assert rep["realised_widths"] == [LINEAGE_WIDTH], \
+            f"prompts span {rep['realised_widths']} widths — generation will fragment"

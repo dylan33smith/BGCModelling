@@ -40,7 +40,26 @@ def load_table(path: Path = TAX_SOURCE) -> dict[str, str]:
     return tax
 
 
-def attach(records: list[dict], table: dict[str, str] | None = None) -> dict:
+#: FIXED PROMPT WIDTH. vortex batches only when prompts share a length, and real lineages run
+#: 22-186 characters (median 114) -- 200 generations fragmented into 43 buckets, which is
+#: ~3 hours of wall time against minutes for one batch. Canonicalising to one width makes
+#: every prompt batchable and is applied IDENTICALLY in training and generation, so the two
+#: formats match. 82 is the 1st percentile: 99% of lineages are truncated (losing the species
+#: and sometimes genus tail), 1% are right-padded with the format's own '|' delimiter.
+#: Truncation demonstrably keeps the signal: measured on truncated lineages, GC moved
+#: 0.453 -> 0.654, onto the real-core value.
+LINEAGE_WIDTH = 82
+
+
+def canonical(tag: str, width: int = LINEAGE_WIDTH) -> str:
+    """One fixed-width lineage string, so every prompt in a batch has the same length."""
+    if not tag:
+        return ""
+    return tag[:width] if len(tag) >= width else tag + "|" * (width - len(tag))
+
+
+def attach(records: list[dict], table: dict[str, str] | None = None,
+           width: int | None = LINEAGE_WIDTH) -> dict:
     """Set `tax_tag` on every record that has a lineage. Returns a coverage report.
 
     Records WITHOUT a lineage keep `tax_tag = ""` rather than being dropped: dropping them
@@ -50,8 +69,10 @@ def attach(records: list[dict], table: dict[str, str] | None = None) -> dict:
     n_hit = 0
     for r in records:
         t = table.get(r.get("genome_accession", ""), "")
-        r["tax_tag"] = t
+        r["tax_tag"] = canonical(t, width) if (width and t) else t
         n_hit += bool(t)
+    widths = {len(r["tax_tag"]) for r in records if r["tax_tag"]}
     return {"n": len(records), "with_lineage": n_hit,
             "coverage": round(n_hit / max(len(records), 1), 4),
+            "width": width, "realised_widths": sorted(widths),
             "source": str(TAX_SOURCE)}
