@@ -151,12 +151,21 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         from bgcbench.data import taxonomy
         pool_classes = ([row_class] if row_class
                         else (train_classes or list(BENCHMARK_CLASSES)))
-        tax_pool = [r for c in sorted(pool_classes)
-                    for r in _load(SPLITS / c / "test.jsonl")]
-        tax_pool.sort(key=lambda r: r["accession"])       # deterministic, seedless
+        # EQUAL SHARE PER CLASS. A pooled arm draws n/len(classes) lineages from each class's
+        # held-out set -- 50 each at n=200 -- taken from the HEAD of that class's
+        # accession-sorted list, so they are a strict subset of the 200 that class's own
+        # per-class arm uses. That keeps the pooled and per-class arms drawing from the same
+        # organisms rather than two unrelated samples.
+        per = n // len(pool_classes) if len(pool_classes) > 1 else n
+        tax_pool = []
+        for c in sorted(pool_classes):
+            recs = sorted(_load(SPLITS / c / "test.jsonl"), key=lambda r: r["accession"])
+            tax_pool.extend(recs[:per])                   # deterministic, seedless
         cov = taxonomy.attach(tax_pool)
-        print(f"  lineage pool from {sorted(pool_classes)}: "
-              f"{cov['with_lineage']}/{cov['n']}, widths {cov['realised_widths']}", flush=True)
+        print(f"  lineage pool: {cov['n']} records "
+              f"({per} from each of {sorted(pool_classes)}), "
+              f"{cov['with_lineage']} with a lineage, widths {cov['realised_widths']}",
+              flush=True)
 
     for cls in targets:
         seed_pool = _load(SPLITS / cls / "test.jsonl") if arm.seeded else None
@@ -309,6 +318,48 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
                     continue
                 seen.add(r["generation_id"])
                 fh.write(json.dumps(r) + "\n")
+    # ---- HITS LEDGER -------------------------------------------------------------------
+    # One row per DETECTED generation, carrying the organism it was prompted with. The
+    # per-generation record is the only place the lineage survives, so without this a
+    # positive hit cannot be traced back to the taxon that produced it.
+    hits = []
+    for target, rows in by_target.items():
+        for r in rows:
+            if not r.get("detected"):
+                continue
+            hits.append({
+                "arm": arm.arm_id,
+                "substrate": sub.id,
+                "stage": stage,
+                "target_class": target,
+                "called_classes": r.get("observed_classes"),
+                "on_target": r.get("on_target"),
+                "antismash_products": r.get("products"),
+                "produced_core_genes": r.get("produced_core_genes"),
+                "n_cds": r.get("n_cds"),
+                "coding_density": r.get("coding_density"),
+                "generation_id": r["generation_id"],
+                "seq_len": r.get("seq_len"),
+                "hit_eos": r.get("hit_eos"),
+                # the organism whose lineage was prompted
+                "prefix_kind": r.get("prefix_kind"),
+                "prefix_tag": r.get("prefix_tag"),
+                "prefix_source_accession": r.get("prefix_source_accession"),
+                "prefix_source_genome": r.get("prefix_source_genome"),
+                # seeded regime provenance, when present
+                "seed_accession": r.get("seed_accession"),
+                "novelty_gate": r.get("gate"),
+                "containment_worst": r.get("containment_worst"),
+                "novel": r.get("novel"),
+                "realised_config_hash": rhash,
+            })
+    with open(d / "hits.jsonl", "w") as fh:
+        for h in sorted(hits, key=lambda x: x["generation_id"]):
+            fh.write(json.dumps(h) + "\n")
+    report["n_hits_recorded"] = len(hits)
+    print(f"  hits ledger: {len(hits)} detected generation(s) -> {d / 'hits.jsonl'}",
+          flush=True)
+
     (d / "report.json").write_text(json.dumps(report, indent=2))
     return report
 

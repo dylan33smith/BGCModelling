@@ -665,3 +665,24 @@ def test_taxonomy_prefix_is_not_a_class_channel():
     seg = src[pool:loop]
     assert "row_class" in seg and "train_classes" in seg, \
         "the pool does not follow the arm's training data"
+
+
+def test_hits_ledger_fields_exist_in_the_scored_record():
+    """The hits ledger is the only place a positive detection is tied back to the organism
+    whose lineage prompted it -- the per-generation record is where the lineage survives.
+    A typo'd field name would silently write nulls for every hit, which looks exactly like
+    'no lineage was used'."""
+    from bgcbench.score.record import REQUIRED
+    from bgcbench.run import arm as armmod
+    import re
+
+    src = Path(armmod.__file__).read_text()
+    block = src[src.index("# ---- HITS LEDGER"):src.index('with open(d / "hits.jsonl"')]
+    pulled = set(re.findall(r'r\.get\("([a-z_]+)"\)', block))
+    # every field pulled from the scored record must actually be in its schema
+    extra = {"prefix_kind", "prefix_tag", "prefix_source_accession", "prefix_source_genome",
+             "gate", "containment_worst"}
+    unknown = pulled - set(REQUIRED) - extra
+    assert not unknown, f"hits ledger reads fields the scored record does not define: {unknown}"
+    for must in ("prefix_tag", "prefix_source_genome", "on_target", "products"):
+        assert must in block, f"hits ledger does not record {must}"

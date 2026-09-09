@@ -108,9 +108,11 @@ def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
     # TAXONOMY PREFIX POOL. Lineages are drawn from HELD-OUT records of the target class, so
     # a prompt is never a lineage the arm trained on for that particular record. The lineage
     # names an organism, not a compound class.
+    tax_recs: list[dict] = []
     tax_pool: list[str] = []
     if arm.prefix == "taxonomy":
-        tax_pool = [r["tax_tag"] for r in (seed_pool or []) if r.get("tax_tag")]
+        tax_recs = [r for r in (seed_pool or []) if r.get("tax_tag")]
+        tax_pool = [r["tax_tag"] for r in tax_recs]
         if not tax_pool:
             raise ValueError(
                 "prefix='taxonomy' but no record in the pool carries a tax_tag; call "
@@ -120,8 +122,16 @@ def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
 
     prompts: list[str] = []
     seeds: list[dict | None] = []
+    prefixes: list[str] = []
+    prefix_srcs: list[str | None] = []
+    prefix_genomes: list[str | None] = []
     for i in range(n):
-        pre = tax_pool[i % len(tax_pool)] if tax_pool else ""
+        pre_i = (i % len(tax_pool)) if tax_pool else None
+        pre = tax_pool[pre_i] if tax_pool else ""
+        pre_rec = tax_recs[pre_i] if tax_pool else None
+        prefixes.append(pre)
+        prefix_srcs.append(pre_rec["accession"] if pre_rec else None)
+        prefix_genomes.append(pre_rec.get("genome_accession") if pre_rec else None)
         if arm.seeded:
             rec = seed_pool[i % len(seed_pool)]
             prompts.append(pre + _seed_text(rec, arm.seed_len_nt))
@@ -146,6 +156,11 @@ def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
             "seed_accession": rec["accession"] if rec else None,
             "seed_core_gene_count": rec["core_gene_count"] if rec else None,
             "seed_seq_len": rec["seq_len"] if rec else None,
+            # WHICH LINEAGE produced this generation, so a hit can be traced to its organism
+            "prefix_kind": arm.prefix,
+            "prefix_tag": prefixes[i],
+            "prefix_source_accession": prefix_srcs[i],
+            "prefix_source_genome": prefix_genomes[i],
         })
     return out
 
