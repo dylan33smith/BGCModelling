@@ -31,6 +31,10 @@ class ArmSpec:
     seeded: bool = False
     seed_len_nt: int = 0              # seeded regime; length fixed by gate G3
     inference_control: str = "none"   # "none" | "steer" | "refine"
+    #: "none" -> bare input (SPEC 4.3 default). "taxonomy" -> prepend the target class's
+    #: held-out GTDB lineage, Evo2's native pretraining format. Names an ORGANISM, never a
+    #: compound class, so it does not hand the model the answer the benchmark asks for.
+    prefix: str = "none"
     adapter_path: str | None = None
     steer: dict[str, Any] = field(default_factory=dict)
     temperature: float = FROZEN["temperature"]
@@ -101,17 +105,31 @@ def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
                 f"change the decode path for this row only."
             )
 
+    # TAXONOMY PREFIX POOL. Lineages are drawn from HELD-OUT records of the target class, so
+    # a prompt is never a lineage the arm trained on for that particular record. The lineage
+    # names an organism, not a compound class.
+    tax_pool: list[str] = []
+    if arm.prefix == "taxonomy":
+        tax_pool = [r["tax_tag"] for r in (seed_pool or []) if r.get("tax_tag")]
+        if not tax_pool:
+            raise ValueError(
+                "prefix='taxonomy' but no record in the pool carries a tax_tag; call "
+                "bgcbench.data.taxonomy.attach() on the pool first. Falling back to a bare "
+                "prompt would silently run a DIFFERENT arm than the one requested."
+            )
+
     prompts: list[str] = []
     seeds: list[dict | None] = []
     for i in range(n):
+        pre = tax_pool[i % len(tax_pool)] if tax_pool else ""
         if arm.seeded:
             rec = seed_pool[i % len(seed_pool)]
-            prompts.append(_seed_text(rec, arm.seed_len_nt))
+            prompts.append(pre + _seed_text(rec, arm.seed_len_nt))
             seeds.append(rec)
         else:
-            # SPEC 4.3: bare sequence input. With no conditioning channel there is nothing
-            # to put in a de novo prompt, so it is empty and the model is unconstrained.
-            prompts.append("")
+            # SPEC 4.3 default: bare sequence input, nothing to condition on. With
+            # prefix="taxonomy" the prompt is the lineage alone.
+            prompts.append(pre)
             seeds.append(None)
 
     texts, hits = _run(sub, arm, prompts, cfg)
@@ -208,23 +226,52 @@ def suppress_terminator(sub, n_positions: int):
 
 
 def _run_evo2(sub, arm, prompts, cfg):
-    texts, hits = [], []
-    # Evo2 batches only when prompts are uniform length; de novo prompts are all empty and
-    # seeded prompts are all seed_len_nt, so batching is available in both regimes.
-    for i in range(0, len(prompts), cfg.batch_size):
-        chunk = prompts[i:i + cfg.batch_size]
-        # a truly empty prompt has nothing to condition on; vortex needs at least one token
-        chunk = [p if p else "A" for p in chunk]
-        with suppress_terminator(sub, cfg.min_new_tokens):
-            out = sub.model.generate(prompt_seqs=chunk, n_tokens=cfg.budget_nt,
-                                     temperature=arm.temperature, top_k=arm.top_k,
-                                     top_p=arm.top_p, verbose=0)
-        seqs = list(out[0]) if isinstance(out, tuple) else list(out.sequences)
-        for s in seqs:
-            # Evo2 returns ONLY the continuation, so there is no prompt to strip.
-            body, hit = sub.truncate_at_terminator(s)
-            texts.append(sub.clean(body))
-            hits.append(bool(hit))
+    """Generate, BUCKETING BY PROMPT LENGTH so every call is actually batched.
+
+    ⚠ vortex batches only when every prompt in a call has the same length
+    (`uniform_lengths = all(len(s) == len(prompt_seqs[0]))`, generation.py:313). Otherwise it
+    writes "WARNING: Batched generation is turned off" to stderr and generates ONE SEQUENCE
+    AT A TIME. That fallback is silent in any log that filters warnings, and it is
+    catastrophic rather than merely slow: measured twice on real GTDB lineage prompts, 42
+    prompts carry 19-21 distinct lengths, so a single call becomes 19-21 near-sequential
+    generations -- hours of wall time at ~40% GPU where one batch takes minutes.
+
+    De novo prompts (all "A") and seeded prompts (all `seed_len_nt`) are uniform by
+    construction, so this changes nothing for them. It matters the moment any variable-length
+    prompt is used, which is why it belongs here rather than in a caller.
+
+    ⚠ ORDER IS PRESERVED BY INDEX. Results are scattered back to their original positions:
+    generation `i` must correspond to prompt `i`, or every per-generation field recorded
+    downstream -- seed accession, seed length, the confusion-matrix row -- is attached to the
+    wrong sequence. Appending bucket by bucket would silently permute them.
+    """
+    prepared = [p if p else "A" for p in prompts]
+    buckets: dict[int, list[int]] = {}
+    for i, p in enumerate(prepared):
+        buckets.setdefault(len(p), []).append(i)
+    if len(buckets) > 1:
+        print(f"  prompts span {len(buckets)} lengths -> {len(buckets)} bucket(s), "
+              f"sizes {sorted((len(v) for v in buckets.values()), reverse=True)[:8]}",
+              flush=True)
+
+    texts: list[str | None] = [None] * len(prepared)
+    hits: list[bool | None] = [None] * len(prepared)
+    for _L, idxs in sorted(buckets.items()):
+        for j in range(0, len(idxs), cfg.batch_size):
+            sl = idxs[j:j + cfg.batch_size]
+            with suppress_terminator(sub, cfg.min_new_tokens):
+                out = sub.model.generate(prompt_seqs=[prepared[k] for k in sl],
+                                         n_tokens=cfg.budget_nt,
+                                         temperature=arm.temperature, top_k=arm.top_k,
+                                         top_p=arm.top_p, verbose=0)
+            seqs = list(out[0]) if isinstance(out, tuple) else list(out.sequences)
+            for k, sq in zip(sl, seqs):
+                # Evo2 returns ONLY the continuation, so there is no prompt to strip.
+                body, hit = sub.truncate_at_terminator(sq)
+                texts[k] = sub.clean(body)
+                hits[k] = bool(hit)
+    if any(t is None for t in texts):
+        raise RuntimeError("a prompt produced no generation; bucketing lost a record")
     return texts, hits
 
 

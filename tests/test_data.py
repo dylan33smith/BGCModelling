@@ -646,7 +646,7 @@ def test_manipulation_check_actually_compares_intervened_to_unintervened():
         family = "toy"
         model = Toy()
         tokenizer = Tok()
-        def training_text(s, seq): return seq
+        def training_text(s, seq, prefix=""): return prefix + seq
 
     sub = Sub()
     rng = __import__("random").Random(0)

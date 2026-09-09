@@ -595,3 +595,43 @@ def test_min_new_tokens_is_frozen_and_below_every_class_median():
     assert FROZEN["min_new_tokens"] >= 500, "floor too low to clear the 2 nt collapse"
     # must not dictate cluster length: it sits below every benchmark class's median core
     assert FROZEN["min_new_tokens"] < 1154, "floor exceeds TERPENE's median core"
+
+
+def test_evo2_generation_buckets_ragged_prompts_and_preserves_order():
+    """vortex batches only when every prompt in a call shares a length; otherwise it silently
+    generates ONE AT A TIME. Measured twice on real GTDB lineages: 42 prompts carry 19-21
+    distinct lengths, turning one batch into 19-21 near-sequential calls -- hours at ~40% GPU.
+
+    The order check is the load-bearing one: results must scatter back to their original
+    positions, or seed accession, seed length and the confusion-matrix row all attach to the
+    wrong sequence."""
+    from bgcbench.model.generate import _run_evo2, ArmSpec, GenConfig
+
+    calls = []
+
+    class FakeModel:
+        def generate(self, prompt_seqs, **kw):
+            assert len({len(p) for p in prompt_seqs}) == 1, \
+                f"ragged batch submitted: {sorted({len(p) for p in prompt_seqs})}"
+            calls.append(list(prompt_seqs))
+            # echo the prompt back so order can be verified downstream
+            return ([p + "ACGT" for p in prompt_seqs],)
+
+    class FakeSub:
+        family = "evo2"
+        model = FakeModel()
+        terminator_id = 0
+        def truncate_at_terminator(self, t): return t, False
+        @staticmethod
+        def clean(t): return t
+
+    prompts = ["A", "AB", "ABC", "AB", "A", "ABCD", "ABC", "A"]
+    arm = ArmSpec(arm_id="t", weight_state="base")
+    cfg = GenConfig(budget_nt=8, batch_size=100, seed=0, min_new_tokens=0)
+    texts, hits = _run_evo2(FakeSub(), arm, prompts, cfg)
+
+    assert all(len({len(p) for p in c}) == 1 for c in calls), "a ragged batch got through"
+    assert len(calls) == 4, f"expected one call per distinct length, got {len(calls)}"
+    # ORDER: result i must correspond to prompt i
+    assert texts == [p + "ACGT" for p in prompts], f"order not preserved: {texts}"
+    assert len(hits) == len(prompts)

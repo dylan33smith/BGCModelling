@@ -142,7 +142,12 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         targets = targets[:1]          # nothing carries the class: one row set
 
     for cls in targets:
-        seed_pool = _load(SPLITS / cls / "test.jsonl") if arm.seeded else None
+        need_pool = arm.seeded or arm.prefix == "taxonomy"
+        seed_pool = _load(SPLITS / cls / "test.jsonl") if need_pool else None
+        if seed_pool is not None and arm.prefix == "taxonomy":
+            from bgcbench.data import taxonomy
+            cov = taxonomy.attach(seed_pool)
+            print(f"  {cls}: lineage coverage {cov['with_lineage']}/{cov['n']}", flush=True)
         gens = generate(sub, arm, cls, n, cfg, seed_pool=seed_pool, stage=stage)
 
         # ⚠ EMPTY GENERATIONS STAY IN THE DENOMINATOR.
@@ -208,7 +213,7 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
     realised = gc.realised(
         n_per_row=n, budget_nt=cfg.budget_nt, batch_size=cfg.batch_size,
         rng_seed=cfg.seed, temperature=arm.temperature, top_k=arm.top_k,
-        top_p=arm.top_p, seeded=arm.seeded, seed_len_nt=arm.seed_len_nt,
+        top_p=arm.top_p, seeded=arm.seeded, seed_len_nt=arm.seed_len_nt, prefix=arm.prefix,
         weight_state=arm.weight_state, adapter=arm.adapter_path,
         adapter_sha=_sha_of(arm.adapter_path), row_class=row_class or "ALLROWS",
         substrate=sub.id, checkpoint=sub.checkpoint,
@@ -323,6 +328,10 @@ def main() -> int:
                     help="the class this arm's WEIGHTS carry. Set for a per-class adapter: "
                          "it generates once and fills that one row, rather than pretending "
                          "to be conditioned toward five different targets.")
+    ap.add_argument("--prefix", choices=["none", "taxonomy"], default="none",
+                    help="'taxonomy' prepends the target class's held-out GTDB lineage -- "
+                         "Evo2's native pretraining format. It names an organism, never a "
+                         "compound class. Recorded in the realised config and in the hash.")
     ap.add_argument("--stage", default="stage1")
     ap.add_argument("--cpus", type=int, default=16)
     args = ap.parse_args()
@@ -350,11 +359,13 @@ def main() -> int:
         print(f"attached adapter {adapter}", flush=True)
     arm = ArmSpec(arm_id=args.arm,
                   weight_state="base" if args.adapter is None else args.arm,
-                  seeded=args.seeded, seed_len_nt=args.seed_len,
+                  seeded=args.seeded, seed_len_nt=args.seed_len, prefix=args.prefix,
                   adapter_path=args.adapter)
     # class-bearing iff something in the coordinate carries the class
     # the class must enter at GENERATION time for a target to mean anything
-    class_bearing = args.seeded or arm.inference_control != "none"
+    # a taxonomy prefix is drawn per TARGET CLASS, so it varies the output by target and the
+    # arm must generate once per row, exactly like the seeded regime
+    class_bearing = args.seeded or arm.inference_control != "none" or args.prefix != "none"
     # A per-class adapter carries the class in its WEIGHTS. Run without --row-class it
     # would replicate one sample into all five confusion rows and self-divide lift to 1.0,
     # producing a report that is structurally indistinguishable from a real result.

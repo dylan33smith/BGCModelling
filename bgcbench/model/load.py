@@ -95,7 +95,7 @@ class Substrate:
 
 
     # ---- training text -------------------------------------------------------------
-    def training_text(self, sequence: str) -> str:
+    def training_text(self, sequence: str, prefix: str = "") -> str:
         """SPEC 4.3: bare sequence, plus a terminator where the tokenizer will not add one.
 
         A model that never sees a terminator in training will never emit one, so this is
@@ -103,9 +103,9 @@ class Substrate:
         own native token.
         """
         if self.appends_terminator:
-            return sequence
+            return prefix + sequence
         # the ENCODE form, not the display sentinel -- see the field comments above
-        return sequence + (self.terminator_encode_str or self.terminator_str)
+        return prefix + sequence + (self.terminator_encode_str or self.terminator_str)
 
     # ---- termination ---------------------------------------------------------------
     def truncate_at_terminator(self, text: str) -> tuple[str, bool]:

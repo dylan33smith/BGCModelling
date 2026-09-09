@@ -70,6 +70,10 @@ def main() -> int:
                          "equal tokens (measured 3.4x nucleotide imbalance). "
                          "'nucleotides' weights the per-class loss so classes contribute "
                          "equally by token, which is what the pooled gradient actually sees.")
+    ap.add_argument("--prefix", choices=["none", "taxonomy"], default="none",
+                    help="'taxonomy' prepends each record's GTDB lineage -- Evo2's native "
+                         "pretraining format -- LOSS-MASKED, so it is context to condition "
+                         "on rather than text the adapter learns to emit.")
     ap.add_argument("--limit", type=int, default=0, help="cap train records (smoke tests)")
     args = ap.parse_args()
 
@@ -80,6 +84,15 @@ def main() -> int:
     for c in args.classes:
         train += _load(SPLITS / c / "train.jsonl", c)
         val += _load(SPLITS / c / "val.jsonl", c)
+    if args.prefix == "taxonomy":
+        from bgcbench.data import taxonomy
+        tbl = taxonomy.load_table()
+        ctr, cva = taxonomy.attach(train, tbl), taxonomy.attach(val, tbl)
+        print(f"lineage coverage: train {ctr['with_lineage']}/{ctr['n']} "
+              f"({ctr['coverage']}), val {cva['with_lineage']}/{cva['n']}", flush=True)
+        if ctr["coverage"] < 0.99:
+            raise SystemExit(f"only {ctr['coverage']:.1%} of training records carry a "
+                             f"lineage; a partly-prefixed arm is two arms in one")
     if args.limit:
         train, val = train[:args.limit], val[:max(8, args.limit // 8)]
 
@@ -87,7 +100,7 @@ def main() -> int:
                       eval_every=args.eval_every, patience=args.patience,
                       grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
                       balance=args.balance, method=args.method,
-                      offset_rank=args.offset_rank)
+                      offset_rank=args.offset_rank, prefix=args.prefix)
     out = ADAPTERS / f"{args.substrate}_{args.name}"
     print(f"training {args.name} on {sorted(args.classes)}: "
           f"{len(train)} train / {len(val)} val, rank {cfg.rank}, "

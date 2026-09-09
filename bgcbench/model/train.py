@@ -74,6 +74,10 @@ class TrainConfig:
     method: str = "lora"
     offset_rank: int = 16
     min_classes_per_batch: int = 2
+    #: "none" -> bare sequence (SPEC 4.3 default, unchanged).
+    #: "taxonomy" -> prepend the record's GTDB lineage, Evo2's native pretraining format.
+    #: The prefix is LOSS-MASKED: it is context to condition on, not text to learn to emit.
+    prefix: str = "none"
     seed: int = 0
     targets: list[str] = field(default_factory=lambda: list(EVO2_LORA_TARGETS))
 
@@ -152,10 +156,27 @@ def batch_class_mixing(batches: list[list[dict]]) -> dict:
 
 
 def _encode(sub, rec: dict, cfg: TrainConfig) -> list[int]:
-    text = sub.training_text(rec["sequence"][: cfg.max_len_nt])
+    """Token ids for one record. See `_encode2` for the prefix-aware form."""
+    return _encode2(sub, rec, cfg)[0]
+
+
+def _encode2(sub, rec: dict, cfg: TrainConfig) -> tuple[list[int], int]:
+    """(token ids, number of PREFIX tokens to exclude from the loss).
+
+    ⚠ THE PREFIX IS CONTEXT, NOT A TARGET. Supervising it would spend adapter capacity
+    learning to emit GTDB lineages, which is not the task and is not what the prior project
+    did -- it masked the prefix and supervised only the sequence
+    ("prefix-mask train: idx=0 length=4326 prefix=131 supervised=4195").
+    """
+    prefix = rec.get("tax_tag", "") if cfg.prefix == "taxonomy" else ""
+    text = sub.training_text(rec["sequence"][: cfg.max_len_nt], prefix=prefix)
     if sub.family == "evo2":
-        return [int(x) for x in sub.tokenizer.tokenize(text)]
-    return sub.tokenizer(text)["input_ids"]
+        ids = [int(x) for x in sub.tokenizer.tokenize(text)]
+        plen = len(sub.tokenizer.tokenize(prefix)) if prefix else 0
+    else:
+        ids = sub.tokenizer(text)["input_ids"]
+        plen = len(sub.tokenizer(prefix)["input_ids"]) if prefix else 0
+    return ids, int(plen)
 
 
 def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
@@ -232,13 +253,16 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
         if stopped_early:
             break
         for bi, batch in enumerate(batches):
-            ids = [_encode(sub, r, cfg) for r in batch]
+            enc = [_encode2(sub, r, cfg) for r in batch]
+            ids = [e[0] for e in enc]
             L = max(len(x) for x in ids)
             x = torch.full((len(ids), L), pad, dtype=torch.long, device=device)
             mask = torch.zeros((len(ids), L), dtype=torch.bool, device=device)
-            for i, seq in enumerate(ids):
+            for i, (seq, plen) in enumerate(enc):
                 x[i, :len(seq)] = torch.tensor(seq, device=device)
                 mask[i, :len(seq)] = True
+                if plen:
+                    mask[i, :plen] = False        # prefix is context, never a target
 
             logits = _unwrap(model(x))
             if logits is None:
@@ -407,13 +431,16 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
             if stopped:
                 break
             for bi, batch in enumerate(batches):
-                ids = [_encode(sub, r, cfg) for r in batch]
+                enc = [_encode2(sub, r, cfg) for r in batch]
+                ids = [e[0] for e in enc]
                 L = max(len(x) for x in ids)
                 x = torch.full((len(ids), L), pad, dtype=torch.long, device=device)
                 mask = torch.zeros((len(ids), L), dtype=torch.bool, device=device)
-                for i, sq in enumerate(ids):
+                for i, (sq, plen) in enumerate(enc):
                     x[i, :len(sq)] = torch.tensor(sq, device=device)
                     mask[i, :len(sq)] = True
+                    if plen:
+                        mask[i, :plen] = False    # prefix is context, never a target
                 logits = _unwrap(base(x))
                 lp = torch.log_softmax(logits[:, :-1].float(), dim=-1)
                 nll = -lp.gather(-1, x[:, 1:].unsqueeze(-1)).squeeze(-1)
