@@ -782,3 +782,50 @@ sweep. So the seed only helps when the class's marker lies near the 5' end of th
 for REDOX it does not. That is a property of the class, not of the method, and it predicts
 which classes seeding can be expected to help before spending a run.
 
+
+---
+
+## 10. The phylogeny prefix is causal — the control
+
+Frozen: `/data2/ds85/bgcbench/runs/PREFIX_CONTROL_FROZEN_98edca7b6319ae01.json`
+
+Between the unprefixed Stage 1 table (§6) and the prefixed one (§8), **four things changed at
+once**: the terminator fix, 12x more training data, the frame-preserving cleaner, and the
+prefix. So §8 could only say "this configuration clears the floor", never "the prefix caused
+it". This closes that.
+
+**Design.** Unprefixed arms trained on the SAME 8,044 records, at the SAME commit, generated
+through the SAME fixed pipeline. Only `--prefix` differs. An unprefixed adapter already
+existed but was trained at `c82878d` — before the terminator fix, by code whose `TrainConfig`
+had no `prefix` field — so reusing it would have reintroduced the mixed-code-version confound
+of 4a.6, which is the thing this control exists to remove. Both arms were retrained.
+
+| class | arm | detected | on-target | rate | p | hit_eos | median GC |
+|---|---|---|---|---|---|---|---|
+| ARYLPOLYENE | no prefix | 0 | 0 | 0.000 | — | 0.025 | 0.483 |
+| ARYLPOLYENE | **+ phylogeny** | 7 | **7** | **0.035** | **0.007** | 0.290 | **0.617** |
+| TERPENE | no prefix | 1 | 1 | 0.005 | — | 0.365 | 0.467 |
+| TERPENE | **+ phylogeny** | 3 | **3** | 0.015 | 0.312 | 0.830 | **0.586** |
+
+**Pooled: 10/400 on-target with the prefix against 1/400 without — a 10x difference,
+Fisher one-sided p = 5.6e-03.**
+
+### 10.1 What it establishes `[result]`
+The phylogeny prefix **causes** the effect. Everything §8 reports survives, and the claim
+strengthens from "this configuration clears the floor" to "the prefix is what lifts it". The
+pipeline fixes were necessary — nothing worked before them — but they are not sufficient: an
+arm with every fix and no prefix still sits at the floor.
+
+Two secondary readouts move the same way and were not the endpoint, so they are independent
+corroboration rather than the same measurement twice:
+* **Composition.** Median GC 0.483 -> 0.617 and 0.467 -> 0.586, onto the real-core value of
+  ~0.64. The prefix moves the output distribution toward real biology.
+* **Termination.** `hit_eos` 0.025 -> 0.290 and 0.365 -> 0.830. Unprefixed arms run to the
+  full budget; prefixed ones stop.
+
+### 10.2 What it does NOT establish `[limitation]`
+Only ARYLPOLYENE clears significance on its own (p = 0.007); TERPENE at 3 vs 1 is p = 0.31 and
+carries the pooled result rather than standing alone. Two classes is a thin base for a general
+claim, and RIPP was deliberately excluded because it is 0/200 prefixed — so the control speaks
+for the classes where the prefix already appeared to work, not for the method everywhere.
+
