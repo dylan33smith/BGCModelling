@@ -1124,6 +1124,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
 | G5 | ✅ **CLOSED** [M] on corpus `0225546040b9`: TERPENE 1.000 · NRPS 0.975 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 1.000 on-target. Full dynamic range against a 0/300 floor | interpretation of every rate |
 | G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm |
+| G6b | adapter **depth** sweep — which blocks carry adapters — on held-out loss, at the rank G6 selects | every `W1`/`W2` arm |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
 | G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm |
@@ -1269,7 +1270,8 @@ it.** Prior answers were measured on a different instrument and are not reportab
 | gate | what it sets | status |
 |---|---|---|
 | G4 | decoding policy — temperature, top-k, top-p | `NEVER RUN`. Current values are inherited defaults, not swept. |
-| G6 | **adapter rank sweep** | `NEVER RUN`, and **every W-arm number owes it a debt**: §6 requires capacity be "a declared, defended parameter", chosen on held-out loss. Rank 16 is used everywhere and defended nowhere. Highest-priority gate. |
+| G6 | **adapter rank sweep** | ▶ **RUNNING 2026-09-10.** §6 requires capacity be "a declared, defended parameter", chosen on held-out loss; rank 16 was used everywhere and defended nowhere, so every W-arm number owed it a debt. Ranks {4,8,16,32,64} on ARYLPOLYENE and RIPP — the best- and worst-modelled classes (val 0.689 / 1.037), which bracket the range. ⚠ **Loss only, no generation and no scoring** (§2.4). |
+| G6b | **adapter depth sweep** | `NEVER RUN`. Which blocks carry adapters is currently an **undeclared** free parameter — §6 defends rank and is silent on depth, so the same objection that G6 answers applies unanswered here. Run at the rank G6 selects, on one class. ⚠ Rank-then-depth is a **greedy** 1D×2 search, not a joint 2D sweep: rank and depth trade off in total trainable parameters, and the paper must report it as greedy rather than imply a full grid. |
 | G8 | data scaling | `NEVER RUN` as a sweep. §12.A3 raised training data 12.3× and the endpoint did not move, which is one point on the curve, not the curve. |
 | G9 | steering layer × magnitude | `NEVER RUN` — **and REQUIRED, see §14.6.** The prior codebase closed steering, but on Pfam endpoints and probe readouts, without the frozen scoring config, at per-class windows. A benchmark paper cannot report that data. Believing a result and being able to publish it are different things. |
 | G2 | substrate likelihood health | `PARTIAL` — Evo2 done; GO-4B and bgcfm load and generate but have no likelihood check. |
@@ -1323,9 +1325,15 @@ What disqualifies the prior data, in every case at least one of:
 | **Steering is null** | six stages, all variants, closed 2026-08-10 | Pfam endpoint + probe readouts, no frozen config | **G9 + I1** |
 | **CFG, soft prefixes, affine editing, cross-class transplants** | all closed | same, and no per-variant rates were ever recorded | each needs a benchmark arm, or the paper says "not tested here" |
 | **Guided decoding is not the fix** | likelihood argument: adapters ARE the best model of their own target | a likelihood contrast, never an endpoint measurement | a decoding arm on the frozen endpoint |
-| **Subclass conditioning reaches 1.000** | cyclactone 124/124 | antiSMASH, but unfrozen config and a class token in the prompt | a subclass arm under §3.1 + §4.3 |
 | **Detection falls with target length** | r = −0.822 over 11 adapters | mixed instruments across the eleven; the correlation's own denominator problem is FINDINGS-documented | re-derive on frozen scoring |
 | **GenomeOcean beats Evo2 de novo 9.8×** | 2,000 nt window, prior config | window and config both outside the benchmark | GO-4B on the rebuilt benchmark |
+
+**`DROPPED` 2026-09-10 by decision — subclass conditioning.** The prior codebase's strongest
+result (cyclactone 124/124) is NOT being redone. It is out of scope for this paper, which
+benchmarks methods at the benchmark's own class level; a subclass arm changes the class
+granularity rather than the method, so it belongs to a different comparison. ⚠ This is the one
+row of §14.6 where the paper will say nothing at all, and FINDINGS §12.5's prediction therefore
+stays untested — recorded as a hypothesis this benchmark generated, not as a result.
 
 ⇒ **The register's default is therefore REDO, not cite.** An item may only be carried into the
 paper from prior work if it is a *methodological* fact that does not depend on the endpoint —

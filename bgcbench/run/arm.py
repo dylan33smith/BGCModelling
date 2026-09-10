@@ -36,7 +36,8 @@ from bgcbench.data.classmap import BENCHMARK_CLASSES, build_map, mapping_hash
 from bgcbench.model import genconfig as gc
 from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
-from bgcbench.model.load import attach_adapter, attach_intervention, load
+from bgcbench.model.load import (attach_adapter, attach_direction,
+                                 attach_intervention, load)
 from bgcbench.score import antismash
 from bgcbench.score.endpoints import confusion, gene_count_profile, lift, rates, subclass_profile
 from bgcbench.score.novelty import Reference, corpus_novelty, write_corpus_fasta
@@ -246,11 +247,24 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         # SPEC 6.5: an arm attached at 4 of 25 sites is not the same arm as one at 32 of
         # 32, and a W3 run at rank 16 is not the one at rank 64. Without these in the
         # REALISED hash both collide on one run directory and the loser is destroyed.
-        intervention_method=("offset" if intervention is not None else None),
+        # ⚠ NOT hardcoded "offset": W3 and I1 share this path, and an I1 arm recorded as
+        # an offset arm would be indistinguishable from W3 in the frozen record.
+        intervention_method=((sub.meta or {}).get("intervention_kind", "offset")
+                             if intervention is not None else None),
+        # ⚠ ALPHA IS PART OF THE REALISED IDENTITY. I1 at alpha 1 and alpha 4 are different
+        # arms; without alpha here they collide on one run directory and the second run
+        # destroys the first -- the same failure the site/rank fields exist to prevent.
+        intervention_alpha=(getattr(intervention, "alpha", None)
+                            if intervention is not None else None),
+        intervention_direction_class=((sub.meta or {}).get("intervention_direction_class")
+                                      if intervention is not None else None),
         intervention_rank=(getattr(intervention, "rank", None)
                            if intervention is not None else None),
+        # DirectionInjection has no trainable parameters and no n_trainable(); calling it
+        # unconditionally raised AttributeError for every I1 arm.
         intervention_trainable=(intervention.n_trainable()
-                                if intervention is not None else None),
+                                if intervention is not None
+                                and hasattr(intervention, "n_trainable") else None),
         intervention_sites=((sub.meta or {}).get("intervention_sites")
                             if intervention is not None else None),
         intervention_attached=(bool(intervention.is_attached())
@@ -398,6 +412,15 @@ def main() -> int:
                     help="'taxonomy' prepends the target class's held-out GTDB lineage -- "
                          "Evo2's native pretraining format. It names an organism, never a "
                          "compound class. Recorded in the realised config and in the hash.")
+    ap.add_argument("--direction", default=None,
+                    help="I1: a .pt from run.derive_directions. Composes with --adapter.")
+    ap.add_argument("--alpha", type=float, default=None,
+                    help="I1 injection magnitude. Required with --direction; swept by G9 "
+                         "against the manipulation check, never the endpoint (SPEC 2.4).")
+    ap.add_argument("--random-direction", type=int, default=None, metavar="SEED",
+                    help="SPEC 6.3 control: magnitude-matched random vectors at the same "
+                         "alpha, so anything I1 achieves that this does not is the "
+                         "direction doing work rather than the push.")
     ap.add_argument("--stage", default="stage1")
     ap.add_argument("--cpus", type=int, default=16)
     args = ap.parse_args()
@@ -415,7 +438,17 @@ def main() -> int:
                 print(f"using BEST checkpoint (step {meta['step']}, "
                       f"val {meta['val_loss']}) rather than final", flush=True)
     intervention = None
-    if adapter and str(adapter).endswith(".pt"):
+    if args.direction:
+        # I1. Loaded SEPARATELY from --adapter so the two compose: the direction is derived
+        # on the weight state the arm runs, and both are attached at generation.
+        if args.alpha is None:
+            raise SystemExit("--direction needs --alpha; there is no default magnitude, "
+                             "and an unstated one would be an undeclared free parameter")
+        sub, intervention = attach_direction(sub, args.direction, args.alpha,
+                                             randomise=args.random_direction)
+        print(f"attached {sub.meta['intervention_kind']} alpha={args.alpha} "
+              f"from {args.direction}", flush=True)
+    elif adapter and str(adapter).endswith(".pt"):
         sub, intervention = attach_intervention(sub, adapter)
         print(f"attached intervention {adapter} "
               f"({sub.meta.get('intervention_sites', {}).get('n_attention_sites')} sites)",
@@ -426,7 +459,13 @@ def main() -> int:
     arm = ArmSpec(arm_id=args.arm,
                   weight_state="base" if args.adapter is None else args.arm,
                   seeded=args.seeded, seed_len_nt=args.seed_len, prefix=args.prefix,
-                  adapter_path=args.adapter)
+                  adapter_path=args.adapter,
+                  # ⚠ I1 IS A CLASS CHANNEL and must say so here. The direction is derived
+                  # per target class, so an I1 arm carries the class at generation time.
+                  # Left at the "none" default it would fall through to SPEC 6.0's
+                  # degenerate collapse and fill every confusion row from ONE distribution
+                  # -- reporting a class-conditional arm as though it were unconditioned.
+                  inference_control=("steer" if args.direction else "none"))
     # class-bearing iff something in the coordinate carries the class
     # the class must enter at GENERATION time for a target to mean anything
     # ⚠ A TAXONOMY PREFIX IS NOT A CLASS CHANNEL. It names an organism, not a compound

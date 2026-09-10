@@ -286,9 +286,8 @@ def attach_adapter(sub: Substrate, adapter_path: str) -> Substrate:
 def attach_intervention(sub: Substrate, path: str) -> tuple[Substrate, object]:
     """Attach a trained W3 conditioner for generation.
 
-    ⚠ W3 ONLY. It builds a LearnedOffset and loads a strict state_dict; there is no I1
-    path here, and no I1 construction, alpha or runner exists anywhere in the repo yet.
-    An earlier version of this docstring advertised I1 support the body does not have.
+    ⚠ W3 ONLY -- `attach_direction` below is the I1 path. This one builds a LearnedOffset
+    and loads a strict state_dict.
 
     Returns the substrate and the LIVE intervention object -- the caller must keep it in
     scope and hold its `attached()` context for the duration of generation. Unlike a LoRA
@@ -306,4 +305,41 @@ def attach_intervention(sub: Substrate, path: str) -> tuple[Substrate, object]:
     iv = iv.to(dev)
     sub.meta["intervention"] = path
     sub.meta["intervention_sites"] = ck.get("sites")
+    return sub, iv
+
+
+def attach_direction(sub: Substrate, path: str, alpha: float,
+                     randomise: int | None = None) -> tuple[Substrate, object]:
+    """Attach an I1 derived-direction injection for generation (SPEC 6, gate G9).
+
+    `randomise` builds SPEC 6.3's magnitude-matched random control instead, at the same
+    alpha and the same unit norm, so the only difference from the real arm is whether the
+    direction carries class content.
+
+    Returns the substrate and the LIVE intervention -- like `attach_intervention`, this is
+    a hook, not merged weights. If the caller does not hold `attached()` for the duration
+    of generation the arm silently generates from the BASE MODEL and reads as a null.
+    """
+    import torch
+
+    from bgcbench.model.interventions import (DirectionInjection,
+                                              random_direction_control)
+    base = sub.model.model if sub.family == EVO2 else sub.model
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    hidden = int(ck["hidden"])
+    dev = next(base.parameters()).device
+    if randomise is not None:
+        iv = random_direction_control(base, hidden, seed=int(randomise), alpha=alpha)
+        sub.meta["intervention_kind"] = "i1_random"
+    else:
+        d = ck["directions"]
+        if d.shape[-1] != hidden:
+            raise ValueError(f"directions are {d.shape[-1]}-dim against hidden {hidden}")
+        iv = DirectionInjection(base, hidden, d, alpha)
+        sub.meta["intervention_kind"] = "i1"
+    iv = iv.to(dev)
+    sub.meta["intervention"] = path
+    sub.meta["intervention_alpha"] = float(alpha)
+    sub.meta["intervention_sites"] = ck.get("sites")
+    sub.meta["intervention_direction_class"] = ck.get("target_class")
     return sub, iv

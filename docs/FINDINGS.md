@@ -1007,6 +1007,9 @@ and the arm to test it is already on the §14.6 redo list — the prior codebase
 (cyclactone 124/124, unreportable: unfrozen config plus a class token) was on
 `cyclic-lactone-autoinducer`, **a RiPP subtype**, with 6,497 records in this corpus.
 
-⇒ The subclass arm stops being a redo chore and becomes the direct test of a hypothesis this
-benchmark's own data generated. **It must be pre-registered before it runs**, with the predicted
-direction stated, or it inherits the same post-hoc status as everything in §14.6.
+⚠ **The subclass arm was DROPPED by decision on 2026-09-10** (SPEC §14.6). It changes the class
+*granularity* rather than the method, so it sits outside a paper that benchmarks methods at the
+benchmark's own class level. ⇒ **This prediction is therefore recorded and left untested.** It is
+stated here so that it is a standing, falsifiable claim with a direction rather than a hindsight
+explanation if anyone tests it later; the paper reports §12 as exploratory with an untested
+prediction attached, and claims nothing about whether subclass conditioning would rescue RIPP.

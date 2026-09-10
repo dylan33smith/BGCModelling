@@ -713,3 +713,67 @@ def test_seed_length_is_the_value_gate_g3_selected():
         "re-read and FINDINGS 9 updated with the new contamination boundary")
     # the frozen value must sit inside the uncontaminated window G3 measured
     assert 32 <= FROZEN["seed_len_nt"] <= 64, "outside the window G3 established as clean"
+
+
+def test_i1_arm_is_class_bearing():
+    """A derived direction is per target class, so an I1 arm carries the class at
+    generation time and must fill each confusion row from its own distribution.
+
+    ⚠ The bug this pins: `ArmSpec` was constructed without `inference_control`, so it took
+    the "none" default and `class_bearing` stayed False for every I1 arm. That routes a
+    class-conditional arm through SPEC 6.0's degenerate collapse, which fills all four rows
+    from ONE sample -- reporting a steering arm as though the class never entered.
+    """
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    spec = src[src.index("arm = ArmSpec("):src.index("class_bearing =")]
+    assert "inference_control=" in spec, \
+        "ArmSpec is built without inference_control; every I1 arm reads as class-free"
+    assert "args.direction" in spec, \
+        "inference_control does not follow --direction, so I1 never sets it"
+
+
+def test_i1_alpha_and_kind_enter_the_realised_identity():
+    """I1 at two alphas is two arms, and an I1 arm is not a W3 arm.
+
+    ⚠ Two bugs this pins, both silent. `intervention_method` was the literal "offset", so
+    an I1 run was recorded as W3 and the two were indistinguishable in the frozen record.
+    And alpha was absent from the realised fields, so alpha=1 and alpha=4 hashed to the
+    SAME run directory and the second run destroyed the first -- exactly the collision the
+    site and rank fields already exist to prevent.
+    """
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    seg = src[src.index("intervention_method="):src.index("classmap_hash=")]
+    assert '"offset" if intervention' not in seg, \
+        "intervention_method is hardcoded to offset; I1 arms record as W3"
+    assert "intervention_kind" in seg, "the method does not follow the attached kind"
+    assert "intervention_alpha=" in seg, \
+        "alpha is not a realised field; two alphas collide on one run directory"
+
+
+def test_direction_injection_survives_the_realised_report():
+    """`DirectionInjection` has no trainable parameters and no `n_trainable()`; the report
+    called it unconditionally, which raised AttributeError for every I1 arm before a single
+    sequence was scored."""
+    from bgcbench.model.interventions import DirectionInjection
+    assert not hasattr(DirectionInjection, "n_trainable")
+    from bgcbench.run import arm as armmod
+    src = Path(armmod.__file__).read_text()
+    seg = src[src.index("intervention_trainable="):src.index("classmap_hash=")]
+    assert "hasattr" in seg, \
+        "n_trainable() is called unconditionally; I1 arms crash building their report"
+
+
+def test_i1_directions_are_unit_norm_so_the_random_control_is_matched():
+    """SPEC 6.3's control is MAGNITUDE-MATCHED. `random_direction_control` normalises to
+    unit norm, so if I1's directions kept their raw norms the two arms would differ in
+    magnitude as well as content and "I1 beat random" could just mean "I1 pushed harder".
+    All the magnitude belongs to alpha, which is the swept parameter."""
+    from bgcbench.model import directions as D
+    src = Path(D.__file__).read_text()
+    assert "raw / norms.unsqueeze(-1)" in src, "directions are not unit-normalised"
+    assert '"raw_norms"' in src, "the discarded scale is not recorded"
+    body = src[src.index("def derive("):]
+    assert "mt - mo" in body, \
+        "the contrast is not target-minus-others; target-minus-zero steers toward 'DNA'"
