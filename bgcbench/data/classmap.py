@@ -56,8 +56,14 @@ PROMOTIONS: dict[str, str] = {
         "records (10,207) against betalactone's 39% (7,863), and a class retained at 39% "
         "enters the benchmark as a biased short-tail slice of itself. "
         "⚠ IT IS A RiPP SUBTYPE, so REDOX_COFACTOR and RIPP are biologically nested even "
-        "though promotion makes them disjoint at class level (measured: 0 records carry "
-        "both once promoted). Off-diagonal mass between these two rows is expected and "
+        "though promotion makes them disjoint as LABELS. "
+        "⚠ CORRECTED 2026-09-10: this note previously claimed 'measured: 0 records carry "
+        "both once promoted', which is FALSE -- 220 corpus records carry both (e.g. "
+        "GCF_000012325.1.NC_003910.region2, products ['RiPP-like', 'redox-cofactor']). "
+        "Promotion disjoins the LABEL space, not the records, and the overlap makes the "
+        "prediction below stronger rather than weaker. FINDINGS 11.3 quoted the false "
+        "clause as part of its pre-registration. "
+        "Off-diagonal mass between these two rows is expected and "
         "must be read as relatedness, not as a specificity failure.",
 }
 

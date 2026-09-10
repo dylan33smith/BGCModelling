@@ -765,18 +765,79 @@ def test_direction_injection_survives_the_realised_report():
         "n_trainable() is called unconditionally; I1 arms crash building their report"
 
 
+class _Sub:
+    """Minimal substrate stand-in. `derive()` stubs out `class_means` in these tests but
+    still calls `site_report(sub.model.model)`, so the inner model must expose real
+    `inner_mha_cls` modules."""
+
+    family = "evo2"
+
+    def __init__(self, hidden=2, n_sites=2):
+        class _Outer:
+            pass
+        self.model = _Outer()
+        self.model.model = _fake_attention_model(hidden=hidden, n_sites=n_sites)
+
 def test_i1_directions_are_unit_norm_so_the_random_control_is_matched():
-    """SPEC 6.3's control is MAGNITUDE-MATCHED. `random_direction_control` normalises to
-    unit norm, so if I1's directions kept their raw norms the two arms would differ in
-    magnitude as well as content and "I1 beat random" could just mean "I1 pushed harder".
-    All the magnitude belongs to alpha, which is the swept parameter."""
+    """SPEC 6.3's control is MAGNITUDE-MATCHED: `random_direction_control` normalises to
+    unit norm, so if `derive()` did not, the two arms would differ in magnitude as well as
+    in content and "I1 beat random" could mean only "I1 pushed harder".
+
+    ⚠ THIS TEST USED TO GREP THE SOURCE for `raw / norms.unsqueeze(-1)` and was worthless:
+    the audit showed it passes with the normalisation deleted, because the same expression
+    also appears in `manipulation_check`. It now calls `derive()` with the activation means
+    stubbed, so it fails if and only if the arithmetic changes.
+    """
+    import torch
+
     from bgcbench.model import directions as D
-    src = Path(D.__file__).read_text()
-    assert "raw / norms.unsqueeze(-1)" in src, "directions are not unit-normalised"
-    assert '"raw_norms"' in src, "the discarded scale is not recorded"
-    body = src[src.index("def derive("):]
-    assert "mt - mo" in body, \
-        "the contrast is not target-minus-others; target-minus-zero steers toward 'DNA'"
+
+    calls = []
+
+    def fake_means(sub, records, prefix_kind, max_len_nt, device="cuda:0", limit=None):
+        calls.append(records)
+        return (torch.tensor([[3.0, 4.0], [0.0, 5.0]]) if records == "T"
+                else torch.tensor([[0.0, 0.0], [0.0, 2.0]])), len(records)
+
+    real = D.class_means
+    D.class_means = fake_means
+    try:
+        art = D.derive(_Sub(), "T", "O", "none", 8192)
+    finally:
+        D.class_means = real
+
+    d = art["directions"]
+    assert torch.allclose(d.norm(dim=-1), torch.ones(2), atol=1e-6), \
+        f"directions are not unit-norm ({d.norm(dim=-1).tolist()}); the random control is "
+    assert art["raw_norms"] == [5.0, 3.0], \
+        f"raw norms {art['raw_norms']} != the norms of (target - other); the contrast is wrong"
+    # target-minus-others, not target-minus-zero: site 0 is (3,4)-(0,0) -> (0.6,0.8)
+    assert torch.allclose(d[0], torch.tensor([0.6, 0.8]), atol=1e-6)
+    assert torch.allclose(d[1], torch.tensor([0.0, 1.0]), atol=1e-6)
+    assert calls == ["T", "O"], "derive() did not take target first, others second"
+
+
+def test_i1_refuses_a_zero_direction_rather_than_normalising_to_nan():
+    """Identical class means give a zero difference; dividing by its norm yields NaN, which
+    would propagate silently through every generation as a direction of not-a-number."""
+    import torch
+
+    from bgcbench.model import directions as D
+
+    def same(sub, records, prefix_kind, max_len_nt, device="cuda:0", limit=None):
+        return torch.tensor([[1.0, 2.0], [3.0, 4.0]]), 4
+
+    real = D.class_means
+    D.class_means = same
+    try:
+        D.derive(_Sub(), "T", "O", "none", 8192)
+    except RuntimeError:
+        return
+    finally:
+        D.class_means = real
+    raise AssertionError("a zero-norm direction was normalised instead of refused")
+
+
 
 
 def _fake_attention_model(hidden=8, n_sites=3, tuple_output=False):

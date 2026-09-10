@@ -876,8 +876,15 @@ retrieval.
 
 REDOX detects at 0.100 but is on-target at 0.035: **precision 0.35**, against 0.98–1.00 for every
 other class. The 13 off-target detections are not scattered — 11 are `RRE-containing` and 2
-`ranthipeptide`, both RiPP-category products, so the arm scores as RIPP at 0.065. The same signature appears in the seed-only baseline, where
-REDOX seeds detect 6/100 and **0** are on-target, every one of them `RRE-containing`.
+`ranthipeptide`, both RiPP-category products, so the arm scores as RIPP at 0.065.
+
+⚠ **CORRECTED 2026-09-10.** This paragraph previously offered, as corroboration, "REDOX seeds
+detect 6/100 and 0 are on-target". That figure is from the **L = 128-512 rungs**, not from the
+frozen L = 64 arm this section reports — at L = 64 REDOX seeds detect **0/100** (§9, §11.2). The
+sentence therefore cited a confounded rung as evidence for an unconfounded one and contradicted
+§11.2 two paragraphs above it. The 6/100 RRE-only signature at longer seeds is real and is
+consistent with the account below, but it is a *separate* observation and cannot corroborate the
+L = 64 result. **The precision collapse at L = 64 stands on the arm's own 20 detections.**
 
 ⇒ The confusion is in the **class definition**, not in the model: RRE domains are shared between
 redox-cofactor clusters and RiPP machinery, and the frozen rule set assigns them to RIPP. An
@@ -893,6 +900,13 @@ category, months before this arm ran (`bgcbench/data/classmap.py`, `PROMOTIONS`)
 > promotion makes them disjoint at class level (measured: 0 records carry both once promoted).
 > **Off-diagonal mass between these two rows is expected and must be read as relatedness, not
 > as a specificity failure.**
+
+⚠ **One clause of that quotation is FALSE and is corrected at source.** "measured: 0 records
+carry both once promoted" does not hold: **220 corpus records carry both `REDOX_COFACTOR` and
+`RIPP`** (e.g. `GCF_000012325.1.NC_003910.region2`, products `['RiPP-like', 'redox-cofactor']`).
+Promotion makes the two classes disjoint as *labels*, not as *records*. This does not weaken the
+pre-registered prediction — it strengthens it, since the classes demonstrably overlap in the
+corpus — but the parenthetical was wrong and §11.3 quoted it without checking.
 
 `redox-cofactor`'s antiSMASH category *is* RiPP; it was promoted out because the category could
 not express it (42.0% multi-gene against redox-cofactor's 100%). The biology agrees: PQQ and
@@ -997,8 +1011,15 @@ category kills that confound:
 
 Co-occurrence is comparable across all four (0.79–0.92). RIPP still carries 9 effective
 subtypes against 1.1–2.0. ⇒ "RIPP" names a **union**, and the adapter is asked to learn it as
-one target. Four measurements — subtype diversity, length spread, held-out loss, detection —
-rank RIPP last, and the first three never touch antiSMASH's endpoint.
+one target.
+
+⚠ **CORRECTED: it is THREE measurements, not four.** An earlier version of this paragraph
+claimed subtype diversity, length spread, held-out loss and detection all rank RIPP last.
+**Length spread does not** — on the interquartile width the table above actually prints,
+ARYLPOLYENE is the widest (5,238 nt) and RIPP is second (4,780 nt). The three that do rank RIPP
+last are **subtype diversity, held-out loss and detection**, and the first two never touch
+antiSMASH's endpoint. §12.1's length column is still worth reporting; it just is not evidence
+for this claim.
 
 ### 12.3 RIPP and REDOX are low for OPPOSITE reasons
 
@@ -1035,10 +1056,10 @@ this cannot be fixed by measuring harder — only by treating §12.5 as the actu
 ### 12.5 The prediction this generates
 
 If RIPP is hard **because** it is a union of ~9 subtypes, then conditioning on a *subclass* should
-rescue it. That is a sharp, pre-specifiable prediction on a class currently flooring at 0.020,
-and the arm to test it is already on the §14.6 redo list — the prior codebase's subclass result
-(cyclactone 124/124, unreportable: unfrozen config plus a class token) was on
-`cyclic-lactone-autoinducer`, **a RiPP subtype**, with 6,497 records in this corpus.
+rescue it. That is a sharp, pre-specifiable prediction on a class currently flooring at 0.020.
+The prior codebase's subclass result (cyclactone 124/124 — unreportable here: unfrozen config
+plus a class token) was on `cyclic-lactone-autoinducer`, **a RiPP subtype**, with 6,497 records in
+this corpus, which is why the prediction has a direction rather than being a bare guess.
 
 ⚠ **The subclass arm was DROPPED by decision on 2026-09-10** (SPEC §14.6). It changes the class
 *granularity* rather than the method, so it sits outside a paper that benchmarks methods at the

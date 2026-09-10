@@ -1270,7 +1270,7 @@ it.** Prior answers were measured on a different instrument and are not reportab
 | gate | what it sets | status |
 |---|---|---|
 | G4 | decoding policy — temperature, top-k, top-p | `NEVER RUN`. Current values are inherited defaults, not swept. |
-| G6 | **adapter rank sweep** | ▶ **RUNNING 2026-09-10.** §6 requires capacity be "a declared, defended parameter", chosen on held-out loss; rank 16 was used everywhere and defended nowhere, so every W-arm number owed it a debt. Ranks {4,8,16,32,64} on ARYLPOLYENE and RIPP — the best- and worst-modelled classes (val 0.689 / 1.037), which bracket the range. ⚠ **Loss only, no generation and no scoring** (§2.4). |
+| G6 | **adapter rank sweep** | ▶ **RUNNING 2026-09-10.** §6 requires capacity be "a declared, defended parameter", chosen on held-out loss; rank 16 was used everywhere and defended nowhere, so every W-arm number owed it a debt. Ranks {4,8,16,32,64} on the **pooled nucleotide-balanced arm `W1n`** — the only single arm that sees all four classes, so the winner is defensible as the per-substrate value §6 asks for; sweeping one class would move the undefended parameter rather than remove it. ⚠ **Loss only, no generation and no scoring** (§2.4). ⚠ Caveat to report: the pooled arm has 4× the data and a more heterogeneous target than a `W2` arm, so the selected rank is an **upper-leaning** estimate for the per-class arms. |
 | G6b | **adapter depth sweep** | `NEVER RUN`. Which blocks carry adapters is currently an **undeclared** free parameter — §6 defends rank and is silent on depth, so the same objection that G6 answers applies unanswered here. Run at the rank G6 selects, on one class. ⚠ Rank-then-depth is a **greedy** 1D×2 search, not a joint 2D sweep: rank and depth trade off in total trainable parameters, and the paper must report it as greedy rather than imply a full grid. |
 | G8 | data scaling | `NEVER RUN` as a sweep. §12.A3 raised training data 12.3× and the endpoint did not move, which is one point on the curve, not the curve. |
 | G9 | steering layer × magnitude | `NEVER RUN` — **and REQUIRED, see §14.6.** The prior codebase closed steering, but on Pfam endpoints and probe readouts, without the frozen scoring config, at per-class windows. A benchmark paper cannot report that data. Believing a result and being able to publish it are different things. |
@@ -1281,10 +1281,14 @@ it.** Prior answers were measured on a different instrument and are not reportab
 
 * **GO-4B / bgcfm training** — `PARKED to Stage 2` by decision. The comparison is scoped to
   unprefixed arms while the Evo2 side uses its native taxonomy prefix, which GO cannot receive
-  (§4.3 as amended). GenomeOcean's trainable class token is the genuine structural difference
+  (§4.3, which every prefixed arm already departs from in practice — see the ⚠ below).
+  GenomeOcean's trainable class token is the genuine structural difference
   and the reason it is worth doing at all.
-* **`I1` activation steering** — infrastructure exists (`DirectionInjection`, shared with W3)
-  but there is no direction derivation, no α sweep and no runner path. **It must be built**: G9
+* **`I1` activation steering** — ✅ **BUILT 2026-09-10**: `model/directions.py` (difference-of-
+  means derivation, record-weighted, unit-normalised), `run/derive_directions.py` (with the §6.4
+  manipulation check against an independently derived validation readout), and the
+  `--direction/--alpha/--random-direction` runner path. ⏸ The **α sweep (G9) has not been run**
+  and no direction has been derived yet. G9
   and I1 are how a steering null gets into the paper on the frozen instrument (§14.6). The prior
   null is a reason to expect the outcome, never a substitute for measuring it here.
 * **`I2` iterative refine** — `DROPPED` from the grid by decision, not deferred.
@@ -1318,7 +1322,16 @@ What disqualifies the prior data, in every case at least one of:
 * a **Pfam / obligate-domain endpoint** rather than antiSMASH (§3.1 forbids it as an endpoint);
 * **no frozen scoring config** — the antiSMASH invocation varied by phase and class;
 * **per-class scoring windows** (2,000 nt TERPENE, 4,000 nt PKS) that are not cross-comparable;
-* a **class token** in the input, which §4.3 as amended still forbids.
+* a **class token** in the input, which §4.3 forbids.
+
+⚠ **§4.3 HAS NOT ACTUALLY BEEN AMENDED, and text here previously cited "§4.3 as amended" twice
+as though it had.** §4.3 as written requires bare nucleotide input and forbids a taxonomy tag —
+so **every prefixed arm in §8, §10, §11 and §11.5 departs from it.** The departure was a
+deliberate decision (the GTDB lineage is Evo2's own pretraining format and names an organism, not
+a compound class) and filing the amendment was explicitly deferred, not done. Until it is filed,
+the honest statement is that the spec and the run record disagree, and the paper must describe
+the input format from the runs rather than from §4.3. The class-token prohibition is untouched
+and still holds.
 
 | what | prior evidence | why it cannot be reported | to redo |
 |---|---|---|---|

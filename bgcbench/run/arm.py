@@ -258,6 +258,14 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
                             if intervention is not None else None),
         intervention_direction_class=((sub.meta or {}).get("intervention_direction_class")
                                       if intervention is not None else None),
+        # ⚠ WHICH VECTORS. Without these, an I1 arm and its magnitude-matched random
+        # control -- same alpha, same sites, same class -- produce the SAME realised hash
+        # and land in the same run directory, so the control silently overwrites the arm
+        # it exists to be compared against.
+        intervention_direction_file=((sub.meta or {}).get("intervention")
+                                     if intervention is not None else None),
+        intervention_random_seed=((sub.meta or {}).get("intervention_random_seed")
+                                  if intervention is not None else None),
         intervention_rank=(getattr(intervention, "rank", None)
                            if intervention is not None else None),
         # DirectionInjection has no trainable parameters and no n_trainable(); calling it
@@ -495,6 +503,19 @@ def main() -> int:
     # A per-class adapter carries the class in its WEIGHTS. Run without --row-class it
     # would replicate one sample into all five confusion rows and self-divide lift to 1.0,
     # producing a report that is structurally indistinguishable from a real result.
+    # ⚠ AN I1 DIRECTION IS KEYED TO ONE CLASS. It is attached once, before the target loop,
+    # and nothing about the loop variable reaches the model -- so an I1 arm without
+    # --row-class generates the SAME distribution for every row (identical draws, since
+    # _run re-seeds from the frozen rng_seed each call) and publishes them as four
+    # class-conditional measurements with lift 1.000 by construction. The adapter guard
+    # below cannot catch it: that one requires --adapter, and an I1 arm on base weights has
+    # none, and requires `not class_bearing`, which steering makes False.
+    if args.direction and not args.row_class:
+        raise SystemExit(
+            "--direction is keyed to a single class, so without --row-class every "
+            "confusion row would be the same steered distribution relabelled, and lift "
+            "would be 1.000 by construction rather than measured. Pass --row-class "
+            "<the direction's target class>.")
     if args.adapter and not args.row_class and not class_bearing and not args.train_classes:
         raise SystemExit(
             "refusing to run: an adapter arm needs either --row-class (the class its "

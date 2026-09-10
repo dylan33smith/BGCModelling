@@ -349,6 +349,7 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     if randomise is not None:
         iv = random_direction_control(base, hidden, seed=int(randomise), alpha=alpha)
         sub.meta["intervention_kind"] = "i1_random"
+        sub.meta["intervention_random_seed"] = int(randomise)
     else:
         d = ck["directions"]
         if d.shape[-1] != hidden:
@@ -356,6 +357,17 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
         iv = DirectionInjection(base, hidden, d, alpha)
         sub.meta["intervention_kind"] = "i1"
     iv = iv.to(dev)
+    # ⚠ THE DIRECTION MUST MATCH THE WEIGHT STATE IT STEERS. A direction derived on a LoRA
+    # describes that model's activation geometry; injected into the base model, or into a
+    # different adapter, it is a vector from another space and the arm silently measures
+    # nothing in particular. Nothing else in the pipeline compares the two.
+    want = ck.get("adapter")
+    got = sub.meta.get("adapter")
+    if (want or None) != (got or None):
+        raise ValueError(
+            f"direction was derived on weight state {want!r} but the arm is running "
+            f"{got!r}. Re-derive against the arm's checkpoint, or run the arm on the "
+            f"checkpoint the direction came from -- they are different activation spaces.")
     sub.meta["intervention"] = path
     sub.meta["intervention_alpha"] = float(alpha)
     sub.meta["intervention_sites"] = ck.get("sites")

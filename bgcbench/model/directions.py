@@ -174,14 +174,61 @@ def save(art: dict, path: str | Path, extra: dict | None = None) -> Path:
 def projection(sub, records: list[dict], directions: torch.Tensor, prefix_kind: str,
                max_len_nt: int, device: str = "cuda:0",
                limit: int | None = None) -> list[float]:
-    """Mean projection of each site's activations onto its direction.
-
-    This is the SPEC 6.4 manipulation check for I1 -- "the injected direction changes an
-    independent readout of class in activations". It is a readout, not a probe: no
-    parameters are fitted. Run it on HELD-OUT records with the intervention detached and
-    attached; if injection does not move it, the direction did not land and any null from
-    the arm is uninformative rather than negative.
-    """
+    """Mean projection of each site's record-weighted activations onto a given direction."""
     m, _ = class_means(sub, records, prefix_kind, max_len_nt, device, limit)
     d = directions.to(m.device, m.dtype)
     return (m * d).sum(dim=-1).cpu().tolist()
+
+
+@torch.no_grad()
+def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
+                       train_directions: torch.Tensor, prefix_kind: str, max_len_nt: int,
+                       device: str = "cuda:0", limit: int | None = None,
+                       alpha: float = 1.0) -> dict:
+    """SPEC 6.4 for I1: does the injected direction move an INDEPENDENT readout of class?
+
+    ⚠ THE OBVIOUS CHECK IS CIRCULAR AND THIS DELIBERATELY IS NOT IT. Injecting `alpha * d`
+    and then measuring the projection onto `d` raises it by exactly `alpha * ||d||^2` --
+    for a unit direction, exactly `alpha`. That holds for ANY vector, including pure noise,
+    so it tests arithmetic rather than the arm. An earlier version of this module shipped
+    that check, computed with nothing attached, so it could neither fail nor be informative.
+
+    The readout here is derived INDEPENDENTLY, from the VALIDATION split, by the same
+    difference-of-means recipe. It can fail: if the train direction is noise it will not
+    align with the val direction, `cos` collapses toward 0 and the injected shift vanishes.
+
+    Returns per-site cosines, the readout before and after injection, and the realised
+    shift against what a perfectly aligned direction would give.
+    """
+    from bgcbench.model.interventions import DirectionInjection
+
+    base = sub.model.model if sub.family == "evo2" else sub.model
+    mt, _ = class_means(sub, val_target, prefix_kind, max_len_nt, device, limit)
+    mo, _ = class_means(sub, val_other, prefix_kind, max_len_nt, device, limit)
+    raw = mt - mo
+    norms = raw.norm(dim=-1)
+    if torch.any(norms == 0):
+        raise RuntimeError("a validation readout has zero norm; the check cannot be read")
+    d_val = raw / norms.unsqueeze(-1)
+
+    d_tr = train_directions.to(d_val.device, d_val.dtype)
+    cos = (d_tr * d_val).sum(dim=-1)
+
+    before = projection(sub, val_target, d_val, prefix_kind, max_len_nt, device, limit)
+    iv = DirectionInjection(base, int(d_val.shape[-1]), d_tr.cpu(), alpha).to(d_val.device)
+    with iv.attached():
+        after = projection(sub, val_target, d_val, prefix_kind, max_len_nt, device, limit)
+
+    shift = [a - b for a, b in zip(after, before)]
+    expected = [alpha * float(c) for c in cos]
+    return {
+        "alpha": float(alpha),
+        "cosine_train_val": [float(c) for c in cos],
+        "readout_before": before,
+        "readout_after": after,
+        "shift": shift,
+        "shift_expected_from_cosine": expected,
+        "passes": bool(all(c > 0.1 for c in cos) and all(s > 0 for s in shift)),
+        "criterion": ("every site's train/val direction cosine > 0.1 and every site's "
+                      "independent readout increases under injection"),
+    }

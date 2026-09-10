@@ -44,6 +44,9 @@ def main() -> int:
                     help="records per side. The mean is over TOKENS, so 64 records at "
                          "~3,000 nt is ~200k positions per site -- ample for a mean.")
     ap.add_argument("--max-len-nt", type=int, default=corpus_max_len())
+    ap.add_argument("--check-alpha", type=float, default=1.0,
+                    help="alpha used ONLY for the SPEC 6.4 manipulation check, to show the "
+                         "direction lands. Not the swept generation alpha (G9).")
     ap.add_argument("--name", default=None)
     args = ap.parse_args()
 
@@ -66,6 +69,8 @@ def main() -> int:
         tr_o += _load(SPLITS / c / "train.jsonl", c)[:per]
     va_t = _load(SPLITS / args.target / "val.jsonl", args.target)
 
+    tbl = None
+    taxonomy = None
     if args.prefix == "taxonomy":
         from bgcbench.data import taxonomy
         tbl = taxonomy.load_table()
@@ -81,12 +86,25 @@ def main() -> int:
     art["adapter_requested"] = args.adapter
     art["code_version"] = code_version()
 
-    # SPEC 6.4 manipulation check, on HELD-OUT records the direction never saw.
-    proj = D.projection(sub, va_t, art["directions"], args.prefix, args.max_len_nt,
-                        limit=args.limit)
-    art["val_projection"] = proj
+    # SPEC 6.4 manipulation check, against a readout derived INDEPENDENTLY on the val split
+    # and measured WITH the injection attached. Projecting onto the injected vector itself
+    # would rise by exactly alpha for any vector, noise included, and could not fail.
+    va_o: list[dict] = []
+    for c in others:
+        va_o += _load(SPLITS / c / "val.jsonl", c)[:per]
+    if args.prefix == "taxonomy":
+        taxonomy.attach(va_o, tbl)
+    chk = D.manipulation_check(sub, va_t, va_o, art["directions"], args.prefix,
+                               args.max_len_nt, limit=args.limit, alpha=args.check_alpha)
+    art["manipulation_check"] = chk
     print(f"raw norms per site : {[round(x, 3) for x in art['raw_norms']]}")
-    print(f"val projection     : {[round(x, 3) for x in proj]}")
+    print(f"train/val cosine   : {[round(c, 3) for c in chk['cosine_train_val']]}")
+    print(f"readout shift      : {[round(x, 4) for x in chk['shift']]} "
+          f"(expected {[round(x, 4) for x in chk['shift_expected_from_cosine']]})")
+    print(f"MANIPULATION CHECK : {'PASS' if chk['passes'] else 'FAIL'} -- {chk['criterion']}")
+    if not chk["passes"]:
+        print("⚠ the direction does not verifiably land; SPEC 6.4 makes any null from this "
+              "arm UNINFORMATIVE rather than negative", flush=True)
 
     name = args.name or f"{args.substrate}_I1_{args.target}"
     p = D.save(art, OUT / f"{name}.pt")
