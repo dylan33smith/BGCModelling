@@ -912,6 +912,39 @@ non-detections sit at the 8,192 budget median — a detected cluster is one that
 All 800 generations `PASS` (k=21 containment, fails at 0.95). One REDOX generation matched a
 known BGC below threshold. No arm approached the gate.
 
+### 11.5 Seeding alone does nothing — the base-model control
+
+`stage1_evo2-1b_W0_tax_S1_ALLROWS_f7c72ce0ff0d`, run 2026-09-10. The BASE model, real 64-nt
+held-out seeds, taxonomy prefix, otherwise the frozen config. **0 detections in 800.**
+
+⚠ An earlier `W0_S1` run exists and is NOT this control: it used `seed_len 8` and no prefix,
+from before L = 64 was frozen. L = 8 is below the threshold G3 located (between 16 and 32 nt),
+so it could not have detected anything and says nothing about the frozen configuration.
+
+This is the row §11 was missing. Without it, "seeding and weights compose" could not be told
+apart from "seeding works and the weights are incidental":
+
+| weights | de novo | seeded L=64 |
+|---|---|---|
+| `W0` base | 0.000 (0/800) | **0.000 (0/800)** |
+| `W1n` pooled | 0.005 | 0.077 |
+| `W2` per-class | 0.014 | 0.130 |
+
+⇒ **A seed is not an intervention.** It multiplies what the weights already provide, and
+multiplying zero gives zero. The 0.130 in the corner requires both.
+
+**This null is interpretable under §6.4, and here is its warrant.**
+* **Power.** 0/800 gives a 95% upper bound of 3/800 = **0.375%** (rule of three). That excludes
+  the seeded per-class rate (0.130, **35×** the bound), the seeded pooled rate (0.077, 21×) and
+  the de novo per-class rate (0.014, 4×). The null is a bound, not an absence of evidence.
+* **Manipulation check.** Both channels verifiably landed: 800/800 generations carry a real
+  `seed_accession` from a held-out record and 800/800 carry a `prefix_tag`, and
+  `test_seed_excluded_from_scored_span` pins that the seed never enters the scored text. So
+  "nothing was detected" cannot be explained by "nothing was applied".
+
+Consistent with G10: the base model does not stop — `hit_eos` 0.0013, median length at the full
+8,192 budget — against 0.290–0.830 for the trained arms (§10).
+
 ## 12. Why the classes differ — heterogeneity, held-out loss, and what does NOT follow
 
 §11 leaves four classes spread over a 16× range of on-target rate. This section asks what
