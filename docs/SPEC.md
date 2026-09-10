@@ -1248,6 +1248,10 @@ thought of it. Nothing here is a commitment; the register is a memory, not a pla
 no data · `NEEDS RE-MEASURE` a result taken on a pipeline since fixed · `DROPPED` decided
 against.
 
+⚠ **Nothing may be marked `DROPPED` on the grounds that the prior codebase already answered
+it.** Prior answers were measured on a different instrument and are not reportable here; see
+**§14.6**, which is the rule the rest of this register is read under.
+
 ### 14.1 Experiments
 
 | id | what | why parked | cost |
@@ -1267,8 +1271,9 @@ against.
 | G4 | decoding policy — temperature, top-k, top-p | `NEVER RUN`. Current values are inherited defaults, not swept. |
 | G6 | **adapter rank sweep** | `NEVER RUN`, and **every W-arm number owes it a debt**: §6 requires capacity be "a declared, defended parameter", chosen on held-out loss. Rank 16 is used everywhere and defended nowhere. Highest-priority gate. |
 | G8 | data scaling | `NEVER RUN` as a sweep. §12.A3 raised training data 12.3× and the endpoint did not move, which is one point on the curve, not the curve. |
-| G9 | steering layer × magnitude | `NEVER RUN` — and probably should not be. The prior codebase closed steering across six stages and all variants; G9 would re-litigate a closed programme. Candidate for **DROPPED** rather than deferred. |
+| G9 | steering layer × magnitude | `NEVER RUN` — **and REQUIRED, see §14.6.** The prior codebase closed steering, but on Pfam endpoints and probe readouts, without the frozen scoring config, at per-class windows. A benchmark paper cannot report that data. Believing a result and being able to publish it are different things. |
 | G2 | substrate likelihood health | `PARTIAL` — Evo2 done; GO-4B and bgcfm load and generate but have no likelihood check. |
+
 
 ### 14.3 Arms and substrates
 
@@ -1277,8 +1282,9 @@ against.
   (§4.3 as amended). GenomeOcean's trainable class token is the genuine structural difference
   and the reason it is worth doing at all.
 * **`I1` activation steering** — infrastructure exists (`DirectionInjection`, shared with W3)
-  but there is no direction derivation, no α sweep and no runner path. Given G9 above, build it
-  only if there is a reason to believe the prior null does not transfer.
+  but there is no direction derivation, no α sweep and no runner path. **It must be built**: G9
+  and I1 are how a steering null gets into the paper on the frozen instrument (§14.6). The prior
+  null is a reason to expect the outcome, never a substitute for measuring it here.
 * **`I2` iterative refine** — `DROPPED` from the grid by decision, not deferred.
 
 ### 14.4 Results taken on a superseded pipeline
@@ -1299,3 +1305,34 @@ Both were measured before the terminator fix, i.e. on ~8,190 nt of post-terminat
   is 0.000. Reports correctly emit `null` rather than dividing; the substitute in use is an
   absolute rate difference with an exact binomial interval.
 
+### 14.6 ⚠ Old results are NOT publishable — what must be re-measured
+
+**A result we believe and a result we can report are different things.** Everything below was
+established in the prior codebase and is *probably* true, but none of it was measured on this
+benchmark's instrument. A paper whose premise is one frozen endpoint cannot cite numbers taken
+on a different one, and "we already know the answer" is not a defence a reviewer accepts.
+
+What disqualifies the prior data, in every case at least one of:
+* a **Pfam / obligate-domain endpoint** rather than antiSMASH (§3.1 forbids it as an endpoint);
+* **no frozen scoring config** — the antiSMASH invocation varied by phase and class;
+* **per-class scoring windows** (2,000 nt TERPENE, 4,000 nt PKS) that are not cross-comparable;
+* a **class token** in the input, which §4.3 as amended still forbids.
+
+| what | prior evidence | why it cannot be reported | to redo |
+|---|---|---|---|
+| **Steering is null** | six stages, all variants, closed 2026-08-10 | Pfam endpoint + probe readouts, no frozen config | **G9 + I1** |
+| **CFG, soft prefixes, affine editing, cross-class transplants** | all closed | same, and no per-variant rates were ever recorded | each needs a benchmark arm, or the paper says "not tested here" |
+| **Guided decoding is not the fix** | likelihood argument: adapters ARE the best model of their own target | a likelihood contrast, never an endpoint measurement | a decoding arm on the frozen endpoint |
+| **Subclass conditioning reaches 1.000** | cyclactone 124/124 | antiSMASH, but unfrozen config and a class token in the prompt | a subclass arm under §3.1 + §4.3 |
+| **Detection falls with target length** | r = −0.822 over 11 adapters | mixed instruments across the eleven; the correlation's own denominator problem is FINDINGS-documented | re-derive on frozen scoring |
+| **GenomeOcean beats Evo2 de novo 9.8×** | 2,000 nt window, prior config | window and config both outside the benchmark | GO-4B on the rebuilt benchmark |
+
+⇒ **The register's default is therefore REDO, not cite.** An item may only be carried into the
+paper from prior work if it is a *methodological* fact that does not depend on the endpoint —
+e.g. that Evo2's context is 8,192 tokens, or that vortex's `stop_at_eos` is dead code. Rates,
+lifts and nulls all need re-measuring.
+
+⚠ This inverts an earlier judgement recorded here: G9 was listed as a candidate for **DROPPED**
+on the grounds that the prior programme had closed steering. That reasoning confused *knowing*
+with *being able to show*, and would have left the paper unable to report the steering result at
+all.
