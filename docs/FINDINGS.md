@@ -829,3 +829,63 @@ carries the pooled result rather than standing alone. Two classes is a thin base
 claim, and RIPP was deliberately excluded because it is 0/200 prefixed — so the control speaks
 for the classes where the prefix already appeared to work, not for the method everywhere.
 
+
+## 11. Seeding × per-class weights — the diagonal, FROZEN 2026-09-10
+
+`SEEDED_DIAGONAL_FROZEN_f1a5fa95dbdc07a1`. Four arms, `W2_<CLASS>_tax_S1`, 200 generations each,
+64-nt real seeds drawn from the class test split, taxonomy prefix, scoring `ee8c025c1593`. Every
+arm ran `rc=0`; `batch_size` 80 against a frozen 100, recorded in each report's `off_frozen`.
+
+**The 2×2 is now complete.** Each cell is on-target rate, pooled over the classes it covers:
+
+| weights | de novo | seeded L=64 |
+|---|---|---|
+| pooled (`W1n_tax`) | 0.005 | 0.077 |
+| per-class (`W2_*_tax`) | **0.014** (11/800) | **0.130** (104/800) |
+
+Seeding and per-class weights **compose**: 9.5× over the same adapters de novo, p = 1.1e-21. The
+two interventions were measured separately and neither predicted the other; the diagonal is where
+the benchmark first produces a rate worth reporting rather than a floor.
+
+### 11.1 Per class — and where the result actually stands up
+
+| class | seeded | rate | detected | precision | de novo | p vs de novo | seed-only | p vs seed-only |
+|---|---|---|---|---|---|---|---|---|
+| ARYLPOLYENE | 63/200 | 0.315 | 64 | 0.984 | 7/200 | 1.0e-14 | 0/100 | 1.5e-13 |
+| TERPENE | 30/200 | 0.150 | 30 | 1.000 | 3/200 | 2.7e-07 | 0/100 | 2.4e-06 |
+| REDOX_COFACTOR | 7/200 | 0.035 | 20 | 0.350 | 1/200 | 3.4e-02 | 0/100 | 5.7e-02 |
+| RIPP | 4/200 | 0.020 | 4 | 1.000 | 0/200 | 6.2e-02 | 1/100 | 4.6e-01 |
+
+⚠ **Two of the four classes carry this.** ARYLPOLYENE and TERPENE are unambiguous. REDOX_COFACTOR
+clears the de novo comparison at p = 0.034 but **fails against its own seed-only baseline**
+(p = 0.057) — it must be reported as suggestive, not positive. RIPP clears neither. The pooled
+9.5× is real but it is not four independent replications, and writing it up as though every class
+moved would misrepresent it.
+
+### 11.2 The seed is not doing the work
+
+At L = 64 the seeds are, by themselves, invisible to the instrument: 0/100 TERPENE, 0/100
+ARYLPOLYENE, 0/100 REDOX_COFACTOR, 1/100 RIPP (§9). This is the whole reason L = 64 is the
+frozen choice — at L ≥ 128 the seed is independently detectable (12/100 ARYLPOLYENE at 128,
+48/100 at 512) and the arm stops measuring generation. So 63/200 against a 0/100 seed floor is
+attributable to what the model wrote, not to what it was handed. Combined with §9.7 — generations
+are not more similar to their own seed's source record than to any other — the seeded rate is not
+retrieval.
+
+### 11.3 REDOX_COFACTOR's precision collapse is a finding, not noise
+
+REDOX detects at 0.100 but is on-target at 0.035: **precision 0.35**, against 0.98–1.00 for every
+other class. The 13 off-target detections are not scattered — 11 are `RRE-containing` and 2
+`ranthipeptide`, both RiPP-category products, so the arm scores as RIPP at 0.065. The same signature appears in the seed-only baseline, where
+REDOX seeds detect 6/100 and **0** are on-target, every one of them `RRE-containing`.
+
+⇒ The confusion is in the **class definition**, not in the model: RRE domains are shared between
+redox-cofactor clusters and RiPP machinery, and the frozen rule set assigns them to RIPP. An
+arm cannot be on-target for a class whose members the instrument reads as another class. This
+belongs in the paper as a property of antiSMASH's category boundaries; it also means REDOX's
+on-target rate understates what the adapter learned, and its detect rate overstates it.
+
+### 11.4 Novelty
+
+All 800 generations `PASS` (k=21 containment, fails at 0.95). One REDOX generation matched a
+known BGC below threshold. No arm approached the gate.
