@@ -406,10 +406,41 @@ def test_training_uses_early_stopping_not_a_guessed_epoch_count():
 
 
 def test_arm_runner_resolves_to_the_best_checkpoint():
+    """SPEC 6.4: an adapter DIRECTORY resolves to its best held-out checkpoint, never `final`.
+
+    ⚠ This test used to assert that the literal string `(p / "BEST").exists()` appeared in
+    arm.py. That pinned the TEXT rather than the behaviour: when the logic moved into the
+    shared `load.resolve_best` -- so the arm and the I1 direction derivation could not
+    resolve to different checkpoints -- the behaviour was preserved and the test failed
+    anyway. It now exercises the function, so a refactor passes and a REGRESSION fails.
+    """
+    import json as _json
+    import tempfile
+
+    from bgcbench.model.load import resolve_best
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d) / "adapter"
+        (root / "best").mkdir(parents=True)
+        (root / "final").mkdir()
+        # no BEST marker -> the path is returned unchanged rather than guessed at
+        assert resolve_best(str(root)) == str(root)
+        (root / "BEST").write_text(_json.dumps(
+            {"path": str(root / "best"), "step": 48, "val_loss": 0.91}))
+        assert resolve_best(str(root)) == str(root / "best"), (
+            "a directory with a BEST marker still resolved to itself, so the arm would "
+            "generate from `final` -- the checkpoint SPEC 6.4 exists to avoid")
+        # a file path is already a checkpoint and must pass through untouched
+        f = Path(d) / "conditioner.pt"
+        f.write_text("x")
+        assert resolve_best(str(f)) == str(f)
+
+    # and both callers must go through it, or they can diverge again
     from bgcbench.run import arm as armmod
-    src = Path(armmod.__file__).read_text()
-    assert '(p / "BEST").exists()' in src
-    assert "rather than final" in src
+    from bgcbench.run import derive_directions as dd
+    for mod in (armmod, dd):
+        assert "resolve_best" in Path(mod.__file__).read_text(), \
+            f"{mod.__name__} does not use the shared resolver"
 
 
 def test_cli_defaults_come_from_the_frozen_config_not_literals():

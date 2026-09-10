@@ -37,7 +37,7 @@ from bgcbench.model import genconfig as gc
 from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
 from bgcbench.model.load import (attach_adapter, attach_direction,
-                                 attach_intervention, load)
+                                 attach_intervention, load, resolve_best)
 from bgcbench.score import antismash
 from bgcbench.score.endpoints import confusion, gene_count_profile, lift, rates, subclass_profile
 from bgcbench.score.novelty import Reference, corpus_novelty, write_corpus_fasta
@@ -429,26 +429,23 @@ def main() -> int:
     adapter = args.adapter
     if adapter:
         # SPEC 6.4: evaluate at the BEST held-out checkpoint, not the last. Point at an
-        # adapter DIRECTORY and this resolves to best/ automatically.
-        p = Path(adapter)
-        if p.is_dir() and (p / "BEST").exists():
-            meta = json.loads((p / "BEST").read_text())
-            if meta.get("path"):
-                adapter = meta["path"]
-                print(f"using BEST checkpoint (step {meta['step']}, "
-                      f"val {meta['val_loss']}) rather than final", flush=True)
+        # adapter DIRECTORY and this resolves to best/ automatically. SHARED with
+        # run.derive_directions via load.resolve_best, so an I1 direction and the arm it
+        # steers cannot resolve to different checkpoints.
+        adapter = resolve_best(adapter)
+        if adapter != args.adapter:
+            print(f"using BEST checkpoint {adapter} rather than final", flush=True)
     intervention = None
-    if args.direction:
-        # I1. Loaded SEPARATELY from --adapter so the two compose: the direction is derived
-        # on the weight state the arm runs, and both are attached at generation.
-        if args.alpha is None:
-            raise SystemExit("--direction needs --alpha; there is no default magnitude, "
-                             "and an unstated one would be an undeclared free parameter")
-        sub, intervention = attach_direction(sub, args.direction, args.alpha,
-                                             randomise=args.random_direction)
-        print(f"attached {sub.meta['intervention_kind']} alpha={args.alpha} "
-              f"from {args.direction}", flush=True)
-    elif adapter and str(adapter).endswith(".pt"):
+    # ⚠ ORDER: the weight state is attached FIRST and the direction SECOND, so the two
+    # COMPOSE. attach_adapter MERGES the LoRA into the base weights; attaching a direction
+    # first would hold hooks on the pre-merge module objects; and I1 is defined as steering
+    # the model the arm actually runs, not the base model.
+    #
+    # ⚠ THIS WAS AN if/elif CHAIN. --direction and --adapter were therefore mutually
+    # exclusive while the help text advertised that they compose: every I1 arm run on a
+    # trained weight state would have silently steered the BASE model and reported a null
+    # as though steering had been tested on that arm.
+    if adapter and str(adapter).endswith(".pt"):
         sub, intervention = attach_intervention(sub, adapter)
         print(f"attached intervention {adapter} "
               f"({sub.meta.get('intervention_sites', {}).get('n_attention_sites')} sites)",
@@ -456,6 +453,21 @@ def main() -> int:
     elif adapter:
         sub = attach_adapter(sub, adapter)
         print(f"attached adapter {adapter}", flush=True)
+    if args.direction:
+        if args.alpha is None:
+            raise SystemExit("--direction needs --alpha; there is no default magnitude, "
+                             "and an unstated one would be an undeclared free parameter")
+        if intervention is not None:
+            raise SystemExit(
+                "--direction with a W3 conditioner: run_arm holds exactly ONE "
+                "intervention.attached() context, so the second set of hooks would be "
+                "silently dropped and the arm would report both while running one. "
+                "Compose I1 with a LoRA weight state, or extend run_arm to hold both.")
+        sub, intervention = attach_direction(sub, args.direction, args.alpha,
+                                             randomise=args.random_direction)
+        print(f"attached {sub.meta['intervention_kind']} alpha={args.alpha} "
+              f"from {args.direction}"
+              + (f" on top of {adapter}" if adapter else " on the BASE model"), flush=True)
     arm = ArmSpec(arm_id=args.arm,
                   weight_state="base" if args.adapter is None else args.arm,
                   seeded=args.seeded, seed_len_nt=args.seed_len, prefix=args.prefix,

@@ -33,10 +33,26 @@ from bgcbench.model.interventions import attention_sites, site_report
 
 
 class _MeanCollector:
-    """Accumulates a running mean of each attention site's output over token positions.
+    """Accumulates a mean of each attention site's output, weighted PER RECORD.
 
     Streaming rather than storing: one record at 8,192 positions x 1920 hidden x 4 sites is
     ~250 MB in fp32, and the derivation runs over hundreds of records.
+
+    ⚠ PER RECORD, NOT PER TOKEN, and the distinction is load-bearing. Pooling every position
+    from every record into one mean weights a long record more heavily than a short one.
+    The benchmark classes differ systematically in length (FINDINGS 12: RIPP's interquartile
+    range is 1,449-6,229 nt against TERPENE's 999-3,844), so a token-weighted
+    target-minus-others contrast would partly encode LENGTH rather than class content --
+    and the steering arm would be pushing on the wrong axis.
+
+    It also matches the dataset. SPEC 4.4.3 fixes equal effective_n by RECORD, and SPEC 6
+    records that equal records is NOT equal tokens (a measured 3.4x nucleotide imbalance).
+    A token-weighted direction would silently be the raw-mixture statistic that `W1` is and
+    `W1n` exists to correct.
+
+    Each record contributes its own within-record mean, and those are averaged with equal
+    weight. `token_counts` keeps the per-token denominator so the discarded weighting is
+    still reportable.
     """
 
     def __init__(self, model):
@@ -45,19 +61,23 @@ class _MeanCollector:
             raise RuntimeError("no attention sites found; refusing to derive directions "
                                "from a model with nothing to hook")
         self.n = len(self.sites)
+        # per-record accumulator: sum of within-record means, and how many records
         self.sums: list[torch.Tensor | None] = [None] * self.n
         self.counts = [0] * self.n
+        # the token-weighted denominator, kept only so the discarded weighting is reportable
+        self.token_counts = [0] * self.n
         self._handles: list = []
 
     def _hook(self, i: int):
         def hook(_mod, _args, output):
             head = output[0] if isinstance(output, tuple) else output
-            # (batch, seq, hidden) -> sum over batch and position, in fp32 so a long
-            # accumulation does not lose precision in bf16.
+            # (batch, seq, hidden) -> the WITHIN-RECORD mean over positions, in fp32 so a
+            # long accumulation does not lose precision in bf16.
             flat = head.detach().to(torch.float32).reshape(-1, head.shape[-1])
-            s = flat.sum(dim=0)
-            self.sums[i] = s if self.sums[i] is None else self.sums[i] + s
-            self.counts[i] += flat.shape[0]
+            m = flat.mean(dim=0)
+            self.sums[i] = m if self.sums[i] is None else self.sums[i] + m
+            self.counts[i] += 1
+            self.token_counts[i] += flat.shape[0]
         return hook
 
     @contextmanager
@@ -73,7 +93,7 @@ class _MeanCollector:
 
     def means(self) -> torch.Tensor:
         if any(c == 0 for c in self.counts):
-            raise RuntimeError(f"site token counts {self.counts} include a zero; a site "
+            raise RuntimeError(f"site record counts {self.counts} include a zero; a site "
                                f"that never fired would give a meaningless mean")
         return torch.stack([self.sums[i] / self.counts[i] for i in range(self.n)])
 

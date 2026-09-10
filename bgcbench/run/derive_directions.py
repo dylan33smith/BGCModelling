@@ -48,10 +48,15 @@ def main() -> int:
     args = ap.parse_args()
 
     sub = load(args.substrate)
+    adapter = None
     if args.adapter:
-        from bgcbench.model.load import attach_adapter
-        sub = attach_adapter(sub, args.adapter)
-        print(f"derived on adapter {args.adapter}", flush=True)
+        from bgcbench.model.load import attach_adapter, resolve_best
+        # ⚠ SPEC 6.4: the arm generates from the BEST held-out checkpoint. Deriving from the
+        # directory would take `final` instead, so the direction would come from a DIFFERENT
+        # model than the one it is injected into -- invisible in both reports.
+        adapter = resolve_best(args.adapter)
+        sub = attach_adapter(sub, adapter)
+        print(f"derived on adapter {adapter}", flush=True)
 
     others = [c for c in BENCHMARK_CLASSES if c != args.target]
     tr_t = _load(SPLITS / args.target / "train.jsonl", args.target)
@@ -72,7 +77,8 @@ def main() -> int:
     art = D.derive(sub, tr_t, tr_o, args.prefix, args.max_len_nt, limit=args.limit)
     art["target_class"] = args.target
     art["contrast_classes"] = others
-    art["adapter"] = args.adapter
+    art["adapter"] = adapter
+    art["adapter_requested"] = args.adapter
     art["code_version"] = code_version()
 
     # SPEC 6.4 manipulation check, on HELD-OUT records the direction never saw.

@@ -251,6 +251,24 @@ def load(substrate_id: str, device: str = "cuda:0",
     raise ValueError(f"unknown substrate {substrate_id!r}")
 
 
+def resolve_best(adapter_path: str) -> str:
+    """A checkpoint DIRECTORY resolves to its best held-out checkpoint (SPEC 6.4).
+
+    ⚠ SHARED so the derivation and the arm cannot diverge. `run.arm` resolved BEST while
+    `run.derive_directions` did not, so a direction derived from a directory came from the
+    FINAL checkpoint while the arm generated from BEST -- two different models, and the
+    mismatch would have been invisible in both reports.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    p = _Path(adapter_path)
+    if p.is_dir() and (p / "BEST").exists():
+        meta = _json.loads((p / "BEST").read_text())
+        if meta.get("path"):
+            return meta["path"]
+    return str(adapter_path)
+
+
 def attach_adapter(sub: Substrate, adapter_path: str) -> Substrate:
     """Load a LoRA adapter and MERGE it into the base weights.
 

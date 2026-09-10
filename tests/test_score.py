@@ -777,3 +777,170 @@ def test_i1_directions_are_unit_norm_so_the_random_control_is_matched():
     body = src[src.index("def derive("):]
     assert "mt - mo" in body, \
         "the contrast is not target-minus-others; target-minus-zero steers toward 'DNA'"
+
+
+def _fake_attention_model(hidden=8, n_sites=3, tuple_output=False):
+    """A minimal stand-in exposing modules named `inner_mha_cls`, which is what
+    interventions.attention_sites() enumerates. Lets the I1 hook path be exercised without
+    a GPU or a 1B-parameter model."""
+    import torch.nn as nn
+
+    class Site(nn.Module):
+        def __init__(self, h, tup):
+            super().__init__()
+            self.lin = nn.Linear(h, h, bias=False)
+            self.tup = tup
+
+        def forward(self, x):
+            y = self.lin(x)
+            return (y, None) if self.tup else y
+
+    class Block(nn.Module):
+        def __init__(self, h, tup):
+            super().__init__()
+            self.inner_mha_cls = Site(h, tup)
+
+        def forward(self, x):
+            o = self.inner_mha_cls(x)
+            return o[0] if isinstance(o, tuple) else o
+
+    class Model(nn.Module):
+        def __init__(self, h, n, tup):
+            super().__init__()
+            self.blocks = nn.ModuleList([Block(h, tup) for _ in range(n)])
+
+        def forward(self, x):
+            for b in self.blocks:
+                x = b(x)
+            return x
+
+    return Model(hidden, n_sites, tuple_output)
+
+
+def test_i1_hook_actually_adds_alpha_times_the_direction():
+    """The I1 mechanism, exercised rather than asserted about: attaching a
+    DirectionInjection must shift every attention site's output by exactly alpha*direction,
+    and detaching must restore the model bit-for-bit.
+
+    ⚠ A hook that silently does nothing is this arm's worst failure mode -- it reads as a
+    clean null. Nothing in a source-text assertion can catch it.
+    """
+    import torch
+
+    from bgcbench.model.interventions import DirectionInjection
+
+    for tup in (False, True):          # sites may return a tensor or a tuple
+        torch.manual_seed(0)
+        m = _fake_attention_model(hidden=8, n_sites=3, tuple_output=tup)
+        x = torch.randn(2, 5, 8)
+        base_out = m(x).clone()
+
+        d = torch.zeros(3, 8)
+        d[:, 0] = 1.0                  # unit vectors along axis 0
+        iv = DirectionInjection(m, 8, d, alpha=2.0)
+
+        with iv.attached():
+            steered = m(x).clone()
+        assert not torch.allclose(base_out, steered), (
+            f"attaching the intervention changed nothing (tuple_output={tup}); the arm "
+            f"would generate from the base model and report a null")
+
+        after = m(x)
+        assert torch.allclose(base_out, after), \
+            "hooks leaked past attached(); every later arm in the process is contaminated"
+
+        # a single-site model isolates the injection, so the shift is exactly checkable
+        m1 = _fake_attention_model(hidden=8, n_sites=1, tuple_output=tup)
+        iv1 = DirectionInjection(m1, 8, d[:1], alpha=2.0)
+        want = m1(x) + 2.0 * d[0]
+        with iv1.attached():
+            got = m1(x)
+        assert torch.allclose(got, want, atol=1e-5), \
+            f"injected shift is not alpha*direction (tuple_output={tup})"
+
+
+def test_i1_alpha_zero_is_exactly_the_base_model():
+    """alpha=0 must be an exact no-op. If it is not, alpha does not control the magnitude
+    and the G9 sweep is measuring something else."""
+    import torch
+
+    from bgcbench.model.interventions import DirectionInjection
+    torch.manual_seed(0)
+    m = _fake_attention_model()
+    x = torch.randn(2, 5, 8)
+    want = m(x).clone()
+    iv = DirectionInjection(m, 8, torch.randn(3, 8), alpha=0.0)
+    with iv.attached():
+        got = m(x)
+    assert torch.allclose(want, got), "alpha=0 is not a no-op"
+
+
+def test_i1_refuses_a_direction_count_that_does_not_match_the_sites():
+    """Steering some layers and not others, silently, would be an arm nobody specified."""
+    import torch
+
+    from bgcbench.model.interventions import DirectionInjection
+    m = _fake_attention_model(n_sites=3)
+    try:
+        DirectionInjection(m, 8, torch.randn(2, 8), alpha=1.0)
+    except ValueError:
+        return
+    raise AssertionError("a 2-direction tensor was accepted for 3 attention sites")
+
+
+def test_mean_collector_averages_over_tokens_and_matches_a_hand_computation():
+    """_MeanCollector is where a shape or dtype error would silently corrupt every
+    direction. Checked against an explicit mean over (batch x position)."""
+    import torch
+
+    from bgcbench.model.directions import _MeanCollector
+    torch.manual_seed(0)
+    for tup in (False, True):
+        m = _fake_attention_model(hidden=8, n_sites=2, tuple_output=tup)
+        xs = [torch.randn(1, 4, 8), torch.randn(1, 7, 8)]
+
+        seen = []
+        h = m.blocks[0].inner_mha_cls.register_forward_hook(
+            lambda _m, _a, o: seen.append(o[0] if isinstance(o, tuple) else o))
+        for x in xs:
+            m(x)
+        h.remove()
+        # PER RECORD: each record's own mean, then averaged with equal weight -- not one
+        # pooled mean over every token, which would weight the 7-token record more.
+        want = torch.stack([s.reshape(-1, 8).mean(0) for s in seen]).mean(0)
+        pooled = torch.cat([s.reshape(-1, 8) for s in seen], 0).mean(0)
+        assert not torch.allclose(want, pooled, atol=1e-6), \
+            "the fixture cannot distinguish record- from token-weighting"
+
+        col = _MeanCollector(m)
+        with col.attached():
+            for x in xs:
+                m(x)
+        got = col.means()[0]
+        assert got.shape == (8,), f"site mean has shape {got.shape}, expected (8,)"
+        assert torch.allclose(got, want, atol=1e-5), \
+            f"streaming mean != explicit mean over tokens (tuple_output={tup})"
+        # ⚠ RECORDS, not tokens. Token-weighting would let class length differences leak
+        # into the direction (FINDINGS 12: the classes differ systematically in length) and
+        # would be the raw-mixture statistic SPEC 4.4.3's equal-n-by-record rejects.
+        assert col.counts[0] == 2, "the mean is not weighted per record"
+        assert col.token_counts[0] == 11, "the token denominator is no longer reportable"
+
+
+def test_direction_derivation_is_unit_norm_and_is_target_minus_others():
+    """Exercises the arithmetic derive() performs, without needing a substrate."""
+    import torch
+
+    mt = torch.tensor([[3.0, 4.0], [0.0, 5.0]])       # per-site target means
+    mo = torch.tensor([[0.0, 0.0], [0.0, 2.0]])       # per-site other-class means
+    raw = mt - mo
+    norms = raw.norm(dim=-1)
+    unit = raw / norms.unsqueeze(-1)
+    assert torch.allclose(norms, torch.tensor([5.0, 3.0]))
+    assert torch.allclose(unit.norm(dim=-1), torch.ones(2)), \
+        "directions are not unit-norm, so SPEC 6.3's random control is not magnitude-matched"
+    # and the contrast must be a DIFFERENCE: identical means give a zero direction, which
+    # derive() must refuse rather than normalise into NaN
+    from bgcbench.model import directions as D
+    src = Path(D.__file__).read_text()
+    assert "zero norm" in src, "a zero-norm direction is not refused; normalising gives NaN"
