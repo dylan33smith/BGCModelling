@@ -696,6 +696,49 @@ At L=128 the generation rate still exceeds the seed baseline substantially — T
 quoted with the rate. **At L=512, 82% of TERPENE seeds are already on-target**, so points at
 and above 256 nt are confounded by construction and cannot support an unqualified claim.
 
+### 9.7 A generation is NOT more like its own seed's source `[instrument]` `[result]`
+Frozen: `/data2/ds85/bgcbench/runs/SEED_SOURCE_SIMILARITY_be9ddeb59893a3bc.json`
+
+The novelty gate takes a MAX over a whole reference set. That catches wholesale copying but
+would bury the failure mode seeding specifically enables: hand the model the first L nt of
+held-out record X and it reconstructs the rest of X. That is a PER-RECORD question, so it
+needs a paired test.
+
+For every seeded generation: containment against **the record its seed came from** (matched)
+versus **20 random other held-out records of the same class** (background). Same k=21
+canonical-k-mer containment the gate uses. **The seed region is excluded from the source**,
+or the prompt would appear in both sides and inflate the matched arm for free.
+
+| L | matched > 0 | background > 0 | wins / losses | sign p | matched max | bg max |
+|---|---|---|---|---|---|---|
+| 8 | 0.0% | 0.0% | 0 / 2 | 0.50 | 0.0000 | 0.0014 |
+| 32 | 0.4% | 0.1% | 2 / 18 | 4.0e-04 | 0.0018 | 0.0049 |
+| 64 | 0.5% | 0.2% | 4 / 21 | 9.1e-04 | 0.0067 | 0.0064 |
+| 128 | 2.6% | 0.5% | 21 / 36 | 0.063 | 0.0120 | 0.0164 |
+| 256 | 2.6% | 0.5% | 21 / 47 | 0.0022 | 0.0076 | 0.0080 |
+| 512 | 2.2% | 0.5% | 18 / 44 | 0.0013 | 0.0098 | 0.0116 |
+
+**Two things are true at once and they pull opposite ways.** Generations are ~5x more likely
+to share ANY k-mer with their own source than with a random record of the same class (2.6% vs
+0.5% at L>=128), and that gap grows with seed length — the seed leaves a local trace. But the
+PAIRED comparison runs the other way: against its own background, the source LOSES, 21 wins
+against 36–47 losses, sign p down to 0.0013. And the matched maximum never exceeds the
+background maximum past L=64.
+
+So the trace is a handful of shared k-mers in a small subset of generations, not
+reconstruction. Every value here is **79x below the 0.95 gate threshold** — the largest
+matched containment across 4,800 generations is **0.012**.
+
+⇒ **The L=512 inversion (9.6) is not memorisation.** That was the live worry: if the seed-only
+baseline outscoring the generation rate were caused by regurgitation, every seeded result
+would be worthless. It is not. And this is a sharper claim than the gate's — "nothing copies
+the one thing it had the best opportunity to copy" — which the gate's max-over-references
+could not have made.
+
+⚠ A first cut of this used "matched exceeds the background 99th percentile". The background
+p99 is 0.00000, so that statistic collapsed to "is nonzero" and was replaced by the paired
+sign test above.
+
 ### 9.5 The extension, and where the curve stops meaning anything `[result]` `[limitation]`
 Full ladder frozen as `/data2/ds85/bgcbench/runs/G3_FULL_FROZEN_00820b3404a2acc4.json`, 8
 points. L=256 and L=512 run at `batch_size` 48 (probed: 256 fits at 64, 512 at 48; an OOM

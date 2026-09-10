@@ -72,8 +72,23 @@ FROZEN = {
 
     # SPEC 6 S1. An unrecorded invocation-site default of 0 made `--seeded` without an
     # explicit length a SILENT DE NOVO ARM -- the prompt was the empty string and nothing
-    # in any artifact showed it. Value itself is set by gate G3.
-    "seed_len_nt": 8,
+    # in any artifact showed it.
+    #
+    # SET BY GATE G3, 2026-09-10: 8 -> 64. G3 swept 8/16/32/64/128/256/512 at 800
+    # generations each (G3_FULL_FROZEN_00820b3404a2acc4), and 64 is chosen because it is
+    # THE LONGEST RUNG THAT IS NOT CONFOUNDED, not because it is the highest scoring:
+    #
+    #   L=8, L=16   on-target 0.001 -- nulls. A core's 5' end is a start codon plus noise
+    #               below ~20 nt, so the old frozen 8 was measuring almost nothing.
+    #   L=64        on-target 0.077, p = 7.0e-21, against a seed-only baseline of 0.003.
+    #   L>=128      the SEEDS THEMSELVES become antiSMASH-detectable (baseline 0.050 at
+    #               128, 0.165 at 256, 0.412 at 512). At 512 the seed-only baseline
+    #               EXCEEDS the generation rate -- past ~64 nt the rise is the seed, not
+    #               the method, so a higher rung buys a bigger number and a weaker claim.
+    #
+    # Not memorisation either way: a generation is NOT more like the record its seed came
+    # from than like other held-out records of its class (FINDINGS 9.7, paired sign test).
+    "seed_len_nt": 64,
 }
 
 

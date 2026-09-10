@@ -697,3 +697,19 @@ def test_hits_ledger_fields_exist_in_the_scored_record():
             f"{must} is not in the scored record schema, so the ledger will write null"
     for must in ("prefix_tag", "prefix_source_genome", "on_target", "products"):
         assert must in block, f"hits ledger does not record {must}"
+
+
+def test_seed_length_is_the_value_gate_g3_selected():
+    """SPEC G3 set the seeded prompt length. 64 is chosen as THE LONGEST UNCONFOUNDED RUNG,
+    not the highest-scoring one: at L>=128 the seeds themselves become antiSMASH-detectable
+    (seed-only baseline 0.050 at 128, 0.165 at 256, 0.412 at 512), and at 512 that baseline
+    EXCEEDS the generation rate. A higher value buys a bigger number and a weaker claim.
+
+    Below 32 nt the rung is a null — a core's 5' end is a start codon plus noise — so the
+    previously frozen 8 was measuring almost nothing (0.001 on-target)."""
+    from bgcbench.model.genconfig import FROZEN
+    assert FROZEN["seed_len_nt"] == 64, (
+        "seed length moved off the G3-selected value; if this is deliberate, G3 must be "
+        "re-read and FINDINGS 9 updated with the new contamination boundary")
+    # the frozen value must sit inside the uncontaminated window G3 measured
+    assert 32 <= FROZEN["seed_len_nt"] <= 64, "outside the window G3 established as clean"

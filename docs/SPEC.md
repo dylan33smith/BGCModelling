@@ -751,8 +751,11 @@ proportion. Both the rank and the realised parameter fraction are reported for e
 **Context regime:**
 - `S0` de novo — generation from nothing.
 - `S1` seeded — a real held-out core fragment as prefix.
-  **The seed is the first `L` nt of a held-out core of the target class**, `L` set per class by
-  Gate G3. Held-out (never trained on), first-`L` (unambiguous and reproducible — no motif choice,
+  **The seed is the first `L` nt of a held-out core of the target class**, `L` set by Gate G3.
+  **RESOLVED 2026-09-10: L = 64**, frozen in `genconfig.FROZEN`. Chosen as the longest rung
+  that is NOT confounded rather than the highest-scoring one — at L>=128 the seeds are
+  themselves antiSMASH-detectable, and at L=512 the seed-only baseline (0.412) exceeds the
+  generation rate (0.316). See FINDINGS 9.5-9.7. Held-out (never trained on), first-`L` (unambiguous and reproducible — no motif choice,
   no consensus construction, nothing to tune). The seed span is **excluded from the scored window**
   (§7) and a test pins that it never appears in scored text.
   **`L` is not inherited from any prior work or any other paper.** Values quoted elsewhere were
