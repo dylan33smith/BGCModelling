@@ -696,6 +696,41 @@ At L=128 the generation rate still exceeds the seed baseline substantially — T
 quoted with the rate. **At L=512, 82% of TERPENE seeds are already on-target**, so points at
 and above 256 nt are confounded by construction and cannot support an unqualified claim.
 
+### 9.5 The extension, and where the curve stops meaning anything `[result]` `[limitation]`
+Full ladder frozen as `/data2/ds85/bgcbench/runs/G3_FULL_FROZEN_00820b3404a2acc4.json`, 8
+points. L=256 and L=512 run at `batch_size` 48 (probed: 256 fits at 64, 512 at 48; an OOM
+poisons the CUDA context, so each candidate was probed in a FRESH process — sequential
+probing turns the next honest OOM into a spurious `CUFFT_INVALID_SIZE`).
+
+| L | batch | on-target / 800 | rate | seed-only baseline | reading |
+|---|---|---|---|---|---|
+| 8 | 80 | 1 | 0.001 | *too short to score* | clean |
+| 16 | 80 | 1 | 0.001 | *too short* | clean |
+| 32 | 80 | 42 | 0.052 | *too short* | clean |
+| **64** | 80 | **62** | **0.077** | **0.003** | **clean — the defensible point** |
+| 128 | 80 | 147 | 0.184 | 0.050 | 3.7x baseline |
+| 128 | 48 | 134 | 0.168 | 0.050 | 3.4x baseline |
+| 256 | 48 | 192 | 0.240 | 0.165 | 1.5x baseline |
+| 512 | 48 | 253 | 0.316 | **0.412** | **BELOW baseline** |
+
+**BATCH SIZE DOES NOT MOVE THE ENDPOINT.** L=128 was run at both 80 and 48: 0.184 vs 0.168.
+That overlap point is what licenses reading the two batch regimes as one curve, and it is
+why the repeat was worth its hour.
+
+### 9.6 ⚠ AT L=512 THE SEEDS ALONE OUTSCORE THE GENERATIONS `[limitation]`
+The seed-only baseline reaches **0.412** while the generations reach **0.316**. The fragments
+handed to the model are MORE on-target than what the model produces from them.
+
+They are not strictly comparable objects — a 512 nt slice of a real core against up to 8 kb
+of model output, and antiSMASH's rules are arity- and length-sensitive — so this is not a
+clean "the model makes it worse" claim. But the direction is unambiguous and it settles how
+to read the ladder: **past ~64 nt the rise is the seed, not the method.** A curve that keeps
+climbing while its own baseline climbs faster is not evidence of capability.
+
+⇒ **The reportable seeded result is L=64: 0.077 on-target, p = 7.0e-21, against a seed-only
+baseline of 0.003.** L=128 survives as a supported secondary point at 3.4-3.7x its baseline.
+L=256 and L=512 are recorded and not claimed.
+
 ### 9.4 REDOX_COFACTOR's marker is not at the 5' end `[data]`
 Its seeds are on-target **0/100 at every length up to 512**, then 99/100 at the full core —
 while its detected-but-off-target rate sits at a flat 6/100 (`RRE-containing`). No other class
