@@ -885,7 +885,128 @@ arm cannot be on-target for a class whose members the instrument reads as anothe
 belongs in the paper as a property of antiSMASH's category boundaries; it also means REDOX's
 on-target rate understates what the adapter learned, and its detect rate overstates it.
 
+**⚠ This was PRE-REGISTERED, which is what makes it evidence rather than a rescue.** The class
+map wrote it as the standing justification for promoting `redox-cofactor` out of its antiSMASH
+category, months before this arm ran (`bgcbench/data/classmap.py`, `PROMOTIONS`):
+
+> ⚠ IT IS A RiPP SUBTYPE, so REDOX_COFACTOR and RIPP are biologically nested even though
+> promotion makes them disjoint at class level (measured: 0 records carry both once promoted).
+> **Off-diagonal mass between these two rows is expected and must be read as relatedness, not
+> as a specificity failure.**
+
+`redox-cofactor`'s antiSMASH category *is* RiPP; it was promoted out because the category could
+not express it (42.0% multi-gene against redox-cofactor's 100%). The biology agrees: PQQ and
+mycofactocin are ribosomally synthesised precursor peptides and the RRE is genuine shared
+recognition machinery. So §11.3 is a prediction the class map made in advance and the endpoint
+confirmed — the paper should present it in that order.
+
+**A mechanism was proposed and REJECTED.** The obvious story is truncation: the RRE fires early
+in a cluster while the `redox-cofactor` rule needs more of it, so off-target hits should be the
+shorter generations. They are not. On-target median 4,046 nt vs off-target 3,454 nt,
+Mann-Whitney p = 0.48. The RRE/redox split is not a completeness effect and no length-based
+account of it survives. (Incidentally: detections of either kind run ~3,400-4,000 nt while
+non-detections sit at the 8,192 budget median — a detected cluster is one that terminated.)
+
 ### 11.4 Novelty
 
 All 800 generations `PASS` (k=21 containment, fails at 0.95). One REDOX generation matched a
 known BGC below threshold. No arm approached the gate.
+
+## 12. Why the classes differ — heterogeneity, held-out loss, and what does NOT follow
+
+§11 leaves four classes spread over a 16× range of on-target rate. This section asks what
+separates them. It is **exploratory**, it is powered at n = 4 classes, and §12.4 states plainly
+why no correlation here can reach significance. It is written up because it generates a sharp,
+pre-specifiable prediction (§12.5), not because it establishes a cause.
+
+### 12.1 The measurements
+
+Corpus figures from `/data2/ds85/bgcbench/corpus/core_records.jsonl`; loss from each arm's
+`train_report.json`; detection from `SEEDED_DIAGONAL_FROZEN_f1a5fa95dbdc07a1`.
+
+| class | corpus records | products | H(prod) | 2^H | modal share | length IQR (nt) | val loss | perplexity | detect |
+|---|---|---|---|---|---|---|---|---|---|
+| ARYLPOLYENE | 15,914 | 71 | 1.75 | 3.4 | 0.763 | 2,485–7,723 | **0.689** | 1.99 | **0.320** |
+| TERPENE | 136,184 | 89 | 2.18 | 4.5 | 0.437 | 999–3,844 | 0.944 | 2.57 | 0.150 |
+| REDOX_COFACTOR | 11,206 | 50 | **0.90** | **1.9** | **0.897** | 2,269–4,443 | 0.739 | 2.09 | 0.100 |
+| RIPP | 122,270 | 93 | **3.91** | **15.0** | **0.354** | 1,449–6,229 | **1.037** | 2.82 | **0.020** |
+
+⚠ **Corpus records are NOT training volume.** Training is equal-n by §4.4.3 — every arm above
+saw **8,044 records**. RIPP's 122,270 and REDOX's 11,206 describe the class in nature, not what
+the adapter was given. Data volume is therefore controlled and cannot explain any row.
+
+**What the shorthands are.**
+* **products** — antiSMASH's ~103 fine-grained labels (`lassopeptide`, `terpene-precursor`,
+  `arylpolyene`), one level below the benchmark's four classes. The column counts distinct
+  labels appearing anywhere in that class's records.
+* **H(prod)** — Shannon entropy of the product distribution in bits, `-Σ pᵢ log₂ pᵢ`.
+* **2^H** — the readable form: the **effective number of equally-common products**. REDOX behaves
+  like ~2 things, RIPP like ~15. The long tails are comparable (50–93 labels); what differs is
+  how the mass spreads. 90% of the mass takes 2 products for REDOX and **19** for RIPP.
+* **val loss** — held-out cross-entropy in nats/nt on validation records the adapter never
+  trained on, taxonomy-prefix positions masked (§8 defect, since fixed).
+* **perplexity** — `e^loss`: how many bases the model is effectively still choosing between.
+  Uniform over A/C/G/T is 4.00. ARYLPOLYENE has narrowed to 1.99, RIPP only to 2.82.
+* **detect** — any antiSMASH call, on- or off-target; distinct from on-target rate.
+
+### 12.2 RIPP's heterogeneity is real, not co-occurrence
+
+A RIPP region can carry an unrelated neighbour (`NRPS`), which would inflate its diversity
+without the class being internally varied. Restricting to each class's **own** antiSMASH
+category kills that confound:
+
+| class | own-category share of product mass | effective subtypes within own category |
+|---|---|---|
+| REDOX_COFACTOR | 0.916 | 1.1 |
+| ARYLPOLYENE | 0.791 | 1.2 |
+| TERPENE | 0.843 | 2.0 |
+| RIPP | 0.851 | **9.0** |
+
+Co-occurrence is comparable across all four (0.79–0.92). RIPP still carries 9 effective
+subtypes against 1.1–2.0. ⇒ "RIPP" names a **union**, and the adapter is asked to learn it as
+one target. Four measurements — subtype diversity, length spread, held-out loss, detection —
+rank RIPP last, and the first three never touch antiSMASH's endpoint.
+
+### 12.3 RIPP and REDOX are low for OPPOSITE reasons
+
+This is the statement that survives, and it comes from the precision column, not a correlation:
+
+| | RIPP | REDOX_COFACTOR |
+|---|---|---|
+| val loss | **1.037** — worst | 0.739 — 2nd best |
+| detect | 0.020 | 0.100 |
+| precision | **1.000** | **0.350** |
+| reading | a genuine **generation** failure: rarely produces anything, but right when it does | **not a learning failure at all**: a class-boundary failure at scoring (§11.3) |
+
+Collapsing these into one "hard classes" story would be wrong. Only RIPP is hard to *model*.
+
+### 12.4 ⚠ What does NOT follow, and why n = 4 forbids it
+
+**Diversity does not predict the endpoint.** Spearman ρ(H, detect) = **−0.40** — effectively
+nothing. REDOX is the counterexample: the least diverse class of the four and second-worst
+on-target. What holds is a two-step chain, and only directionally:
+
+| relation | ρ | p |
+|---|---|---|
+| H(prod) → val loss | +0.80 | 0.20 |
+| val loss → detect | −0.80 | 0.20 |
+| H(prod) → detect | −0.40 | 0.60 |
+| modal share → detect | +0.40 | 0.60 |
+
+**No correlation over four classes can ever be significant.** Spearman is a *rank* statistic; with
+n = 4 there are 4! = 24 orderings, so even a **perfect** match arises by chance with probability
+2/24 = **0.083**. That is the floor, and these sit at 0.20. ⇒ §12 reports shape, never evidence.
+The benchmark has four classes by design (§4.4.2, NRPS and PKS dropped at the 8,192 nt bound), so
+this cannot be fixed by measuring harder — only by treating §12.5 as the actual test.
+
+### 12.5 The prediction this generates
+
+If RIPP is hard **because** it is a union of ~9 subtypes, then conditioning on a *subclass* should
+rescue it. That is a sharp, pre-specifiable prediction on a class currently flooring at 0.020,
+and the arm to test it is already on the §14.6 redo list — the prior codebase's subclass result
+(cyclactone 124/124, unreportable: unfrozen config plus a class token) was on
+`cyclic-lactone-autoinducer`, **a RiPP subtype**, with 6,497 records in this corpus.
+
+⇒ The subclass arm stops being a redo chore and becomes the direct test of a hypothesis this
+benchmark's own data generated. **It must be pre-registered before it runs**, with the predicted
+direction stated, or it inherits the same post-hoc status as everything in §14.6.
