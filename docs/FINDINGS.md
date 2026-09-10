@@ -630,3 +630,77 @@ on-target are suggestive, not established. RIPP remains at zero in both regimes.
 was measured before the terminator fix, on 656-record splits, with no prefix. Four things
 differ at once. The floor (0/800 here, 0/200 there) is the only directly comparable cell.
 
+
+---
+
+## 9. G3 — the seed-length sweep, and the control that reframes it
+
+Bundle: `/data2/ds85/bgcbench/runs/G3_FROZEN_816d66441f8624ca.json`
+Arm: `W1n_tax` (pooled, nucleotide-balanced, lineage-prefixed). 800 generations per point
+(4 rows x 200). `batch_size` 80 against the frozen 100, declared `--off-frozen` and recorded:
+the sweep must be internally uniform, and batch size does not affect the sampling
+distribution.
+
+| L | det | on-target | on-target rate | p | per-class on-target (of 200) |
+|---|---|---|---|---|---|
+| 8 | 5 | 1 | 0.001 | 3.1e-02 | TERP 1 |
+| 16 | 5 | 1 | 0.001 | 3.1e-02 | TERP 1 |
+| 32 | 43 | 42 | 0.052 | 6.4e-14 | TERP 10, RIPP 2, ARYL 30 |
+| 64 | 65 | 62 | 0.077 | 7.0e-21 | TERP 17, RIPP 4, ARYL 41 |
+| 128 | 164 | 147 | **0.184** | 3.8e-54 | TERP 75, RIPP 17, ARYL 53, REDOX 2 |
+
+### 9.1 A threshold between 16 and 32 nt `[result]`
+L=8 and L=16 are identical nulls — 1 on-target in 800, indistinguishable from the same arm's
+de novo rate. At 32 nt it rises 42x and climbs monotonically to 0.184. That matches the
+entropy measurement behind 5.3: below ~20 nt a core's 5' end is a start codon plus noise.
+
+**The class is coming from the SEED, not the weights.** This is the POOLED arm — no class in
+its weights, no class in its lineage prefix. De novo it managed 1 detection with no class
+control; seeded at 128 nt it produces 147 on-target across all four classes, including RIPP,
+which is at zero in every other configuration run so far.
+
+### 9.2 Novelty is clean at every length `[instrument]`
+A long seed hands the model real BGC sequence, so this is where copying would appear.
+Worst-case containment rises with L exactly as it must — and stays far below the gate:
+
+| L | median worst | max worst | gate | matched known BGC |
+|---|---|---|---|---|
+| 8 | 0.0000 | 0.0161 | 800 PASS | 0 |
+| 32 | 0.0000 | 0.0324 | 800 PASS | 0 |
+| 64 | 0.0000 | 0.0426 | 800 PASS | 0 |
+| 128 | 0.0001 | 0.0634 | 800 PASS | 0 |
+
+Max 0.063 against a fail threshold of **0.95**, and zero known-BGC matches at any length.
+
+### 9.3 ⚠ THE SEEDS THEMSELVES BECOME DETECTABLE ABOVE 64 nt `[limitation]`
+antiSMASH run on the seeds alone, n=100 per class, on-target counts. The seed is excluded
+from scored text — Evo2 returns only the continuation, verified empirically — so a marker in
+the seed cannot be counted as a generation. But it changes what a hit MEANS: completing a
+fragment the detector already recognises is a weaker claim than building the marker.
+
+| L | TERPENE | RIPP | ARYLPOLYENE | REDOX_COFACTOR |
+|---|---|---|---|---|
+| 8 / 16 / 32 | *below antiSMASH's length floor — "all records skipped"* | | | |
+| 64 | **0** | 1 | **0** | 0 |
+| 128 | 3 | 5 | 12 | 0 |
+| 256 | 13 | 23 | 30 | 0 |
+| 512 | **82** | 35 | 48 | 0 |
+| full core | 100 | 99 | 100 | 99 |
+
+**L=64 is the clean point.** Seeds are invisible to the instrument there — 1 detection in 400
+across all classes — while generations reach 0.077 on-target. TERPENE and ARYLPOLYENE go from
+a 0/100 seed baseline to 0.085 and 0.205: the model is building the marker, not extending one.
+
+At L=128 the generation rate still exceeds the seed baseline substantially — TERPENE 12.5x
+(0.030 -> 0.375), ARYLPOLYENE 2.2x, RIPP 1.7x — but the baseline is no longer zero and must be
+quoted with the rate. **At L=512, 82% of TERPENE seeds are already on-target**, so points at
+and above 256 nt are confounded by construction and cannot support an unqualified claim.
+
+### 9.4 REDOX_COFACTOR's marker is not at the 5' end `[data]`
+Its seeds are on-target **0/100 at every length up to 512**, then 99/100 at the full core —
+while its detected-but-off-target rate sits at a flat 6/100 (`RRE-containing`). No other class
+behaves this way. Its generation on-target rate is correspondingly flat at ~0 across the whole
+sweep. So the seed only helps when the class's marker lies near the 5' end of the core, and
+for REDOX it does not. That is a property of the class, not of the method, and it predicts
+which classes seeding can be expected to help before spending a run.
+

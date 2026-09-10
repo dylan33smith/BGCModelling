@@ -1117,7 +1117,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 |---|---|---|
 | G1 | ✅ **CLOSED** [M]. minlength = 1; class FPR **0.000 (0/300) for every class** on real non-BGC coding DNA. Going low costs no specificity | final scoring config |
 | G2 | ⏸ **PARTIAL.** Evo2-1B ✅ [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled). GO-4B and bgcFM now **load and generate** (G10), but their health check — likelihood on real cores vs shuffled — has not been run | all generation |
-| G3 | seed-length sweep for `S1` | seeded arms |
+| G3 | seed-length sweep for `S1` | seeded arms | ✅ **RUN 2026-09-10** — `G3_FROZEN_816d66441f8624ca`. Threshold between 16 and 32 nt; on-target 0.001 (L=8) → 0.184 (L=128) on the pooled arm. ⚠ **L=64 is the last uncontaminated rung**: above it the seeds are themselves antiSMASH-detectable (82% of TERPENE seeds on-target at L=512), so longer rungs cannot support an unqualified claim. See FINDINGS 9. |
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
 | G5 | ✅ **CLOSED** [M] on corpus `0225546040b9`: TERPENE 1.000 · NRPS 0.975 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 1.000 on-target. Full dynamic range against a 0/300 floor | interpretation of every rate |
 | G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm |
