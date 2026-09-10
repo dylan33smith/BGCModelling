@@ -1067,3 +1067,66 @@ benchmark's own class level. ⇒ **This prediction is therefore recorded and lef
 stated here so that it is a standing, falsifiable claim with a direction rather than a hindsight
 explanation if anyone tests it later; the paper reports §12 as exploratory with an untested
 prediction attached, and claims nothing about whether subclass conditioning would rescue RIPP.
+
+## 13. G6 — the rank sweep. Capacity is not the binding constraint
+
+Ranks {4, 8, 16, 32, 64} on the pooled nucleotide-balanced arm `W1n`, taxonomy prefix, equal-n
+splits, `max_epochs=40`. **Held-out loss only — no generation, no antiSMASH** (§2.4: an arm
+tuned against the endpoint that scores it is not a measurement).
+
+Sweeping the pooled arm rather than one class is deliberate: §6 asks for one rank **per
+substrate**, and choosing on a single class would have moved the undefended parameter — from
+"rank 16 is undefended" to "the class we swept on is undefended" — rather than removed it.
+
+| rank | best held-out loss | perplexity | trainable | % of 1B | best step | plateau spread |
+|---|---|---|---|---|---|---|
+| 4 | 0.89628 | 2.4505 | 2,618,880 | 0.26% | 250 | 0.00233 |
+| 8 | 0.89593 | 2.4496 | 5,237,760 | 0.52% | 250 | 0.00170 |
+| 16 | 0.89558 | 2.4487 | 10,475,520 | 1.05% | 250 | 0.00159 |
+| 32 | 0.89553 | 2.4486 | 20,951,040 | 2.10% | 250 | 0.00130 |
+| 64 | **0.89550** | 2.4486 | 41,902,080 | 4.19% | 250 | 0.00128 |
+
+### 13.1 The result is not "rank 64 wins" — it is that rank does not matter
+
+**A 16× increase in trainable parameters buys 0.00078 nats/nt.** Perplexity moves from 2.4505 to
+2.4486: the model is choosing among ~2.45 bases either way.
+
+The comparison that settles it is against the sweep's own noise. Within a single run, val loss
+wanders by a mean of **0.00164** nats/nt across the plateau after its best step. The entire
+across-rank effect is **0.00078** — **0.48×** the evaluation noise it sits inside. Rank is not
+weakly beneficial here; it is **indistinguishable from measurement noise**, and reading the
+ordering r64 < r32 < r16 < r8 < r4 as a capacity trend would be reading the noise.
+
+Every rank also converged identically — best step 250, one epoch, `max_epochs` never binding,
+train loss still falling while val loss turned (rank 16: train 0.769→0.736 while val went
+0.89558→0.89574 over the patience window). The plateau is set by the data and the schedule, not
+by capacity.
+
+### 13.2 What this discharges, and what it does not
+
+⇒ **Rank 16 is now defended**, and every `W1`/`W2` number in §8, §10, §11 and §11.5 keeps it —
+not because 16 is optimal, but because the curve is flat and 16 sits 0.00008 nats/nt off the
+minimum, well inside the noise. §6's requirement that capacity be "a declared, defended
+parameter, not an inherited default" is met, and the debt §14.2 recorded against every W-arm is
+paid.
+
+⇒ **Adapter capacity is not why the endpoint rates are low.** A 0.020 RIPP rate and a 0.130
+seeded per-class rate will not be raised by a bigger adapter. That is a real negative result and
+the paper should report it as one: it removes the most obvious objection to every null here.
+
+⚠ **Bounded, and here is the bound.** This sweeps rank *under this training protocol* — same LR,
+same schedule, same patience, same early stopping, all of which fired at the same step for every
+rank. It does not show that capacity could never matter under a longer or differently tuned
+schedule. It answers exactly what §6 asks (rank chosen on held-out loss under the arm's own
+protocol) and no more.
+
+⚠ **The selected rank is upper-leaning for the per-class arms.** `W1n` trains on 32,176 records
+across four classes; a `W2` arm sees 8,044 of one. A pooled arm with more data and a more
+heterogeneous target should if anything want *more* capacity, so a rank chosen here is not an
+underestimate for `W2`. Given the curve is flat this is immaterial, but it would matter if the
+curve were not.
+
+⇒ **G6b (depth) becomes more interesting, not less.** If adapter *width* is irrelevant across a
+16× range, the open question is whether *placement* is — whether the four attention blocks of 25
+that carry adapters are the right ones. That is a different axis and this sweep says nothing
+about it.
