@@ -48,4 +48,6 @@ Step 3 is a deliverable. Freezing before comparison is what makes the diff evide
 ## Documentation
 
 `docs/SPEC.md` is the spec. `reference/frozen/KNOWN_WRONG.md` records prior defects with a red test
-each. Do not create other documentation files without asking.
+each. **§14 is the deferred register** — anything consciously skipped goes there with its reason and
+cost, because a decision to skip is invisible later and looks identical to never having considered it.
+Do not create other documentation files without asking.

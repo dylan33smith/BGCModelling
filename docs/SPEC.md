@@ -1235,3 +1235,67 @@ builder computes; the builder derives `common_n` and always did.
 No expected results, no prior rates, no hypotheses about which arm will win. Those belong in the
 Stage 2 pre-registration, written after Stage 1 and before Stage 2, and in the paper. A spec that
 predicts its own outcome is a spec that will be read to confirm it.
+
+---
+
+## 14. The deferred register — recorded, not scheduled
+
+Things consciously **not done**, each with why and what it would cost. This exists because a
+decision to skip something is invisible a month later: it looks identical to never having
+thought of it. Nothing here is a commitment; the register is a memory, not a plan.
+
+**Status key:** `PARKED` deliberately set aside · `NEVER RUN` a gate the spec defines that has
+no data · `NEEDS RE-MEASURE` a result taken on a pipeline since fixed · `DROPPED` decided
+against.
+
+### 14.1 Experiments
+
+| id | what | why parked | cost |
+|---|---|---|---|
+| X1 | **Seeded × per-class CONFLICT matrix** — give the TERPENE adapter a RIPP seed, all 4×4 cells | The diagonal (each adapter seeded from its own class) answers "do the channels compose". The off-diagonal answers the sharper question: **when the weights and the seed disagree, which wins?** Worth doing only if the diagonal shows the channels composing. | 3,200 generations, ~3–4 h |
+| X2 | **Seed length beyond 128 as a claim** | L=256 and L=512 are measured and frozen, but their seed-only baselines are 0.165 and 0.412 — at 512 the baseline exceeds the generation rate. Recorded in FINDINGS 9.5–9.6, not claimed. Would need a contamination-corrected estimator to be usable. | data already exists |
+| X3 | **Does genus/species in the lineage help?** | `LINEAGE_WIDTH` 186 keeps the whole lineage, so this is now testable by truncating deliberately — order-level vs species-level conditioning. Never run. | ~1 h per width |
+| X4 | **Unprefixed RIPP control** | Skipped in the §10 control because RIPP is 0/200 prefixed, so an unprefixed zero is uninformative. Becomes worth running only if RIPP ever comes off the floor. | ~25 min |
+| X5 | **Training-trajectory noise-floor replicate** | Queued then killed as a diagnostic. FINDINGS 4a.7 bounds the floor at ≤5.1e-4 from cross-commit comparisons; a same-commit replicate would measure it exactly. Matters for G6, which selects on held-out loss. | ~25 min |
+| X6 | **Block-wise early exit for Evo2** | Generation runs to budget even after the terminator fires. A per-row exit would recover the wasted compute; batched decoding is bounded by its slowest row, so the win is smaller than it looks. | engineering, no science |
+| X7 | **RIPP within-class strata** | `--strata` exists and is wired (SPEC 4.5.2) but has never been run. Would test whether RIPP's flat-zero is an averaging artefact over very different subclasses. | ~1 h |
+
+### 14.2 Gates the spec defines that have no data
+
+| gate | what it sets | status |
+|---|---|---|
+| G4 | decoding policy — temperature, top-k, top-p | `NEVER RUN`. Current values are inherited defaults, not swept. |
+| G6 | **adapter rank sweep** | `NEVER RUN`, and **every W-arm number owes it a debt**: §6 requires capacity be "a declared, defended parameter", chosen on held-out loss. Rank 16 is used everywhere and defended nowhere. Highest-priority gate. |
+| G8 | data scaling | `NEVER RUN` as a sweep. §12.A3 raised training data 12.3× and the endpoint did not move, which is one point on the curve, not the curve. |
+| G9 | steering layer × magnitude | `NEVER RUN` — and probably should not be. The prior codebase closed steering across six stages and all variants; G9 would re-litigate a closed programme. Candidate for **DROPPED** rather than deferred. |
+| G2 | substrate likelihood health | `PARTIAL` — Evo2 done; GO-4B and bgcfm load and generate but have no likelihood check. |
+
+### 14.3 Arms and substrates
+
+* **GO-4B / bgcfm training** — `PARKED to Stage 2` by decision. The comparison is scoped to
+  unprefixed arms while the Evo2 side uses its native taxonomy prefix, which GO cannot receive
+  (§4.3 as amended). GenomeOcean's trainable class token is the genuine structural difference
+  and the reason it is worth doing at all.
+* **`I1` activation steering** — infrastructure exists (`DirectionInjection`, shared with W3)
+  but there is no direction derivation, no α sweep and no runner path. Given G9 above, build it
+  only if there is a reason to believe the prior null does not transfer.
+* **`I2` iterative refine** — `DROPPED` from the grid by decision, not deferred.
+
+### 14.4 Results taken on a superseded pipeline
+
+Both were measured before the terminator fix, i.e. on ~8,190 nt of post-termination sampling
+(FINDINGS 4a.8). They are flagged in place and must not be cited until re-measured:
+
+* **FINDINGS 4a.7** — training non-determinism moving the endpoint by ±1/200.
+* **The §12.A3 data-volume null** — 12.3× more data with no endpoint movement.
+
+### 14.5 Methodology parked
+
+* **`min_delta` below the measured noise floor.** §6.0a uses 1e-4 while trajectory noise
+  reaches 5.1e-4, so early stopping and best-checkpoint selection are partly selecting noise.
+  An amendment setting it from the measurement was drafted and **not filed** — it needs X5
+  first, and the large deltas the project actually reads are 30–70× the floor.
+* **Lift is undefined against a zero floor.** §3.5 divides by the unconditioned marginal, which
+  is 0.000. Reports correctly emit `null` rather than dividing; the substitute in use is an
+  absolute rate difference with an exact binomial interval.
+
