@@ -589,24 +589,30 @@ from held-out records. **No class token anywhere.**
 
 | arm | rows | n | det | on-target | rate | p | hit_eos | med len |
 |---|---|---|---|---|---|---|---|---|
-| `W0_tax` floor | 4 | 800 | 0 | 0 | 0.000 | — | 0.00 | 8192 |
+| `W0_tax` floor | 4 | 200 | 0 | 0 | 0.000 | — | 0.00 | 8192 |
 | `W2_TERPENE_tax` | 1 | 200 | 3 | **3** | 0.015 | 0.124 | 0.83 | 3271 |
 | `W2_RIPP_tax` | 1 | 200 | 0 | 0 | 0.000 | 1.000 | 0.83 | 2593 |
 | **`W2_ARYLPOLYENE_tax`** | 1 | 200 | 7 | **7** | **0.035** | **0.007** | 0.29 | 8192 |
 | `W2_REDOX_COFACTOR_tax` | 1 | 200 | 4 | 1 | 0.020 | 0.062 | 0.45 | 8192 |
-| `W1_tax` pooled | 4 | 800 | 4 | **0** | 0.005 | 0.062 | 0.84 | 2855 |
-| `W1n_tax` pooled | 4 | 800 | 4 | 1 | 0.005 | 0.062 | 0.83 | 2908 |
-| `W3_tax` conditioner | 4 | 800 | 4 | 1 | 0.005 | 0.062 | 0.39 | 8192 |
+| `W1_tax` pooled | 4 | 200 | 1 | **0** | 0.005 | 0.500 | 0.84 | 2855 |
+| `W1n_tax` pooled | 4 | 200 | 1 | 1 | 0.005 | 0.500 | 0.83 | 2908 |
+| `W3_tax` conditioner | 4 | 200 | 1 | 1 | 0.005 | 0.500 | 0.39 | 8192 |
 
 ### 8.1 The floor stayed at zero `[result]`
-`W0_tax` is the untrained model given the SAME lineage prompts: **0/800**. The prefix alone
+`W0_tax` is the untrained model given the SAME lineage prompts: **0/200**. The prefix alone
 produces nothing. The adapter does the work; the prefix is what lets it express itself. That
 control is what makes the rest of the table readable.
 
 ### 8.2 Class-exclusive training produces specificity; pooled training does not `[result]`
 Every per-class arm that detected anything was **perfectly on-target** — TERPENE 3/3,
-ARYLPOLYENE 7/7. The three pooled arms produced **12 detections and 2 on-target** between
-them, and their confusion rows are ~all zero. Pooled training yields BGC-like sequence with
+ARYLPOLYENE 7/7. The three pooled arms produced **three detections and two on-target**
+between them, and their confusion rows are ~all zero.
+
+[CORRECTED] An earlier version of this table read 4 detections in n=800 for each pooled arm
+at p=0.062. A non-class-bearing arm generates **200 sequences ONCE** and scores them against
+all four targets (SPEC 6.0 degenerate collapse), so summing the per-row cells counted the
+same detection four times. Each pooled arm has **1 detection in 200**, p=0.500. The rates
+were unaffected; the counts, the denominators and the p-values were not. Pooled training yields BGC-like sequence with
 no class control. This is the contrast the benchmark exists to measure, and it is the first
 time it has had data rather than a floor-to-floor null.
 
