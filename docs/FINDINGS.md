@@ -1285,3 +1285,63 @@ earlier "converging evidence" framing overstated a coincidence.
 TERPENE at n=64 and ARYLPOLYENE at n=192 **in the same table without saying so**, and the
 ARYLPOLYENE row came from an artifact that was **failing its manipulation check** at the time it
 was cited. The table above is one n for all four classes, all passing.
+
+## 15. G9 — the injection-magnitude sweep. α = 0.3
+
+SPEC §6's G9 row fixes the criterion and it is **not** the endpoint (§2.4): *the largest α at
+which generation quality is not degraded beyond a stated tolerance, read as per-token likelihood
+on the model's own output and coding density.* A ceiling-finding sweep, not an optimisation —
+there is no "best α" to locate.
+
+`run.g9_alpha` reads exactly four quantities per arm — median coding density, median self-NLL,
+`hit_eos` rate and k-mer distinctness — and never `detected`, `on_target`, `products` or
+`observed_classes`. Those fields sit in the scored records it walks past, which is why the
+restriction is enforced in the reading code and recorded in each artifact as `selection_fields`
+alongside an empty `endpoint_fields_read`.
+
+| α | W0 coding | W0 self-NLL | W0 adm. | W2 coding | W2 `hit_eos` | W2 med len | W2 adm. |
+|---|---|---|---|---|---|---|---|
+| 0.00 | 0.2044 | 1.3599 | baseline | 0.9746 | 0.840 | 2,384 | baseline |
+| 0.05 | 0.2766 | 1.3305 | ✓ | 0.9645 | 0.900 | 2,492 | ✓ |
+| 0.10 | 0.2435 | 1.3295 | ✓ | 0.9667 | 0.980 | 1,983 | ✓ |
+| 0.20 | 0.2512 | 1.3281 | ✓ | 0.9754 | 0.980 | 2,014 | ✓ |
+| **0.30** | 0.1845 | 1.3505 | **✓** | **0.9857** | 1.000 | 1,934 | **✓** |
+| 0.50 | 0.1207 | 1.2835 | ✗ −41% | 0.2201 | **0.040** | 8,192 | ✗ −77% |
+
+⇒ **α = 0.3 on both weight states.** The cliff between 0.3 and 0.5 is sharp rather than gradual:
+on `W2`, coding density falls 0.986 → 0.220 and 90% of generations stop terminating at all.
+
+### 15.1 Two corrections to the sweep itself
+
+⚠ **The first pass reported "no admissible α" and was wrong.** Its grid began at 0.5 — past the
+entire admissible region — so a gate outcome was nearly recorded from a sweep that never sampled
+below its own first failure.
+
+⚠ **Both tolerances were initially two-sided, and both had to become one-sided.** Coding density
+was fixed *before* this run: the two-sided version rejected `W0` at α=4 for coding density 0.3153
+against a 0.2044 baseline — i.e. **for being 54% better**. `hit_eos` was fixed *after*, and that
+matters more because it changed a selected value: two-sided, it rejected `W2` at α=0.3 for
+terminating **more** (0.840 → 1.000) and selected 0.2 instead.
+
+That amendment was made after seeing the data, so the check came first: at α=0.3 there is no
+truncation (minimum length 1,002, nothing under 500 nt), median 1,934 against real TERPENE cores
+at 1,375 (§12.1), and coding density 0.986 — **the highest in the sweep**. The two-sided rule was
+rejecting the healthiest arm measured. Both values are stored (`chosen_alpha` 0.3,
+`chosen_alpha_two_sided_eos` 0.2) so the amendment is visible rather than absorbed.
+
+### 15.2 ⚠ Limitations that bound every I1 result
+
+**The two baselines are not comparable.** `W0` at α=0 has coding density 0.204 and **never
+terminates** (`hit_eos` 0.000, median 8,192); `W2` has 0.975 and stops 84% of the time.
+Degradation is relative to each arm's own α=0, so "admissible" on `W0` means *no worse than an
+already-poor baseline*, not *healthy*.
+
+**α was swept on TERPENE only and applied to all four classes by decision.** This is a stated
+transfer assumption, not a measured one. There is direct evidence against free transfer: at α=1
+the KL against unsteered was 1.034 for TERPENE-`W2` but **1.601** for ARYLPOLYENE-`W2`, so the
+same magnitude is not the same disruption per class — and the classes differ in direction
+strength too (steered-site cosine 0.755 for TERPENE on base against 0.307 for ARYLPOLYENE).
+Given the 0.3 → 0.5 cliff, 0.3 could sit inside tolerance for one class and past it for another.
+⇒ Coding density, `hit_eos` and self-NLL are recorded per arm, so **whether 0.3 held for each
+class is checkable after the fact**, and any arm that degraded must be read as uninformative
+rather than negative. It was not checked before the arms ran.
