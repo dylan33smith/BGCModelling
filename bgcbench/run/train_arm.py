@@ -44,6 +44,10 @@ def main() -> int:
     ap.add_argument("--name", required=True)
     ap.add_argument("--classes", nargs="+", default=list(BENCHMARK_CLASSES))
     ap.add_argument("--rank", type=int, default=16)
+    ap.add_argument("--depth", default=None,
+                    help="G6b: which blocks carry adapters. One of the DEPTH_SETS names "
+                         "(all/early/middle/late/attention_only/every_other). Omit for "
+                         "every block, which is what every arm before G6b used.")
     ap.add_argument("--method", choices=["lora", "offset"], default="lora",
                     help="'offset' is W3: a learned per-attention-site conditioner. It is "
                          "not KV-prefix tuning -- see interventions.py for why that is not "
@@ -100,7 +104,8 @@ def main() -> int:
                       eval_every=args.eval_every, patience=args.patience,
                       grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
                       balance=args.balance, method=args.method,
-                      offset_rank=args.offset_rank, prefix=args.prefix)
+                      offset_rank=args.offset_rank, prefix=args.prefix,
+                      depth=args.depth)
     out = ADAPTERS / f"{args.substrate}_{args.name}"
     print(f"training {args.name} on {sorted(args.classes)}: "
           f"{len(train)} train / {len(val)} val, rank {cfg.rank}, "

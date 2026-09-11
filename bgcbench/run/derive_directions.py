@@ -98,9 +98,13 @@ def main() -> int:
                                args.max_len_nt, limit=args.limit, alpha=args.check_alpha)
     art["manipulation_check"] = chk
     print(f"raw norms per site : {[round(x, 3) for x in art['raw_norms']]}")
-    print(f"train/val cosine   : {[round(c, 3) for c in chk['cosine_train_val']]}")
-    print(f"readout shift      : {[round(x, 4) for x in chk['shift']]} "
-          f"(expected {[round(x, 4) for x in chk['shift_expected_from_cosine']]})")
+    print(f"relative norms     : {[round(x, 5) for x in art['relative_norms']]}")
+    print(f"train/val cosine   : {[round(c, 3) for c in chk['cosine_train_val']]} "
+          f"(mean {chk['mean_cosine']:.3f})")
+    print(f"readout shift      : {[round(x, 4) for x in chk['shift']]}")
+    print(f"first-site shift   : {chk['first_site_shift']:.4f} vs predicted "
+          f"{chk['first_site_shift_expected']:.4f} -> "
+          f"{'agrees' if chk['first_site_agrees'] else 'DISAGREES'}")
     print(f"MANIPULATION CHECK : {'PASS' if chk['passes'] else 'FAIL'} -- {chk['criterion']}")
     if not chk["passes"]:
         print("⚠ the direction does not verifiably land; SPEC 6.4 makes any null from this "

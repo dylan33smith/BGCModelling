@@ -31,6 +31,49 @@ from bgcbench.provenance import code_version
 #: them) and is left alone. Enumerated from the loaded model, not assumed.
 EVO2_LORA_TARGETS = ["l1", "l2", "l3", "out_filter_dense", "Wqkv", "out_proj"]
 
+#: Evo2-1B's 25 blocks, enumerated from a trained adapter rather than assumed: every block
+#: carries `mlp.l1/l2/l3`; the 21 Hyena blocks carry `out_filter_dense`; the 4 attention
+#: blocks (3, 10, 17, 24) carry `inner_mha_cls.Wqkv/out_proj`. 104 adapted modules in all.
+EVO2_N_BLOCKS = 25
+EVO2_ATTENTION_BLOCKS = (3, 10, 17, 24)
+
+#: G6b depth sets. WHICH blocks carry adapters is a free parameter that SPEC 6 never
+#: declared -- it defends rank and is silent on placement -- so it is swept the same way,
+#: on held-out loss, never on the endpoint (SPEC 2.4).
+#:
+#: ⚠ These sets differ in PARAMETER COUNT as well as placement, which would normally
+#: confound a depth comparison with a capacity one. G6 licenses it: held-out loss moved
+#: 0.00078 nats/nt across a 16x rank range, 0.48x the within-run noise, so capacity is not
+#: binding in this regime and a difference between depth sets is placement. The realised
+#: trainable count is recorded for every arm regardless.
+DEPTH_SETS: dict[str, tuple[int, ...]] = {
+    "all": tuple(range(EVO2_N_BLOCKS)),
+    "early": tuple(range(0, 8)),
+    "middle": tuple(range(8, 17)),
+    "late": tuple(range(17, EVO2_N_BLOCKS)),
+    "attention_only": EVO2_ATTENTION_BLOCKS,
+    "every_other": tuple(range(0, EVO2_N_BLOCKS, 2)),
+}
+
+
+def target_regex(blocks: tuple[int, ...] | list[int],
+                 targets: list[str] | None = None) -> str:
+    """A peft `target_modules` regex restricted to `blocks`.
+
+    peft accepts either a list of name suffixes or a single regex, and applies
+    `re.fullmatch` to each module's name (e.g. `blocks.7.mlp.l1`). A suffix list cannot
+    express "these blocks only", so depth selection needs the regex form.
+    """
+    t = targets or EVO2_LORA_TARGETS
+    b = "|".join(str(i) for i in sorted(set(blocks)))
+    leaf = "|".join(
+        [rf"mlp\.({'|'.join(x for x in t if x in ('l1', 'l2', 'l3'))})"]
+        + ([r"out_filter_dense"] if "out_filter_dense" in t else [])
+        + ([rf"inner_mha_cls\.({'|'.join(x for x in t if x in ('Wqkv', 'out_proj'))})"]
+           if ("Wqkv" in t or "out_proj" in t) else [])
+    )
+    return rf"blocks\.({b})\.({leaf})"
+
 
 def train_config_hash(cfg) -> str:
     """Training had NO frozen config and no hash: nine of twelve CLI flags appeared in no
@@ -80,6 +123,9 @@ class TrainConfig:
     prefix: str = "none"
     seed: int = 0
     targets: list[str] = field(default_factory=lambda: list(EVO2_LORA_TARGETS))
+    #: G6b: name of a DEPTH_SETS entry, or None for every block (the default all arms used
+    #: before G6b existed). Recorded in the report so an arm's placement is never implicit.
+    depth: str | None = None
 
 
 def _unwrap(o):
@@ -211,8 +257,15 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
             cfgobj.to_dict = _to_dict
         except Exception:
             setattr(base, "config", type("C", (), {"to_dict": staticmethod(_to_dict)})())
+    if cfg.depth:
+        if cfg.depth not in DEPTH_SETS:
+            raise ValueError(f"unknown depth set {cfg.depth!r}; have {sorted(DEPTH_SETS)}")
+        tmods = target_regex(DEPTH_SETS[cfg.depth], cfg.targets)
+        print(f"  depth set {cfg.depth}: blocks {list(DEPTH_SETS[cfg.depth])}", flush=True)
+    else:
+        tmods = cfg.targets
     peft_cfg = LoraConfig(r=cfg.rank, lora_alpha=cfg.alpha, lora_dropout=cfg.dropout,
-                          bias="none", target_modules=cfg.targets)
+                          bias="none", target_modules=tmods)
     # autocast_adapter_dtype=False: peft 0.19's cast probes torch.float8_e8m0fnu, which
     # does not exist in torch 2.5.1, and raises before any training starts. The cast is the
     # failing step, so it is skipped; adapter dtype then follows the base model's.

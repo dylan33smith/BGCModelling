@@ -348,14 +348,25 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     dev = next(base.parameters()).device
     if randomise is not None:
         iv = random_direction_control(base, hidden, seed=int(randomise), alpha=alpha)
+        # ⚠ THE CONTROL MUST STEER THE SAME SITES. A site the real arm leaves alone because
+        # it carries no class signal must be left alone here too, or the control pushes on
+        # an axis the arm never touches and stops being magnitude-matched.
+        deg = ck.get("degenerate_sites") or []
+        if deg:
+            with torch.no_grad():
+                for i in deg:
+                    iv.directions[i] = 0.0
         sub.meta["intervention_kind"] = "i1_random"
         sub.meta["intervention_random_seed"] = int(randomise)
+        sub.meta["intervention_degenerate_sites"] = list(deg)
     else:
         d = ck["directions"]
         if d.shape[-1] != hidden:
             raise ValueError(f"directions are {d.shape[-1]}-dim against hidden {hidden}")
         iv = DirectionInjection(base, hidden, d, alpha)
         sub.meta["intervention_kind"] = "i1"
+        sub.meta["intervention_degenerate_sites"] = list(ck.get("degenerate_sites") or [])
+        sub.meta["intervention_active_sites"] = list(ck.get("active_sites") or [])
     iv = iv.to(dev)
     # ⚠ THE DIRECTION MUST MATCH THE WEIGHT STATE IT STEERS. A direction derived on a LoRA
     # describes that model's activation geometry; injected into the base model, or into a
