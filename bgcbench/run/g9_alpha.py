@@ -61,6 +61,9 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--tol-coding", type=float, default=0.10)
     ap.add_argument("--tol-nll", type=float, default=0.10)
+    ap.add_argument("--tol-eos", type=float, default=0.15,
+                    help="max ABSOLUTE change in hit_eos rate. Steering that stops the model "
+                         "terminating has broken generation even if density holds.")
     ap.add_argument("--prefix", default="taxonomy")
     ap.add_argument("--tag", default="G9")
     args = ap.parse_args()
@@ -117,20 +120,33 @@ def main() -> int:
         for r in rows:
             if r.get("rc") != 0 or r["alpha"] == 0.0:
                 continue
-            dc = abs(r["median_coding_density"] - base["median_coding_density"]) / base["median_coding_density"]
+            # ⚠ CODING DENSITY IS ONE-SIDED. Only a DROP is degradation; more gene-like
+            # output is not a reason to reject an alpha. The first version of this used
+            # abs(), and it rejected W0's alpha=4 for coding density 0.3153 against a
+            # baseline of 0.2044 -- i.e. for being 54% BETTER.
+            dc = (base["median_coding_density"] - r["median_coding_density"]) / base["median_coding_density"]
+            dc = max(0.0, dc)
+            # self-NLL stays two-sided: a rise is incoherence, a collapse is degeneracy.
             dn = abs(r["median_self_nll"] - base["median_self_nll"]) / base["median_self_nll"]
-            r["rel_coding_change"], r["rel_nll_change"] = dc, dn
-            r["admissible"] = bool(dc <= args.tol_coding and dn <= args.tol_nll)
+            # termination is a third health axis -- on W2 the alpha=0 arm stops 84% of the
+            # time and alpha=0.5 stops 4%, which no coding-density tolerance would catch on
+            # its own.
+            de = abs((r.get("hit_eos_rate") or 0) - (base.get("hit_eos_rate") or 0))
+            r["rel_coding_drop"], r["rel_nll_change"], r["abs_eos_change"] = dc, dn, de
+            r["admissible"] = bool(dc <= args.tol_coding and dn <= args.tol_nll
+                                   and de <= args.tol_eos)
             if r["admissible"]:
                 adm.append(r["alpha"])
         chosen = max(adm) if adm else None
-        why = (f"largest alpha with |Δcoding| <= {args.tol_coding} and |Δself-NLL| <= "
-               f"{args.tol_nll}, both relative to alpha=0")
+        why = (f"largest alpha with coding-density DROP <= {args.tol_coding} (one-sided), "
+               f"|Δself-NLL| <= {args.tol_nll} (relative) and |Δhit_eos| <= {args.tol_eos} "
+               f"(absolute), all against alpha=0")
 
     art = {"gate": "G9", "row_class": args.row_class, "direction": args.direction,
            "adapter": args.adapter, "alphas": args.alphas, "n_per_alpha": args.n,
            "tolerance": {"coding": args.tol_coding, "nll": args.tol_nll},
-           "selection_fields": ["median_coding_density", "median_self_nll"],
+           "selection_fields": ["median_coding_density", "median_self_nll",
+                                "hit_eos_rate", "distinct_21mer_frac"],
            "endpoint_fields_read": [],
            "criterion": why, "chosen_alpha": chosen, "rows": rows}
     p = OUT / f"{args.tag}_{args.row_class}.json"
