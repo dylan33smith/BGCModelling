@@ -105,8 +105,22 @@ def main() -> int:
     print(f"first-site shift   : {chk['first_site_shift']:.4f} vs predicted "
           f"{chk['first_site_shift_expected']:.4f} -> "
           f"{'agrees' if chk['first_site_agrees'] else 'DISAGREES'}")
-    print(f"MANIPULATION CHECK : {'PASS' if chk['passes'] else 'FAIL'} -- {chk['criterion']}")
-    if not chk["passes"]:
+    # SPEC 6 parts (a) and (b). (c) is `chk` above. All three are required (12.A4).
+    mono = D.projection_vs_alpha(sub, va_t, art["directions"], args.prefix, args.max_len_nt,
+                                 alphas=[0.0, 0.5, 1.0, 2.0, 4.0], limit=min(args.limit, 16))
+    kl = D.kl_vs_unsteered(sub, va_t, art["directions"], args.prefix, args.max_len_nt,
+                           alpha=args.check_alpha, limit=min(args.limit, 16))
+    art["check_a_monotone"] = mono
+    art["check_b_kl"] = kl
+    art["check_all_pass"] = bool(mono["passes"] and kl["passes"] and chk["passes"])
+    print(f"(a) monotone proj  : {'PASS' if mono['passes'] else 'FAIL'}  "
+          f"{ {i: [round(v,3) for v in mono['projection_per_site'][i]] for i in mono['active_sites']} }")
+    print(f"(b) KL vs unsteered: {'PASS' if kl['passes'] else 'FAIL'}  "
+          f"mean {kl['mean_kl_nats']:.5f} nats/pos at alpha={args.check_alpha}, "
+          f"argmax changed {kl['frac_argmax_changed']:.3f}")
+    print(f"(c) reproduces     : {'PASS' if chk['passes'] else 'FAIL'} -- {chk['criterion']}")
+    print(f"MANIPULATION CHECK : {'PASS' if art['check_all_pass'] else 'FAIL'} (all three required)")
+    if not art["check_all_pass"]:
         print("⚠ the direction does not verifiably land; SPEC 6.4 makes any null from this "
               "arm UNINFORMATIVE rather than negative", flush=True)
 

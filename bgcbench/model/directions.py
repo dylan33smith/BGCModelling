@@ -300,3 +300,93 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
                       "predictable in closed form, because injection propagates through "
                       "the later sites."),
     }
+
+
+@torch.no_grad()
+def projection_vs_alpha(sub, records: list[dict], directions: torch.Tensor,
+                        prefix_kind: str, max_len_nt: int, alphas: list[float],
+                        device: str = "cuda:0", limit: int | None = None) -> dict:
+    """SPEC 6 I1 check (a): projection onto `d` rises monotonically with α.
+
+    ⚠ CIRCULAR BY DESIGN, and kept anyway. Injecting `α·d` raises the projection onto `d` by
+    `α‖d‖²` for ANY `d`, noise included -- so this cannot tell a class direction from a random
+    one (that is part (c)'s job, §12.A4). What it CAN fail on is the mechanism: a hook that
+    did not attach, a site set that does not match the directions, a magnitude that is not
+    what α says. That failure mode -- the arm silently generating from the base model and
+    reading as a clean null -- is worth a cheap check of its own.
+    """
+    from bgcbench.model.interventions import DirectionInjection
+
+    base = sub.model.model if sub.family == "evo2" else sub.model
+    d = directions
+    proj = []
+    for a in alphas:
+        if a == 0:
+            proj.append(projection(sub, records, d, prefix_kind, max_len_nt, device, limit))
+            continue
+        iv = DirectionInjection(base, int(d.shape[-1]), d, float(a))
+        iv = iv.to(next(base.parameters()).device)
+        with iv.attached():
+            proj.append(projection(sub, records, d, prefix_kind, max_len_nt, device, limit))
+    n_sites = len(proj[0])
+    per_site = [[proj[k][i] for k in range(len(alphas))] for i in range(n_sites)]
+    active = [i for i in range(n_sites) if float(d[i].norm()) > 0]
+    mono = {i: all(per_site[i][k + 1] >= per_site[i][k] - 1e-6
+                   for k in range(len(alphas) - 1)) for i in active}
+    return {"alphas": list(alphas), "projection_per_site": per_site,
+            "active_sites": active, "monotone_per_site": mono,
+            "passes": bool(active) and all(mono.values()),
+            "criterion": "projection onto d non-decreasing in alpha at every steered site"}
+
+
+@torch.no_grad()
+def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_kind: str,
+                    max_len_nt: int, alpha: float, device: str = "cuda:0",
+                    limit: int | None = None, min_kl: float = 1e-3) -> dict:
+    """SPEC 6 I1 check (b): the steered next-token distribution differs from the unsteered one.
+
+    ⚠ THIS IS THE PART THAT LICENSES READING A NULL. (a) shows the hook fired and (c) shows
+    the direction is real, but neither shows the intervention reached the OUTPUT. A direction
+    can be genuine and land in activation space while changing the next-token distribution so
+    little that generation is unaffected -- and then a zero endpoint means "α was too small",
+    not "steering does not work".
+
+    Reports mean KL(steered ‖ unsteered) in nats per position, averaged over positions and
+    records.
+    """
+    import torch.nn.functional as F
+
+    from bgcbench.model.interventions import DirectionInjection
+    from bgcbench.model.train import _unwrap
+
+    base = sub.model.model if sub.family == "evo2" else sub.model
+    iv = DirectionInjection(base, int(directions.shape[-1]), directions, float(alpha))
+    iv = iv.to(next(base.parameters()).device)
+
+    kls, tops = [], []
+    for r in (records[:limit] if limit else records):
+        ids = _encode(sub, r, prefix_kind, max_len_nt)
+        if not ids:
+            continue
+        x = torch.tensor([ids], dtype=torch.long, device=device)
+        lo = _unwrap(base(x))
+        if lo is None:
+            raise RuntimeError("could not find the [B,T,V] logits; KL cannot be computed")
+        p_un = F.log_softmax(lo.float(), dim=-1)
+        with iv.attached():
+            ls = _unwrap(base(x))
+        p_st = F.log_softmax(ls.float(), dim=-1)
+        # KL(steered || unsteered), per position, then averaged
+        kl = (p_st.exp() * (p_st - p_un)).sum(-1)
+        kls.append(float(kl.mean()))
+        tops.append(float((p_st.argmax(-1) != p_un.argmax(-1)).float().mean()))
+    if not kls:
+        raise RuntimeError("no records produced logits; the KL check measured nothing")
+    mean_kl = sum(kls) / len(kls)
+    return {"alpha": float(alpha), "mean_kl_nats": mean_kl,
+            "per_record_kl": kls, "n_records": len(kls),
+            "frac_argmax_changed": sum(tops) / len(tops),
+            "min_kl": min_kl,
+            "passes": bool(mean_kl > min_kl),
+            "criterion": (f"mean KL(steered || unsteered) over next-token distributions "
+                          f"> {min_kl} nats/position -- the intervention reached the output")}

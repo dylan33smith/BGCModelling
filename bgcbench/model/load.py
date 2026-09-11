@@ -386,7 +386,11 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     # run, and the record still says the check failed.
     import os as _os
     chk = ck.get("manipulation_check") or {}
-    passed = chk.get("passes")
+    # All THREE parts are required (SPEC 6, 12.A4). `check_all_pass` is written by
+    # run.derive_directions; a direction predating it falls back to part (c) alone.
+    passed = ck.get("check_all_pass")
+    if passed is None:
+        passed = chk.get("passes")
     sub.meta["intervention_check_passed"] = passed
     if passed is False and _os.environ.get("BGCBENCH_ALLOW_FAILED_CHECK") != "1":
         raise ValueError(
