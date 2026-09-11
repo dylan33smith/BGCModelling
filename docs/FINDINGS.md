@@ -1130,3 +1130,90 @@ curve were not.
 16× range, the open question is whether *placement* is — whether the four attention blocks of 25
 that carry adapters are the right ones. That is a different axis and this sweep says nothing
 about it.
+
+## 14. G6b — the depth sweep. Placement is decisive where capacity was not
+
+Rank 16 (G6's value) on the pooled `W1n` arm, varying only **which of Evo2-1B's 25 blocks carry
+adapters**. Held-out loss only — no generation, no antiSMASH (§2.4). The `all` row is
+`G6_r16_W1n` itself, reused rather than re-run: it is exactly this arm at every block, and a
+second run would only add noise to its own baseline.
+
+| depth set | blocks | trainable | best held-out loss | vs `all` | × noise | best step |
+|---|---|---|---|---|---|---|
+| `all` | 0–24 | 10,475,520 | **0.89558** | — | — | 250 |
+| `every_other` | 0,2,…,24 | 5,437,440 | 0.89669 | +0.00111 | 0.7 | 325 |
+| `early` | 0–7 | 3,317,760 | 0.89681 | +0.00123 | 0.8 | 275 |
+| `attention_only` | 3,10,17,24 | 2,088,960 | 0.90110 | +0.00552 | 3.5 | 550 |
+| `middle` | 8–16 | 3,717,120 | 1.12099 | +0.22541 | **143** | 950 |
+| `late` | 17–24 | 3,440,640 | 1.25533 | +0.35975 | **228** | 750 |
+
+All five converged on early stopping with `max_epochs=40` never binding, and all plateaued —
+`middle` and `late` are genuinely worse, not undertrained. Mean within-run plateau noise across
+the six arms is 0.00157 nats/nt.
+
+### 14.1 The dividing line is binary, and it is "does this set contain an early block"
+
+| contains ≥1 block from 0–7? | arms | held-out loss |
+|---|---|---|
+| yes | `all`, `every_other`, `early`, `attention_only` | 0.8956 – 0.9011 |
+| no | `middle`, `late` | 1.1210 – 1.2553 |
+
+The separation is complete. Every arm touching blocks 0–7 lands inside a 0.0055 band; the two
+that do not are 143× and 228× the noise away from it. `attention_only` carries just **one** early
+block (block 3) among its four and still lands with the first group.
+
+### 14.2 It is placement, not capacity — and the comparison is capacity-matched
+
+`early`, `middle` and `late` hold 3.32M, 3.72M and 3.44M trainable parameters: within 12% of each
+other. Their held-out losses are 0.897, 1.121 and 1.255 — a spread of **0.359 nats/nt, 228× the
+noise, at essentially identical capacity**. `middle` has the *most* parameters of the three and
+is second-worst. No capacity account survives this.
+
+Set against §13, the two gates answer the same question and disagree completely:
+
+| axis | manipulation | effect | relative to noise |
+|---|---|---|---|
+| **capacity** (G6) | rank 4 → 64, **16× the parameters** | 0.00078 | **0.50×** |
+| **placement** (G6b) | same rank, blocks moved | 0.35975 | **228×** |
+
+⇒ **Where adapter capacity sits matters roughly 460× more than how much of it there is.** §13's
+"capacity is not the binding constraint" was right and is now sharpened: capacity is not binding
+*because it is already in the right place*, and moving it is catastrophic.
+
+### 14.3 What this buys, and what it does not
+
+⇒ **`early` is statistically indistinguishable from `all`** — +0.00123 against a 0.00157 noise
+floor — at **0.32× the parameters** and 17 fewer blocks. Adapting blocks 0–7 recovers everything
+adapting all 25 does. `attention_only` gets within 3.5× noise at 0.20× the parameters.
+
+⇒ **Rank 16 on all blocks is retained for every reported arm.** `all` is the (statistically tied)
+minimum, it is what §8, §10, §11 and §11.5 already used, and switching now would invalidate those
+runs to buy nothing. G6b's value is the *knowledge*, not a configuration change.
+
+⚠ **This does not say late blocks are useless to the model** — only that *LoRA adaptation placed
+there* does not help this objective. The base model's late blocks are doing whatever they do
+either way; the arm simply cannot improve held-out loss by adapting them.
+
+⚠ **Greedy, as §14's gate row states.** Rank was fixed at 16 from G6 and depth swept at that
+rank. A joint 2D sweep could differ — though with the rank axis flat at 0.50× noise and the depth
+axis at 228×, a strong interaction would be surprising.
+
+### 14.4 An independent measurement points the same way
+
+§I1's direction derivation measures something different — the class-discriminative difference of
+means in activations, not where adaptation helps — and it independently finds the **last**
+attention block empty. Relative class difference per attention site (blocks 3, 10, 17, 24):
+
+| class | block 3 | block 10 | block 17 | block 24 |
+|---|---|---|---|---|
+| TERPENE | 0.209 | 0.210 | 0.202 | **0.00051** |
+| ARYLPOLYENE | 0.116 | 0.127 | 0.189 | **0.00014** |
+
+Block 24 carries ~400–1,000× less class difference than the others, stably across classes and
+across n (64 and 192 records per side).
+
+⚠ **These are two different quantities and the agreement is suggestive, not a joint proof.** One
+is activation geometry at four attention sites; the other is where LoRA helps language-modelling
+loss across all 25 blocks. They are consistent with a single reading — that class-relevant
+structure in this model sits early and is gone by the final block — but neither establishes it
+alone, and the paper should present them as converging evidence rather than one result.
