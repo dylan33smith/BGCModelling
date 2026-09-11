@@ -260,11 +260,23 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
     # a defect.
     expected_first = alpha * float(cos[0])
     cosl = [float(c) for c in cos]
-    mean_cos = sum(cosl) / len(cosl)
+
+    # ⚠ AVERAGE OVER THE SITES THE ARM ACTUALLY STEERS. A degenerate site's direction is
+    # zeroed by `derive()`, so its cosine is identically 0 -- that is an EXCLUSION, not a
+    # measurement, and averaging it in penalises the arm for a site it deliberately does
+    # not touch. Measured: ARYLPOLYENE at 192 records per side reads 0.230 over all four
+    # sites and 0.307 over the three active ones, which is the difference between FAIL and
+    # PASS on the same data.
+    active = [i for i in range(len(cosl)) if float(d_tr[i].norm()) > 0]
+    active = active or list(range(len(cosl)))
+    mean_cos = sum(cosl[i] for i in active) / len(active)
     return {
         "alpha": float(alpha),
         "cosine_train_val": cosl,
         "mean_cosine": mean_cos,
+        "active_sites_checked": active,
+        "mean_cosine_all_sites": sum(cosl) / len(cosl),
+        "min_active_cosine": min(cosl[i] for i in active),
         "readout_before": before,
         "readout_after": after,
         "shift": shift,
@@ -274,9 +286,17 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
         # The PRIMARY evidence is the cosine: a train direction that is real class content
         # aligns with one derived independently on held-out records. A noise direction does
         # not, and no amount of injection makes it.
-        "passes": bool(mean_cos > 0.3 and shift[0] != 0.0),
-        "criterion": ("mean train/val direction cosine > 0.3 (the direction reproduces on "
-                      "held-out records) AND the first site's readout actually moves. The "
-                      "first site is the only one whose shift is predictable in closed form, "
-                      "because injection propagates through the later sites."),
+        # ⚠ A MEAN ALONE IS NOT ENOUGH: one strongly reproducing site can carry it while
+        # another is ANTI-aligned, which is not a direction that landed. ARYLPOLYENE at 64
+        # records per side has sites [-0.18, 0.038, 0.616]: a mean of 0.156 and a site
+        # pointing the wrong way. Both conditions are required.
+        "passes": bool(mean_cos > 0.3
+                       and min(cosl[i] for i in active) > 0.0
+                       and shift[0] != 0.0),
+        "criterion": ("over the sites the arm actually steers (degenerate sites excluded, "
+                      "not counted as zero): mean train/val direction cosine > 0.3 AND no "
+                      "active site anti-aligned (min cosine > 0) AND the first site's "
+                      "readout moves. The first site is the only one whose shift is "
+                      "predictable in closed form, because injection propagates through "
+                      "the later sites."),
     }

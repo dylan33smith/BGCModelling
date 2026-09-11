@@ -1005,3 +1005,41 @@ def test_direction_derivation_is_unit_norm_and_is_target_minus_others():
     from bgcbench.model import directions as D
     src = Path(D.__file__).read_text()
     assert "zero norm" in src, "a zero-norm direction is not refused; normalising gives NaN"
+
+
+def test_manipulation_check_averages_only_the_sites_it_steers():
+    """A degenerate site is zeroed by `derive()`, so its train/val cosine is identically 0.
+    That is an EXCLUSION, not a measurement, and averaging it in penalises the arm for a
+    site it deliberately does not touch.
+
+    ⚠ Measured on real artifacts: ARYLPOLYENE at 192 records per side gives cosines
+    [0.118, 0.186, 0.616, 0.0] with site 3 zeroed. Over all four sites the mean is 0.230 and
+    the check FAILS; over the three steered sites it is 0.307 and it PASSES -- a verdict
+    flip on identical data, caused purely by the aggregation.
+    """
+    from bgcbench.model import directions as D
+    src = Path(D.__file__).read_text()
+    body = src[src.index("def manipulation_check("):]
+    assert "mean_cos = sum(cosl[i] for i in active) / len(active)" in body, \
+        "the mean is not restricted to the steered sites"
+    assert '"mean_cosine_all_sites"' in body, \
+        "the all-sites mean is not retained, so the excluded scale is unreportable"
+
+    cos = [0.118, 0.186, 0.616, 0.0]
+    active = [0, 1, 2]
+    assert abs(sum(cos) / len(cos) - 0.230) < 0.001
+    assert abs(sum(cos[i] for i in active) / len(active) - 0.307) < 0.001
+    assert (sum(cos) / len(cos)) <= 0.3 < (sum(cos[i] for i in active) / len(active)), \
+        "the fixture no longer spans the threshold, so it cannot catch the regression"
+
+
+def test_manipulation_check_requires_no_anti_aligned_site():
+    """A mean alone can be carried by one strongly reproducing site while another points the
+    WRONG way, which is not a direction that landed. ARYLPOLYENE at 64 records per side has
+    steered-site cosines [-0.18, 0.038, 0.616]: mean 0.156, and site 0 anti-aligned."""
+    from bgcbench.model import directions as D
+    body = Path(D.__file__).read_text()
+    body = body[body.index("def manipulation_check("):]
+    assert "min(cosl[i] for i in active) > 0.0" in body, \
+        "an anti-aligned steered site does not fail the check"
+    assert '"min_active_cosine"' in body, "the minimum is not reported"
