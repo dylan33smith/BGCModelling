@@ -1345,3 +1345,87 @@ Given the 0.3 → 0.5 cliff, 0.3 could sit inside tolerance for one class and pa
 ⇒ Coding density, `hit_eos` and self-NLL are recorded per arm, so **whether 0.3 held for each
 class is checkable after the fact**, and any arm that degraded must be read as uninformative
 rather than negative. It was not checked before the arms ran.
+
+## 16. I1 — activation steering. It works on one arm of eight, and the control is confounded
+
+`I1_STEERING_FROZEN_2b203f381cefe712`. 16 arms, 200 de novo generations each, α = 0.3 (§15),
+taxonomy prefix. Every arm paired with SPEC §6.3's magnitude-matched random-direction control.
+All 3,200 generations PASS novelty.
+
+**Generation health was read before any detection rate**, per §6.4 — a rate off output already
+broken on the axis G9 measures is uninformative whatever it says.
+
+| arm | coding (vs α=0) | `hit_eos` (vs α=0) | health | on-target |
+|---|---|---|---|---|
+| `I1_W2_TERPENE` | 0.976 (0.951) | 0.940 (0.830) | ✅ | **15/200 = 0.075** |
+| `I1_W2_RIPP` | 0.985 (0.988) | 0.935 (0.830) | ✅ | 0/200 |
+| `I1_W2_ARYLPOLYENE` | 0.288 (0.955) | 0.015 (0.290) | ❌ −70% | 0/200 — **uninformative** |
+| `I1_W2_REDOX_COFACTOR` | 0.636 (0.968) | 0.140 (0.450) | ❌ −34% | 0/200 — **uninformative** |
+| `I1_W0_*` (4 classes) | 0.197–0.260 (0.204) | 0.000 (0.000) | ✅ | 0/200 each |
+
+### 16.1 The one positive: TERPENE on per-class weights
+
+| arm | on-target | vs |
+|---|---|---|
+| `W2_TERPENE_tax` + I0 | 3/200 = 0.015 | — |
+| `W2_TERPENE_tax` + **I1** | **15/200 = 0.075** | **p = 6.3e-03** |
+| `W2_TERPENE_tax` + random | 0/200 | p = 4.7e-05 vs I1 |
+
+**5× over the unsteered arm at p = 6.3e-03, with generation health intact** — coding density and
+termination both slightly *better* than the α=0 baseline. This is the benchmark's first
+inference-time intervention to move the endpoint.
+
+⚠ **The random-direction control does NOT license the causal reading, and this is the finding's
+main weakness.** It gives 0/200, but it also **broke generation**: coding density 0.313 against
+the arm's 0.976, `hit_eos` 0.075 against 0.940. So its zero is consistent with "a random
+direction carries no class content" *and* with "a random direction destroyed the model". The two
+cannot be separated here, and `I1 vs random p = 4.7e-05` must not be quoted as evidence that the
+direction's *content* did the work. The clean contrast is **I1 vs I0** (p = 6.3e-03): both arms
+healthy, only the steering differs.
+
+⇒ A fair control needs a random direction at a magnitude matched on *generation health* rather
+than on α — i.e. its own G9 sweep. Not run.
+
+### 16.2 An unplanned result: the real direction is gentler than a random one
+
+At the same α = 0.3 on `W2`, the derived direction preserves generation while a magnitude-matched
+random vector wrecks it:
+
+| | coding | `hit_eos` |
+|---|---|---|
+| TERPENE, real direction | 0.976 | 0.940 |
+| TERPENE, random | 0.313 | 0.075 |
+| RIPP, real direction | 0.985 | 0.935 |
+| RIPP, random | 0.431 | 0.210 |
+
+⇒ Unit-norm vectors of identical magnitude, injected at identical sites, and only the random ones
+break the model. That is independent evidence the derived direction lies along structure the
+model tolerates. It is also **why §6.3's control is not magnitude-matched in the sense that
+matters** — matching ‖d‖ does not match the perturbation's effect.
+
+### 16.3 What the zeros do and do not support
+
+**W0 — steering the base model does nothing, and this null has power.** 0/800 across four classes,
+all healthy relative to their α=0 reference, 95% upper bound 0.375% by the rule of three, which
+excludes the W2 steered rate (0.075) by 20×. ⚠ But the `W0` α=0 baseline has coding density 0.204
+and **never terminates**, so "healthy" here means *no worse than an already-poor reference*.
+
+**RIPP on W2 — a clean arm with nothing to compare.** I1 0/200 against I0 0/200: both zero, so no
+contrast is computable and the 95% upper bound on each is 0.015. Steering did not rescue the class
+§12 identifies as hardest, but this cannot distinguish "steering does not help RIPP" from "the
+arm had no headroom to show it".
+
+**ARYLPOLYENE and REDOX_COFACTOR on W2 — not results.** Both degraded past tolerance, so under
+§6.4 their zeros are uninformative rather than negative.
+
+### 16.4 ⚠ The transfer assumption failed, exactly where it was predicted to
+
+§15.2 recorded that α was swept on TERPENE alone and applied to all four classes by decision, and
+named ARYLPOLYENE as the likeliest to break on the evidence that its KL at α=1 was 1.601 against
+TERPENE's 1.034. **It broke** — coding density −70%, termination −0.275 — and REDOX_COFACTOR with
+it. Two of four W2 arms were lost to a decision that saved 50 minutes of sweeping.
+
+⇒ **α does not transfer across classes and G9 must be run per class.** Re-running ARYLPOLYENE and
+REDOX_COFACTOR at their own admissible α is the obvious next step; until then the steering result
+rests on **one class**, and §16.1's headline should be read as "steering moved the endpoint for
+TERPENE", never as "steering works".
