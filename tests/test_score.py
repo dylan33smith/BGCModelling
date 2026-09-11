@@ -1007,39 +1007,105 @@ def test_direction_derivation_is_unit_norm_and_is_target_minus_others():
     assert "zero norm" in src, "a zero-norm direction is not refused; normalising gives NaN"
 
 
+def _stub_check(cosines, zero_sites=(), alpha=1.0):
+    """Drive the REAL `manipulation_check` with controlled activations.
+
+    `class_means` is stubbed so the validation readout at every site resolves to axis 0, and
+    the train direction is built so each site's train/val cosine is exactly `cosines[i]`. A
+    zeroed site gets a genuinely zero vector, as `derive()` produces. Everything after that
+    -- active-site selection, aggregation, the pass rule -- is the real function.
+    """
+    import math
+
+    import torch
+
+    from bgcbench.model import directions as D
+
+    n, H = len(cosines), 4
+    d_tr = torch.zeros(n, H)
+    for i, c in enumerate(cosines):
+        if i in zero_sites:
+            continue
+        c = max(-1.0, min(1.0, float(c)))
+        d_tr[i][0] = c
+        d_tr[i][1] = math.sqrt(max(0.0, 1 - c * c))
+
+    # manipulation_check calls class_means four times: mt, mo, then the readout BEFORE
+    # injection and the readout AFTER. The stub bypasses the model, so hooks never fire --
+    # it has to supply the post-injection shift itself, or `shift[0]` stays 0 and the pass
+    # rule fails for a reason that has nothing to do with the aggregation under test.
+    calls = {"n": 0}
+
+    def fake_means(sub, records, prefix_kind, max_len_nt, device="cuda:0", limit=None):
+        m = torch.zeros(n, H)
+        m[:, 0] = 1.0 if records != "O" else -1.0     # target - other = +axis0
+        if calls["n"] >= 3:                            # the 4th call is the steered readout
+            for i, c in enumerate(cosines):
+                if i not in zero_sites:
+                    m[i][0] += alpha * float(c)        # what injecting alpha*d_tr would do
+        calls["n"] += 1
+        return m, 8
+
+    real = D.class_means
+    D.class_means = fake_means
+    try:
+        return D.manipulation_check(_Sub(hidden=H, n_sites=n), "T", "O", d_tr,
+                                    "none", 8192, alpha=alpha)
+    finally:
+        D.class_means = real
+
+
 def test_manipulation_check_averages_only_the_sites_it_steers():
     """A degenerate site is zeroed by `derive()`, so its train/val cosine is identically 0.
-    That is an EXCLUSION, not a measurement, and averaging it in penalises the arm for a
-    site it deliberately does not touch.
+    That is an EXCLUSION, not a measurement, and averaging it in penalises the arm for a site
+    it deliberately does not touch.
 
     ⚠ Measured on real artifacts: ARYLPOLYENE at 192 records per side gives cosines
     [0.118, 0.186, 0.616, 0.0] with site 3 zeroed. Over all four sites the mean is 0.230 and
-    the check FAILS; over the three steered sites it is 0.307 and it PASSES -- a verdict
-    flip on identical data, caused purely by the aggregation.
-    """
-    from bgcbench.model import directions as D
-    src = Path(D.__file__).read_text()
-    body = src[src.index("def manipulation_check("):]
-    assert "mean_cos = sum(cosl[i] for i in active) / len(active)" in body, \
-        "the mean is not restricted to the steered sites"
-    assert '"mean_cosine_all_sites"' in body, \
-        "the all-sites mean is not retained, so the excluded scale is unreportable"
+    the check FAILS; over the three steered sites it is 0.307 and it PASSES -- a verdict flip
+    on identical data, caused purely by the aggregation.
 
-    cos = [0.118, 0.186, 0.616, 0.0]
-    active = [0, 1, 2]
-    assert abs(sum(cos) / len(cos) - 0.230) < 0.001
-    assert abs(sum(cos[i] for i in active) / len(active) - 0.307) < 0.001
-    assert (sum(cos) / len(cos)) <= 0.3 < (sum(cos[i] for i in active) / len(active)), \
-        "the fixture no longer spans the threshold, so it cannot catch the regression"
+    ⚠ An earlier version of this test GREPPED directions.py for the implementation line and
+    did arithmetic on a literal list, so it never called the function and could not catch a
+    regression in it -- the same defect the audit found in test_i1_directions_are_unit_norm.
+    This one drives the real function.
+    """
+    chk = _stub_check([0.118, 0.186, 0.616, 0.0], zero_sites=(3,))
+    assert chk["active_sites_checked"] == [0, 1, 2], \
+        f"steered sites resolved to {chk['active_sites_checked']}, expected [0, 1, 2]"
+    assert abs(chk["mean_cosine"] - 0.307) < 0.005, \
+        f"mean over steered sites is {chk['mean_cosine']:.4f}, expected ~0.307"
+    assert abs(chk["mean_cosine_all_sites"] - 0.230) < 0.005, \
+        "the all-sites mean is not retained, so the excluded scale is unreportable"
+    assert chk["passes"] is True, \
+        "the zeroed site still drags the mean below threshold; the verdict flip is back"
 
 
 def test_manipulation_check_requires_no_anti_aligned_site():
     """A mean alone can be carried by one strongly reproducing site while another points the
-    WRONG way, which is not a direction that landed. ARYLPOLYENE at 64 records per side has
-    steered-site cosines [-0.18, 0.038, 0.616]: mean 0.156, and site 0 anti-aligned."""
-    from bgcbench.model import directions as D
-    body = Path(D.__file__).read_text()
-    body = body[body.index("def manipulation_check("):]
-    assert "min(cosl[i] for i in active) > 0.0" in body, \
-        "an anti-aligned steered site does not fail the check"
-    assert '"min_active_cosine"' in body, "the minimum is not reported"
+    WRONG way. ARYLPOLYENE at 64 records per side has steered cosines
+    [-0.18, 0.038, 0.616] -- mean 0.156 and site 0 anti-aligned -- and must fail."""
+    # ⚠ THE FIXTURE MUST ISOLATE THE CONDITION. The real ARYLPOLYENE n=64 cosines
+    # [-0.18, 0.038, 0.616] have a mean of 0.158, already under the 0.3 threshold -- so they
+    # fail whether or not the anti-alignment rule exists, and a test built on them cannot
+    # catch its removal. (Verified: deleting the rule left that version passing.) This
+    # fixture has a mean WELL ABOVE threshold and one site pointing the wrong way, so only
+    # the anti-alignment rule can reject it.
+    strong_but_anti = _stub_check([-0.20, 0.90, 0.90, 0.0], zero_sites=(3,))
+    assert strong_but_anti["mean_cosine"] > 0.3, \
+        "the fixture no longer clears the mean threshold, so it cannot isolate the rule"
+    assert strong_but_anti["min_active_cosine"] < 0, "the anti-aligned site was not detected"
+    assert strong_but_anti["passes"] is False, \
+        "a direction with a mean above threshold and an ANTI-ALIGNED site passed"
+
+    # the real ARYLPOLYENE n=64 case fails too, on both counts at once
+    chk = _stub_check([-0.18, 0.038, 0.616, 0.0], zero_sites=(3,))
+    assert chk["min_active_cosine"] < 0 and chk["passes"] is False
+
+    weak = _stub_check([0.1, 0.1, 0.1, 0.0], zero_sites=(3,))
+    assert weak["min_active_cosine"] > 0 and weak["passes"] is False, \
+        "a uniformly weak but positive direction passed"
+
+    # and a strong all-positive direction passes, so these are not vacuously failing
+    good = _stub_check([0.9, 0.8, 0.7, 0.0], zero_sites=(3,))
+    assert good["passes"] is True, "a strong reproducing direction was rejected"

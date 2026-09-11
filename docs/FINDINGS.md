@@ -1078,13 +1078,13 @@ Sweeping the pooled arm rather than one class is deliberate: §6 asks for one ra
 substrate**, and choosing on a single class would have moved the undefended parameter — from
 "rank 16 is undefended" to "the class we swept on is undefended" — rather than removed it.
 
-| rank | best held-out loss | perplexity | trainable | % of 1B | best step | plateau spread |
+| rank | best held-out loss | perplexity | trainable | % of model | best step | plateau spread |
 |---|---|---|---|---|---|---|
-| 4 | 0.89628 | 2.4505 | 2,618,880 | 0.26% | 250 | 0.00233 |
-| 8 | 0.89593 | 2.4496 | 5,237,760 | 0.52% | 250 | 0.00170 |
-| 16 | 0.89558 | 2.4487 | 10,475,520 | 1.05% | 250 | 0.00159 |
-| 32 | 0.89553 | 2.4486 | 20,951,040 | 2.10% | 250 | 0.00130 |
-| 64 | **0.89550** | 2.4486 | 41,902,080 | 4.19% | 250 | 0.00128 |
+| 4 | 0.89628 | 2.4505 | 2,618,880 | 0.23% | 250 | 0.00233 |
+| 8 | 0.89593 | 2.4496 | 5,237,760 | 0.47% | 250 | 0.00170 |
+| 16 | 0.89558 | 2.4487 | 10,475,520 | 0.94% | 250 | 0.00159 |
+| 32 | 0.89553 | 2.4486 | 20,951,040 | 1.87% | 250 | 0.00130 |
+| 64 | **0.89550** | 2.4486 | 41,902,080 | 3.75% | 250 | 0.00128 |
 
 ### 13.1 The result is not "rank 64 wins" — it is that rank does not matter
 
@@ -1097,10 +1097,21 @@ across-rank effect is **0.00078** — **0.48×** the evaluation noise it sits in
 weakly beneficial here; it is **indistinguishable from measurement noise**, and reading the
 ordering r64 < r32 < r16 < r8 < r4 as a capacity trend would be reading the noise.
 
-Every rank also converged identically — best step 250, one epoch, `max_epochs` never binding,
-train loss still falling while val loss turned (rank 16: train 0.769→0.736 while val went
-0.89558→0.89574 over the patience window). The plateau is set by the data and the schedule, not
-by capacity.
+Every rank also stopped identically — best step 250, `max_epochs` never binding.
+
+⚠ **CORRECTED: no arm completed an epoch, and an earlier version of this paragraph said they
+did.** `n_batches` is 32,176 at `grad_accum` 16, so one epoch is 2,011 optimiser steps; best step
+250 is **12.4% of a single epoch**. The report's `epochs_run: 1` is `log[-1]["epoch"] + 1` and
+every entry still carries `epoch: 0`. ⚠ A second claim in that paragraph — "train loss still
+falling while val loss turned", cited as rank 16 going 0.769→0.736 — **is not in the artifact**:
+over steps 250→350 train loss reads 0.76258, 0.78913, 0.79149, 0.73560, 0.77097, so the endpoints
+*rise*, 0.736 is an interior dip and 0.769 appears nowhere in that log. The train series is a
+sawtooth tracking batch composition, and the same shape appears at every rank. There is no
+overfitting signature here to cite, and the val excursion at the stop (+0.00016) is an order of
+magnitude below this section's own noise floor.
+
+What stands without it: all five ranks stop at the same step with near-identical trajectories, so
+the plateau is set by the data and the schedule rather than by capacity.
 
 ### 13.2 What this discharges, and what it does not
 
@@ -1110,9 +1121,20 @@ minimum, well inside the noise. §6's requirement that capacity be "a declared, 
 parameter, not an inherited default" is met, and the debt §14.2 recorded against every W-arm is
 paid.
 
-⇒ **Adapter capacity is not why the endpoint rates are low.** A 0.020 RIPP rate and a 0.130
-seeded per-class rate will not be raised by a bigger adapter. That is a real negative result and
-the paper should report it as one: it removes the most obvious objection to every null here.
+⚠ **RETRACTED 2026-09-11.** This paragraph previously read: *"Adapter capacity is not why the
+endpoint rates are low. A 0.020 RIPP rate and a 0.130 seeded per-class rate will not be raised by
+a bigger adapter. That is a real negative result and the paper should report it as one."* **That
+claim is not supported by this sweep and must not appear in the paper.** G6 read held-out loss and
+nothing else — by design, because §2.4 forbids selecting an arm on the endpoint. No arm here was
+generated or scored; the 0.020 and 0.130 rates come from §11's frozen run, not from these ten
+adapters. Inferring an endpoint null from a loss null is exactly the step the benchmark exists to
+refuse, and under §6.4 it would be a null with neither power nor a manipulation check.
+
+⇒ What G6 supports is narrower and still useful: **held-out loss is flat in rank**, so an
+objection of the form "the adapters were too small to model the target classes" is answered on
+the modelling axis. Whether a larger adapter would move the *endpoint* is **untested**, and the
+only way to test it is to generate and score at two ranks — which would then be an endpoint
+comparison, not a selection, and is therefore permitted but has not been run.
 
 ⚠ **Bounded, and here is the bound.** This sweeps rank *under this training protocol* — same LR,
 same schedule, same patience, same early stopping, all of which fired at the same step for every
@@ -1151,7 +1173,7 @@ All five converged on early stopping with `max_epochs=40` never binding, and all
 `middle` and `late` are genuinely worse, not undertrained. Mean within-run plateau noise across
 the six arms is 0.00157 nats/nt.
 
-### 14.1 The dividing line is binary, and it is "does this set contain an early block"
+### 14.1 Every arm containing an early block did well; both that lack one did badly
 
 | contains ≥1 block from 0–7? | arms | held-out loss |
 |---|---|---|
@@ -1161,6 +1183,14 @@ the six arms is 0.00157 nats/nt.
 The separation is complete. Every arm touching blocks 0–7 lands inside a 0.0055 band; the two
 that do not are 143× and 228× the noise away from it. `attention_only` carries just **one** early
 block (block 3) among its four and still lands with the first group.
+
+⚠ **The BINARY reading is not identified by this design.** Six points cannot separate "contains
+an early block" from a monotone account — the depth sets also differ in how many early blocks they
+contain (`all` 8, `early` 8, `every_other` 4, `attention_only` 1, `middle` 0, `late` 0), and that
+ordering fits the losses just as well. Distinguishing them needs single-block or
+one-block-at-a-time arms, which have not been run. The claim this section can carry is the
+**association**: no arm containing an early block performed badly, and no arm lacking one
+performed well.
 
 ### 14.2 It is placement, not capacity — and the comparison is capacity-matched
 
@@ -1176,9 +1206,16 @@ Set against §13, the two gates answer the same question and disagree completely
 | **capacity** (G6) | rank 4 → 64, **16× the parameters** | 0.00078 | **0.50×** |
 | **placement** (G6b) | same rank, blocks moved | 0.35975 | **228×** |
 
-⇒ **Where adapter capacity sits matters roughly 460× more than how much of it there is.** §13's
-"capacity is not the binding constraint" was right and is now sharpened: capacity is not binding
-*because it is already in the right place*, and moving it is catastrophic.
+⚠ **"460×" is rhetorical, not a measured quantity, and should not be written as one.** It is
+0.35975 / 0.00078 — a ratio of two manipulations whose *ranges were chosen arbitrarily*. Rank
+4→64 and all-blocks→late-blocks are not commensurable moves; a wider rank range or a milder depth
+contrast changes the number at will, and the denominator is itself a noise-scale quantity. The
+paper should state the two effects and their noise multiples side by side and let them speak.
+
+⇒ What survives: **moving a fixed-capacity adapter changes held-out loss by two orders of
+magnitude more than scaling that capacity 16× does.** §13's "capacity is not the binding
+constraint" is consistent with this and is sharpened — capacity is not binding *at the placement
+already in use*.
 
 ### 14.3 What this buys, and what it does not
 
@@ -1190,30 +1227,61 @@ adapting all 25 does. `attention_only` gets within 3.5× noise at 0.20× the par
 minimum, it is what §8, §10, §11 and §11.5 already used, and switching now would invalidate those
 runs to buy nothing. G6b's value is the *knowledge*, not a configuration change.
 
-⚠ **This does not say late blocks are useless to the model** — only that *LoRA adaptation placed
-there* does not help this objective. The base model's late blocks are doing whatever they do
-either way; the arm simply cannot improve held-out loss by adapting them.
+⚠ **This does not say late blocks are useless, and an earlier version overstated it.** That
+version said the arm "simply cannot improve held-out loss by adapting them". It can: LoRA is
+zero-init, so step 0 *is* the base model, and the `late` arm falls monotonically from 1.30914 at
+its first evaluation to 1.25533 — an improvement of **0.0538 nats/nt, 34× the noise floor** —
+before plateauing. `middle` likewise goes 1.28980 → 1.12099. The supportable statement is that
+late placement **improves an order of magnitude less than early placement**, not that it does
+nothing.
+
+⚠ **And no un-adapted baseline was ever measured.** No arm logs a step-0 evaluation and no
+un-adapted held-out loss for the `W1n` validation set appears anywhere in this document, so every
+"improvement" above is read off a first-eval-at-step-25 proxy rather than a true zero point. A
+step-0 eval costs one forward pass per arm and should be added before any of this is written up.
 
 ⚠ **Greedy, as §14's gate row states.** Rank was fixed at 16 from G6 and depth swept at that
 rank. A joint 2D sweep could differ — though with the rank axis flat at 0.50× noise and the depth
 axis at 228×, a strong interaction would be surprising.
 
-### 14.4 An independent measurement points the same way
+### 14.4 ⚠ The I1 measurement does NOT point the same way — corrected
 
-§I1's direction derivation measures something different — the class-discriminative difference of
-means in activations, not where adaptation helps — and it independently finds the **last**
-attention block empty. Relative class difference per attention site (blocks 3, 10, 17, 24):
+An earlier version of this section claimed I1's direction derivation "points the same way" as the
+depth sweep, and offered the joint reading that *class-relevant structure sits early and is gone by
+the final block*. **Its own table contradicts that**, and the claim is withdrawn.
+
+Relative class difference per attention site, all four classes at the same n (192 per side,
+`I1_<CLASS>_base_n192`, all passing their §6.4 check):
 
 | class | block 3 | block 10 | block 17 | block 24 |
 |---|---|---|---|---|
-| TERPENE | 0.209 | 0.210 | 0.202 | **0.00051** |
-| ARYLPOLYENE | 0.116 | 0.127 | 0.189 | **0.00014** |
+| TERPENE | 0.2097 | 0.2119 | 0.2027 | **0.00058** |
+| REDOX_COFACTOR | 0.1848 | 0.2121 | 0.2234 | **0.00064** |
+| RIPP | 0.1145 | 0.1485 | 0.1708 | **0.00045** |
+| ARYLPOLYENE | 0.1165 | 0.1265 | **0.1894** | **0.00014** |
 
-Block 24 carries ~400–1,000× less class difference than the others, stably across classes and
-across n (64 and 192 records per side).
+⚠ **There is no early-to-late gradient here.** Across blocks 3 → 10 → 17 the class difference is
+flat for TERPENE and *rises* for the other three — for ARYLPOLYENE block 17 is the **largest** of
+the four sites, 1.6× block 3. And **block 17 is the first block of `late`** (`DEPTH_SETS["late"]`
+= 17–24), the placement G6b measures as the single worst at 1.25533.
 
-⚠ **These are two different quantities and the agreement is suggestive, not a joint proof.** One
-is activation geometry at four attention sites; the other is where LoRA helps language-modelling
-loss across all 25 blocks. They are consistent with a single reading — that class-relevant
-structure in this model sits early and is gone by the final block — but neither establishes it
-alone, and the paper should present them as converging evidence rather than one result.
+⇒ So at block 17 the two measurements point in **opposite** directions: I1 finds the most class
+difference there, G6b finds adaptation there catastrophic. **They agree at exactly one site,
+block 24**, where I1 finds ~300–1,300× less class difference than at the other three and G6b
+finds late placement worst. One shared point is not a converging result.
+
+⚠ **Block 24's near-zero reading may not even mean "no class structure".** Its target and other
+class means are 0.10383 and 0.10383 — the site's mean output is essentially the same number
+regardless of input, so the near-zero difference is consistent with the site being close to
+input-independent at this pooling, which is a different fact from "the class signal is gone".
+Distinguishing them needs the per-record variance at that site, which is not recorded.
+
+⇒ **Nothing in §14 should be read as a claim about where class information lives in the model.**
+G6b measures where LoRA adaptation helps held-out loss; I1 measures a difference of pooled means
+at four attention sites. They are different quantities, they agree at one of four sites, and the
+earlier "converging evidence" framing overstated a coincidence.
+
+⚠ Two further defects in the withdrawn version, recorded so they are not repeated: it quoted
+TERPENE at n=64 and ARYLPOLYENE at n=192 **in the same table without saying so**, and the
+ARYLPOLYENE row came from an artifact that was **failing its manipulation check** at the time it
+was cited. The table above is one n for all four classes, all passing.

@@ -776,11 +776,23 @@ proportion. Both the rank and the realised parameter fraction are reported for e
     the endpoint (§2.4) — it is the largest α at which generation quality is not degraded
     beyond a stated tolerance, read as per-token likelihood on the model's own output and
     coding density.
-  - **MANIPULATION CHECK, probe-free, two parts, both required.** (a) projection onto `d`
-    increases monotonically with α — confirms the hook fired; (b) KL divergence between steered
-    and unsteered next-token distributions is non-trivial — confirms it reached generation.
+  - **MANIPULATION CHECK, probe-free, THREE parts, all required. AMENDED 2026-09-11 — see
+    §12.A4.** (a) projection onto `d` increases monotonically with α — confirms the hook fired;
+    (b) KL divergence between steered and unsteered next-token distributions is non-trivial —
+    confirms it reached generation; (c) **the direction REPRODUCES**: `d` derived on TRAIN and a
+    readout derived independently on VAL have a positive cosine at every steered site, and a mean
+    above 0.3 over the steered sites.
     (a) alone is circular: it measures the quantity we injected. (b) is the one that licenses
-    reading a null.
+    reading a null. **(c) is the one that distinguishes a class direction from a push**, and
+    neither (a) nor (b) can do it: a random vector passes (a) *by construction*, and passes (b)
+    too at any α large enough to perturb the distribution. Without (c) the only thing separating
+    signal from magnitude is the §6.3 random-direction control, which is an ARM — so a failure
+    would be discovered after 200 generations rather than at derivation.
+    ⚠ The mean in (c) is taken over the sites the arm actually STEERS. A site whose class
+    difference falls below the relative-norm floor is zeroed and not injected, so its cosine is
+    identically 0; counting it would penalise the arm for a site it does not touch, and measured
+    on ARYLPOLYENE that single arithmetic choice flipped the verdict (0.230 over four sites,
+    0.307 over the three steered).
   - **Control:** magnitude-matched random direction (§6.3).
   - ⚠ Substrates expose different residual streams (§6.5); the injection site is recorded per
     substrate and an arm that cannot be implemented is NOT APPLICABLE, never a zero.
@@ -1123,8 +1135,8 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G3 | seed-length sweep for `S1` | seeded arms | ✅ **RUN 2026-09-10** — `G3_FROZEN_816d66441f8624ca`. Threshold between 16 and 32 nt. **Reportable value: L=64, on-target 0.077, p=7.0e-21, seed-only baseline 0.003.** Full ladder `G3_FULL_FROZEN_00820b3404a2acc4` (8 points, 8-512 nt). ⚠ **L=64 is the last uncontaminated rung**: above it the seeds are themselves antiSMASH-detectable, and at L=512 the seed-only baseline (0.412) EXCEEDS the generation rate (0.316) — past ~64 nt the rise is the seed, not the method. Batch size does not move the endpoint (L=128 at batch 80 vs 48: 0.184 vs 0.168). See FINDINGS 9.5-9.6. |
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
 | G5 | ✅ **CLOSED** [M] on corpus `0225546040b9`: TERPENE 1.000 · NRPS 0.975 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 1.000 on-target. Full dynamic range against a 0/300 floor | interpretation of every rate |
-| G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm |
-| G6b | adapter **depth** sweep — which blocks carry adapters — on held-out loss, at the rank G6 selects | every `W1`/`W2` arm |
+| G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm | ✅ RUN 2026-09-10, rank 16 retained (FINDINGS §13) |
+| G6b | adapter **depth** sweep — which blocks carry adapters — on held-out loss, at the rank G6 selects | every `W1`/`W2` arm | ✅ RUN 2026-09-11, all-blocks retained (FINDINGS §14) |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
 | G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm |
@@ -1231,6 +1243,24 @@ builder computes; the builder derives `common_n` and always did.
 
 ---
 
+
+#### A4 — the I1 manipulation check gains a third part (2026-09-11)
+
+§6's `I1` check specified two parts, (a) monotone projection and (b) KL against the unsteered
+distribution, and correctly noted that (a) alone is circular. Building the arm showed the pair is
+still not sufficient: **both are passed by a random vector.** (a) is satisfied by construction for
+any direction — injecting `α·d` raises the projection onto `d` by `α‖d‖²` whatever `d` is — and
+(b) is satisfied by any vector pushed hard enough to move the next-token distribution. So a pair
+of checks intended to license a null could both pass on noise.
+
+Part (c) closes it: derive the direction on TRAIN, derive a readout independently on VAL, and
+require them to agree. A noise direction does not reproduce on held-out records and no amount of
+injection makes it. Measured: TERPENE 0.755, REDOX_COFACTOR 0.805, RIPP 0.732, ARYLPOLYENE 0.307
+(mean steered-site cosine at 192 records per side).
+
+This ADDS to (a) and (b) rather than replacing them — the three test different things (the vector
+is real / the hook fired / the output moved) and none implies another.
+
 ## 13. What this spec deliberately does not contain
 
 No expected results, no prior rates, no hypotheses about which arm will win. Those belong in the
@@ -1270,8 +1300,8 @@ it.** Prior answers were measured on a different instrument and are not reportab
 | gate | what it sets | status |
 |---|---|---|
 | G4 | decoding policy — temperature, top-k, top-p | `NEVER RUN`. Current values are inherited defaults, not swept. |
-| G6 | **adapter rank sweep** | ✅ **RUN 2026-09-10 — RESOLVED, rank 16 retained.** Ranks {4,8,16,32,64} on the pooled `W1n` arm, held-out loss only. **A 16× parameter increase buys 0.00078 nats/nt — 0.48× the within-run evaluation noise (0.00164), so rank is indistinguishable from noise.** Rank 16 sits 0.00008 off the minimum. The debt every W-arm owed is discharged, and capacity is NOT why the endpoint rates are low. Bounded to this training protocol; every rank stopped at step 250. See FINDINGS §13. |
-| G6b | **adapter depth sweep** | ✅ **RUN 2026-09-11 — RESOLVED, all-blocks retained.** Rank 16 on `W1n`, six depth sets. **Placement matters ~460× more than capacity**: moving the same rank-16 adapter from all blocks to blocks 17-24 costs 0.360 nats/nt (228× the within-run noise) against G6's 0.00078 for a 16× capacity increase. The line is binary — every set containing a block from 0-7 lands in [0.8956, 0.9011]; `middle` (8-16) and `late` (17-24) sit at 1.121 and 1.255. Capacity-matched: `early`/`middle`/`late` hold 3.32M/3.72M/3.44M parameters and span 0.359 nats/nt. `early` alone ties `all` within the noise floor at 0.32× the parameters. All-blocks is retained for every reported arm (it is the tied minimum and is what §8/§10/§11 already ran). Greedy: rank fixed from G6. See FINDINGS §14. |
+| G6 | **adapter rank sweep** | ✅ **RUN 2026-09-10 — RESOLVED, rank 16 retained.** Ranks {4,8,16,32,64} on the pooled `W1n` arm, held-out loss only. **A 16× parameter increase buys 0.00078 nats/nt — 0.48× the within-run evaluation noise (0.00164), so rank is indistinguishable from noise.** Rank 16 sits 0.00008 off the minimum, so the debt every W-arm owed is discharged. ⚠ This says nothing about the ENDPOINT — an earlier version of this row claimed capacity is not why the endpoint rates are low, which a loss-only sweep cannot support; retracted, see FINDINGS §13.2. Bounded to this protocol: every rank stopped at step 250, which is 12.4% of ONE epoch. See FINDINGS §13. |
+| G6b | **adapter depth sweep** | ✅ **RUN 2026-09-11 — RESOLVED, all-blocks retained.** Rank 16 on `W1n`, six depth sets. Moving the same rank-16 adapter from all blocks to blocks 17-24 costs 0.360 nats/nt (228× the within-run noise), against 0.00078 (0.5×) for G6's 16× capacity increase. ⚠ An earlier version reported that contrast as "~460× more"; it is a ratio of two arbitrarily-scoped manipulations over a noise-valued denominator and is withdrawn as a statistic. Every set containing a block from 0-7 lands in [0.8956, 0.9011]; `middle` (8-16) and `late` (17-24) sit at 1.121 and 1.255 — ⚠ an ASSOCIATION, not an identified threshold: six points cannot separate it from a monotone count-of-early-blocks account. Capacity-matched: `early`/`middle`/`late` hold 3.32M/3.72M/3.44M parameters and span 0.359 nats/nt. `early` alone ties `all` within the noise floor at 0.32× the parameters. All-blocks is retained for every reported arm (it is the tied minimum and is what §8/§10/§11 already ran). Greedy: rank fixed from G6. See FINDINGS §14. |
 | G8 | data scaling | `NEVER RUN` as a sweep. §12.A3 raised training data 12.3× and the endpoint did not move, which is one point on the curve, not the curve. |
 | G9 | steering layer × magnitude | `NEVER RUN` — **and REQUIRED, see §14.6.** The prior codebase closed steering, but on Pfam endpoints and probe readouts, without the frozen scoring config, at per-class windows. A benchmark paper cannot report that data. Believing a result and being able to publish it are different things. |
 | G2 | substrate likelihood health | `PARTIAL` — Evo2 done; GO-4B and bgcfm load and generate but have no likelihood check. |
@@ -1287,8 +1317,12 @@ it.** Prior answers were measured on a different instrument and are not reportab
 * **`I1` activation steering** — ✅ **BUILT 2026-09-10**: `model/directions.py` (difference-of-
   means derivation, record-weighted, unit-normalised), `run/derive_directions.py` (with the §6.4
   manipulation check against an independently derived validation readout), and the
-  `--direction/--alpha/--random-direction` runner path. ⏸ The **α sweep (G9) has not been run**
-  and no direction has been derived yet. G9
+  `--direction/--alpha/--random-direction` runner path. ⏸ The **α sweep (G9) has not been run**.
+  Directions HAVE been derived: all four classes on the base model at 192 records per side, all
+  four passing the §6.4 check (FINDINGS §14.4). ⚠ Two spec-mandated check halves are still
+  missing — the α-monotonicity of the projection, and the KL divergence between steered and
+  unsteered next-token distributions, which §6 names as the half that licenses reading a null.
+  G9
   and I1 are how a steering null gets into the paper on the frozen instrument (§14.6). The prior
   null is a reason to expect the outcome, never a substitute for measuring it here.
 * **`I2` iterative refine** — `DROPPED` from the grid by decision, not deferred.

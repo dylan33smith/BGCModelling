@@ -379,6 +379,22 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
             f"direction was derived on weight state {want!r} but the arm is running "
             f"{got!r}. Re-derive against the arm's checkpoint, or run the arm on the "
             f"checkpoint the direction came from -- they are different activation spaces.")
+    # ⚠ SPEC 6.4 TRAVELS WITH THE DIRECTION. Nothing previously read `manipulation_check`
+    # outside the derivation script, so an arm could be run -- and a null reported -- from a
+    # direction whose check had FAILED, with no trace of that in the frozen record. Refuse
+    # by default; `BGCBENCH_ALLOW_FAILED_CHECK=1` permits it deliberately for a diagnostic
+    # run, and the record still says the check failed.
+    import os as _os
+    chk = ck.get("manipulation_check") or {}
+    passed = chk.get("passes")
+    sub.meta["intervention_check_passed"] = passed
+    if passed is False and _os.environ.get("BGCBENCH_ALLOW_FAILED_CHECK") != "1":
+        raise ValueError(
+            f"{path} failed its SPEC 6.4 manipulation check "
+            f"(mean steered-site cosine {chk.get('mean_cosine')!r}, min "
+            f"{chk.get('min_active_cosine')!r}). A null from this arm would be "
+            f"UNINFORMATIVE, not negative. Re-derive with more records, or set "
+            f"BGCBENCH_ALLOW_FAILED_CHECK=1 to run it as a deliberate diagnostic.")
     sub.meta["intervention"] = path
     sub.meta["intervention_alpha"] = float(alpha)
     sub.meta["intervention_sites"] = ck.get("sites")

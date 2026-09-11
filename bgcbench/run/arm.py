@@ -266,6 +266,20 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
                                      if intervention is not None else None),
         intervention_random_seed=((sub.meta or {}).get("intervention_random_seed")
                                   if intervention is not None else None),
+        # ⚠ WHICH SITES WERE ACTUALLY STEERED. `intervention_sites` is the site_report and
+        # says 4 of 25 for every I1 arm -- but a degenerate site is zeroed, so an arm can
+        # steer 3. directions.py cites SPEC 6.5 ("an arm attached at 3 of 4 sites is not the
+        # arm attached at 4") as the justification for zeroing, and that was the one
+        # requirement the frozen record did not meet.
+        intervention_active_sites=((sub.meta or {}).get("intervention_active_sites")
+                                   if intervention is not None else None),
+        intervention_degenerate_sites=((sub.meta or {}).get("intervention_degenerate_sites")
+                                       if intervention is not None else None),
+        # SPEC 6.4: a null is uninformative unless the intervention verifiably landed. The
+        # verdict travels with the direction and is recorded, not merely printed at
+        # derivation time and then lost.
+        intervention_check_passed=((sub.meta or {}).get("intervention_check_passed")
+                                   if intervention is not None else None),
         intervention_rank=(getattr(intervention, "rank", None)
                            if intervention is not None else None),
         # DirectionInjection has no trainable parameters and no n_trainable(); calling it
