@@ -62,8 +62,9 @@ def main() -> int:
     ap.add_argument("--tol-coding", type=float, default=0.10)
     ap.add_argument("--tol-nll", type=float, default=0.10)
     ap.add_argument("--tol-eos", type=float, default=0.15,
-                    help="max ABSOLUTE change in hit_eos rate. Steering that stops the model "
-                         "terminating has broken generation even if density holds.")
+                    help="max ABSOLUTE DROP in hit_eos rate. One-sided: steering that stops "
+                         "the model terminating has broken generation even if density holds, "
+                         "but terminating more often is not damage.")
     ap.add_argument("--prefix", default="taxonomy")
     ap.add_argument("--tag", default="G9")
     args = ap.parse_args()
@@ -131,16 +132,23 @@ def main() -> int:
             # termination is a third health axis -- on W2 the alpha=0 arm stops 84% of the
             # time and alpha=0.5 stops 4%, which no coding-density tolerance would catch on
             # its own.
-            de = abs((r.get("hit_eos_rate") or 0) - (base.get("hit_eos_rate") or 0))
-            r["rel_coding_drop"], r["rel_nll_change"], r["abs_eos_change"] = dc, dn, de
+            # ⚠ ONE-SIDED, like coding density. Degradation is the model FAILING to stop
+            # and running to the budget -- measured on W2, alpha=0.5 takes hit_eos 0.840 to
+            # 0.040 with 90% of generations at the full 8,192. Terminating MORE is not
+            # damage: at alpha=0.3 hit_eos is 1.000 with no truncation (min length 1,002,
+            # nothing under 500 nt), median 1,934 against real TERPENE cores at 1,375, and
+            # the highest coding density in the sweep (0.986). A two-sided rule rejected
+            # that arm -- the healthiest one measured -- for being too good.
+            de = max(0.0, (base.get("hit_eos_rate") or 0) - (r.get("hit_eos_rate") or 0))
+            r["rel_coding_drop"], r["rel_nll_change"], r["eos_drop"] = dc, dn, de
             r["admissible"] = bool(dc <= args.tol_coding and dn <= args.tol_nll
                                    and de <= args.tol_eos)
             if r["admissible"]:
                 adm.append(r["alpha"])
         chosen = max(adm) if adm else None
         why = (f"largest alpha with coding-density DROP <= {args.tol_coding} (one-sided), "
-               f"|Δself-NLL| <= {args.tol_nll} (relative) and |Δhit_eos| <= {args.tol_eos} "
-               f"(absolute), all against alpha=0")
+               f"|Δself-NLL| <= {args.tol_nll} (relative) and hit_eos DROP <= {args.tol_eos} "
+               f"(absolute, one-sided), all against alpha=0")
 
     art = {"gate": "G9", "row_class": args.row_class, "direction": args.direction,
            "adapter": args.adapter, "alphas": args.alphas, "n_per_alpha": args.n,
