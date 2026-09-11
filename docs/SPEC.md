@@ -772,10 +772,15 @@ proportion. Both the rank and the realised parameter fraction are reported for e
     length-normalised. **Train only** — the prior codebase carried a leakage debt from fitting
     directions on val+test. No probe is fitted, so §3.7's ban on learned-probe *endpoints* is
     not even in tension; a probe would be an intervention, never a metric.
-  - **Injection site and magnitude:** swept together by **Gate G9**. The sweep criterion is NOT
-    the endpoint (§2.4) — it is the largest α at which generation quality is not degraded
-    beyond a stated tolerance, read as per-token likelihood on the model's own output and
-    coding density.
+  - **Injection site and magnitude:** swept together by **Gate G9**, **PER CLASS AND PER WEIGHT
+    STATE — see §12.A5**. The sweep criterion is NOT the endpoint (§2.4) — it is the largest α
+    at which generation quality is not degraded beyond a stated tolerance, read as per-token
+    likelihood on the model's own output and coding density, both **one-sided**: an improvement
+    in either is not degradation. Termination rate is a third axis, also one-sided.
+    ⚠ **α IS NOT TRANSFERABLE ACROSS CLASSES.** Measured, not assumed: α = 0.3 chosen on
+    TERPENE left ARYLPOLYENE at 29% of its baseline coding density and REDOX_COFACTOR at 66%,
+    destroying both arms, while TERPENE and RIPP were unaffected. An arm run at another class's
+    α is uninformative under §6.4 regardless of what it scores.
   - **MANIPULATION CHECK, probe-free, THREE parts, all required. AMENDED 2026-09-11 — see
     §12.A4.** (a) projection onto `d` increases monotonically with α — confirms the hook fired;
     (b) KL divergence between steered and unsteered next-token distributions is non-trivial —
@@ -1260,6 +1265,25 @@ injection makes it. Measured: TERPENE 0.755, REDOX_COFACTOR 0.805, RIPP 0.732, A
 
 This ADDS to (a) and (b) rather than replacing them — the three test different things (the vector
 is real / the hook fired / the output moved) and none implies another.
+
+
+#### A5 — G9 is per class and per weight state (2026-09-11)
+
+§6 specified G9 as one sweep of "injection site × magnitude". It was run on TERPENE and the
+resulting α = 0.3 applied to all four classes, which cost two of the four `W2` arms: ARYLPOLYENE
+fell to 29% of its baseline coding density and 0.015 termination against 0.290, REDOX_COFACTOR to
+66% and 0.140 against 0.450. Both are uninformative under §6.4 rather than negative.
+
+The failure was predicted before the arms ran (FINDINGS §15.2 named ARYLPOLYENE on the evidence
+that its KL at α = 1 was 1.601 against TERPENE's 1.034) and it happened anyway, because the sweep
+was skipped to save ~50 minutes. The cost was two arms and a day.
+
+⚠ **It also confounds the one positive result.** TERPENE is the only class running at an α chosen
+for it — the largest magnitude *it* tolerates. Every other class ran at a borrowed number, so
+"steering worked for TERPENE and not the others" is not a comparison this design can make: RIPP's
+0/200 at α = 0.3 is equally consistent with being under-steered relative to its own ceiling.
+
+⇒ G9 is now **one sweep per (class, weight state)**, and an arm may only be read at its own α.
 
 ## 13. What this spec deliberately does not contain
 
