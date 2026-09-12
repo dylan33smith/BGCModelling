@@ -142,8 +142,7 @@ Base models, no fine-tuning, 4,000 nt budget, 12 probes each [M]:
 
 Three consequences, all load-bearing:
 
-1. **Evo2 will never stop unless its terminator is written into the training text.** Its
-   tokenizer does not add one, and `vortex.model.generation.generate` calls the inner
+1. ⚠ **CORRECTED — this read "Evo2 will never stop unless its terminator is written into the training text."** §4a.8 disproved it: with the terminator made VISIBLE to the decoder, the base model emits it at index 2 in **56%** of generations and the fine-tuned model in **91%**. The terminator was always being produced; `vortex`'s `decode_token` mapped id 0 to a space, so it never survived decoding. The real requirement is that the terminator round-trip through decoding, not that training text contain it. Superseded text: Its
    generator with a hardcoded `stop_at_eos=False`, forwarding `**kwargs` after it — so
    `stop_at_eos=True` is a duplicate-keyword error, not an override. Termination must
    therefore be handled post hoc (generate to budget, truncate at the first terminator),
@@ -652,7 +651,7 @@ distribution.
 ### 9.1 A threshold between 16 and 32 nt `[result]`
 L=8 and L=16 are identical nulls — 1 on-target in 800, indistinguishable from the same arm's
 de novo rate. At 32 nt it rises 42x and climbs monotonically to 0.184. That matches the
-entropy measurement behind 5.3: below ~20 nt a core's 5' end is a start codon plus noise.
+entropy measurement behind §9.2 (⚠ an earlier version cited "5.3", which is about hybrid records and contains no entropy measurement): below ~20 nt a core's 5' end is a start codon plus noise.
 
 **The class is coming from the SEED, not the weights.** This is the POOLED arm — no class in
 its weights, no class in its lineage prefix. De novo it managed 1 detection with no class

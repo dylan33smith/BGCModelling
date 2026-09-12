@@ -409,13 +409,13 @@ falls from 38% multi-gene unbounded to **6.7%** at 8 kb. This is the §4.7 selec
 strips out the exact signal §4.5 exists to measure. It is the single most consequential interaction
 in this specification.
 
-**8k → 16k more than doubles BETALACTONE and makes PKS/NRPS usable rungs. 16k → 32k buys almost
+⚠ **REMOVED — the conclusion was reversed.** This argued "8k → 16k more than doubles BETALACTONE and makes PKS/NRPS usable rungs". FINDINGS §1.5c measured Evo2-1B near chance by ~14 kb; the corpus was rebuilt at 8,192 nt and PKS, NRPS and BETALACTONE were dropped in consequence. The surviving point is only the diminishing return: 16k → 32k buys almost
 nothing** (+8% BETALACTONE, single digits elsewhere), while costing generation and antiSMASH time on
 every sequence. **16 kb is therefore the preferred bound even where 32 kb is available.**
 
 ### 4.4.2 The class set — FINAL
 
-**Bound: 16,000 nt** (§4.7, G2). **Five classes**, chosen to span the multi-gene ladder monotonically
+**Bound: 8,192 nt** — Evo2-1B's usable context (FINDINGS §1.5c: NLL rises from 0.8049 at 8,192 to 1.2388 at 15,900 against ln(4)=1.386, i.e. near chance). **Four classes** (TERPENE, RIPP, ARYLPOLYENE, REDOX_COFACTOR). ⚠ An earlier bound of 16,000 nt and a five-class set including NRPS and BETALACTONE were REMOVED at the rebuild: the bound removed precisely those classes' multi-gene members, so they would have entered as biased short-tail subsamples. Chosen to span the multi-gene ladder monotonically
 while keeping hybrid fraction low and every class above the common effective_n:
 
 | class | effN@16k [M] | ≥2 core genes [M] | med nt [M] | hybrid [M] | effSub [M] | ladder role |
@@ -444,7 +444,8 @@ available form of §9's equivalence rule: arms cannot differ in training data be
 dataset exists**.
 
 ```
-common_n = min over the class set of effective_n@16k  =  1,224   (ARYLPOLYENE binds)
+common_n = min over the class set of RECORDS@8,192 (§12.A3)  =  10,109   (REDOX_COFACTOR binds)
+⚠ REPLACED: this read "min over the class set of effective_n@16k = 1,224 (ARYLPOLYENE binds)", from the superseded 16 kb build. Realised splits are 8,044 train / ~1,010 val / ~654 test per class.
 ```
 
 Per class: cluster the length-bounded corpus (§4.4), assign **clusters** to train/val/test, and
@@ -517,7 +518,7 @@ and nothing in the main benchmark depends on them.
 attributing in the **de novo** regime, where per-record seed covariates do not exist. If
 arms are flat across the ladder there is no effect to attribute and this is moot.
 
-**If it runs:** subsample both strata to the benchmark's per-class train size (979) so the
+**If it runs:** subsample both strata to the benchmark's per-class train size (**8,044**, §12.A3; an earlier version said 979, from the superseded build) so the
 result is directly comparable to every other number here. The full-size strata are retained
 as a better-powered secondary only.
 
@@ -610,7 +611,26 @@ against (§6.3) — and confirmation that `MINLENGTH = 1` does not admit spuriou
 input. If the FPR at ml=1 is materially above zero, the minlength decision is revisited **before**
 any arm is scored, not after.
 
-### 4.9 BUILD RESULT — measured [M], corpus `0225546040b9`
+### 4.9 BUILD RESULT — ⚠ SUPERSEDED, describes the 16 kb five-class build
+
+⚠ **THIS SECTION IS NOT THE BUILT BENCHMARK.** It records the earlier build on corpus
+`0225546040b9` at a 16,000 nt bound with five classes, and it is retained only as the design
+record — every count, ladder, class list and instrument figure below is superseded. **The built
+benchmark is:**
+
+| | value |
+|---|---|
+| corpus | `c74154974aff985f0a1677d1bf9d1f8491f7272f5fc6c27cb43546f195ff14bd` (542,414 records) |
+| bound | **8,192 nt** |
+| classes | **four**: TERPENE, RIPP, ARYLPOLYENE, REDOX_COFACTOR |
+| `common_n` | **10,109** (records, §12.A3; derived) |
+| realised splits | 8,044 train / ~1,010 val / ~654 test per class |
+| instrument (G5 / G1) | on-target **1.000** for all four at n=82; false-positive **0.000** at n=300 |
+| clusters used | TERPENE 2,448 · RIPP 2,977 · ARYLPOLYENE 1,676 · REDOX_COFACTOR 793 |
+
+⇒ Read nothing below as current. The superseded record follows.
+
+#### 4.9-old (superseded) — corpus `0225546040b9`
 
 **Everything below is re-measured from the built artifacts, not carried forward.** The corpus
 was rebuilt six times during development as defects were found; earlier versions of this section
@@ -729,9 +749,11 @@ Arms are **factors**, not a flat list. Composability is the point: an arm is a c
 - `W1` pooled adapter over the benchmark classes at the common effective_n (§4.4.3), i.e.
   balanced by RECORD.
   ⚠ **EQUAL RECORDS IS NOT EQUAL TOKENS, and an earlier version of this spec wrongly said
-  the two were the same** [M]. At 979 records per class the training corpus is
-  TERPENE 9.9% of nucleotides, RIPP 12.9%, ARYLPOLYENE 18.5%, NRPS 24.8%,
-  **BETALACTONE 33.9%** — a 3.4× imbalance — and the loss is per token, so `W1`'s gradient
+  the two were the same** [M]. ⚠ The per-class nucleotide shares that stood here are REMOVED —
+  they came from the superseded 16 kb five-class build (979 records/class; NRPS 24.8%,
+  BETALACTONE 33.9%) and neither class is in the benchmark. On the built corpus the imbalance
+  persists for the same reason: median core length runs TERPENE ~1,157 nt to ARYLPOLYENE
+  ~3,599 nt, a ~3× spread, at 8,044 records per class — and the loss is per token, so `W1`'s gradient
   is dominated by the long classes. `W1` is therefore the RAW-mixture arm and `W1n` is the
   balanced one; data mixture is itself a control method (§6) and the pair measures it. This is the controlled comparison to `W2`: it sees the *same amount
   of class C* plus the other benchmark classes, so the contrast isolates class-exclusivity from
@@ -883,7 +905,7 @@ negative.
 
 | arm | check |
 |---|---|
-| checkpoint selection | the arm is evaluated at its BEST held-out checkpoint, not its last. Training uses a fixed epoch count with no early stopping, so `final` is whatever the last step produced; measured on the first six arms, `W1` and `W2_RIPP` both had a `final` worse than their best, which would have handicapped exactly those two arms |
+| checkpoint selection | the arm is evaluated at its BEST held-out checkpoint, not its last. Training uses **early stopping** (§6.0a: `max_epochs=40`, evaluation every 25 steps, patience 4), so `final` is whatever the patience window ended on rather than the best point; ⚠ an earlier version of this row said "a fixed epoch count with no early stopping", contradicting §6.0a and describing a protocol no arm has ever run; measured on the first six arms, `W1` and `W2_RIPP` both had a `final` worse than their best, which would have handicapped exactly those two arms |
 | `W1`/`W2` | training loss falls on held-out data of the target class; monotone across ≥5 checkpoints |
 | `W3` | held-out loss WITH the conditioner attached vs WITHOUT it, on the same records. Zero-init makes the unintervened model an exact baseline, so the difference is measurable rather than asserted. A one-sided number — loss with the conditioner only — is not a check: it has no reference |
 | `I1` | **three parts, all required (§12.A4)**: (a) projection onto `d` monotone in α, (b) non-trivial KL between steered and unsteered next-token distributions, (c) the direction REPRODUCES — train-derived vs independently val-derived cosine positive at every steered site, mean > 0.3. (a) and (b) are both passed by a RANDOM vector; (c) is what separates content from push |
@@ -896,7 +918,7 @@ negative.
 
 Padding to the longest member of a batch wastes compute at these length spreads, so batches may
 be bucketed by length. **One caveat, specific to the pooled arm** [C]: class medians run from
-TERPENE ~1.3 kb to BETALACTONE ~9.0 kb, so on `W1` a pure length bucket is very nearly a pure
+TERPENE ~1,157 nt to ARYLPOLYENE ~3,599 nt (manifest medians at the 8,192 nt bound; an earlier version said "TERPENE ~1.3 kb to BETALACTONE ~9.0 kb", a class the benchmark does not contain), so on `W1` a pure length bucket is still substantially a
 CLASS bucket, and gradient updates would alternate between class-homogeneous batches — a
 training dynamic introduced by accident, on the one arm whose premise is that it sees all
 classes together.
@@ -946,8 +968,12 @@ zero. A structural absence and a measured null are different results.
 6. **Truncation asymmetry, and how it is neutralised.** Generations are cut by the token budget;
    real cores are not. A gene running off the end of a generated sequence would otherwise be scored
    differently from a gene in a complete real core. Two requirements:
-   a. The fixed scoring window (§7.2) is applied to **real cores and negative controls too**, so
-      every scored sequence is truncated identically.
+   a. ⚠ **There is NO fixed scoring window** — §7.2 above: the entire generated sequence is
+      scored, and a common window would destroy the multi-gene signal §4.5 exists to measure.
+      An earlier version of this clause said the opposite while citing §7.2 as its authority.
+      What IS applied identically to real cores and negative controls is the **whole-sequence
+      scoring itself** plus any post-processing (§6.3), so no class of input is truncated,
+      trimmed or padded differently from another.
    b. **An ORF is a start codon to an in-frame stop codon within the scored span.** A region with a
       start and no terminal stop inside the span is **partial**, is flagged as such by the gene
       caller, and its treatment (counted or excluded) is fixed here and identical for generations
@@ -1151,7 +1177,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G2 | ⏸ **PARTIAL.** Evo2-1B ✅ [M]: 16k @ 6.38 GiB, 32k @ 10.61, 64k @ 19.08 · health PASS (0.913 real vs 1.347 shuffled). GO-4B and bgcFM now **load and generate** (G10), but their health check — likelihood on real cores vs shuffled — has not been run | all generation |
 | G3 | seed-length sweep for `S1` | seeded arms | ✅ **RUN 2026-09-10** — `G3_FROZEN_816d66441f8624ca`. Threshold between 16 and 32 nt. **Reportable value: L=64, on-target 0.077, p=7.0e-21, seed-only baseline 0.003.** Full ladder `G3_FULL_FROZEN_00820b3404a2acc4` (8 points, 8-512 nt). ⚠ **L=64 is the last uncontaminated rung**: above it the seeds are themselves antiSMASH-detectable, and at L=512 the seed-only baseline (0.412) EXCEEDS the generation rate (0.316) — past ~64 nt the rise is the seed, not the method. Batch size does not move the endpoint (L=128 at batch 80 vs 48: 0.184 vs 0.168). See FINDINGS 9.5-9.6. |
 | G4 | decoding-parameter policy: swept or fixed | Stage 2 |
-| G5 | ✅ **CLOSED** [M] on corpus `0225546040b9`: TERPENE 1.000 · NRPS 0.975 · RIPP 0.992 · ARYLPOLYENE 1.000 · BETALACTONE 1.000 on-target. Full dynamic range against a 0/300 floor | interpretation of every rate |
+| G5 | ✅ **CLOSED** [M], re-measured on the built corpus `c74154974aff` (`gates/gates_ee8c025c1593_c74154974aff.json`): **on-target 1.000 for all four** of TERPENE, RIPP, ARYLPOLYENE, REDOX_COFACTOR at n=82 each, against a 0/300 negative-control floor (G1 false-positive 0.000 for every class). ⚠ An earlier row quoted corpus `0225546040b9` with NRPS 0.975 and BETALACTONE 1.000 — two classes the benchmark does not contain — and omitted REDOX_COFACTOR | interpretation of every rate |
 | G6 | adapter rank sweep on held-out loss, per substrate (§6) | every `W1`/`W2` arm | ✅ RUN 2026-09-10, rank 16 retained (FINDINGS §13) |
 | G6b | adapter **depth** sweep — which blocks carry adapters — on held-out loss, at the rank G6 selects | every `W1`/`W2` arm | ✅ RUN 2026-09-11, all-blocks retained (FINDINGS §14) |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
@@ -1159,10 +1185,10 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm | ✅ RUN 2026-09-11/12, **per class** (§12.A5); FINDINGS §15, §17 |
 | G10 | ✅ **MECHANISM CLOSED** [M] for all three substrates: terminator id round-trips, training text carries it, truncation detects it. Base-model behaviour at 4 kb: Evo2 **0/12** hit_eos (runs to budget) · GO-4B **12/12** (median 553 nt) · **bgcFM 0/12** (median 4,792 nt — the published fine-tune LOST its base model's stopping). BPE ratio measured at **4.8 nt/token**. ⏸ Whether a *fine-tuned* Evo2 emits its terminator is a post-training measurement | every generation arm, and the gene-count axis (§5.1) |
 
-**Bound resolved: 16 kb** [M]. G2 shows the 1B is not the constraint (64k fits in 19 GiB), so the
+**Bound resolved: 8,192 nt** [M]. ⚠ REVERSED — this read "Bound resolved: 16 kb" and reasoned from G2's memory measurements that the bound was a COST decision. FINDINGS §1.5c showed that mistook *it runs* for *it works*: held-out NLL rises 0.8049 at 8,192 → 1.2388 at 15,900 against ln(4)=1.386 for a uniform model, i.e. near chance. It is a MODEL-QUALITY decision. Superseded reasoning follows: G2 shows the 1B is not the constraint (64k fits in 19 GiB), so the
 bound is a cost decision; 16k captures ~92% of 32k's data benefit at half the generation and
 scoring cost. **The 7B is not required.**
-**G8 now gates the class set and is the last gate before code.** G1 also carries G7's throughput measurement.
+⚠ **SUPERSEDED.** This read "G8 now gates the class set and is the last gate before code." G8 has **never been run** (§14.2) and the code was built, run and frozen without it — the class set was instead fixed by the 8,192 nt rebuild (four classes; §4.4.2 as amended in the header). G8 remains open as a data-scaling sweep, gating nothing. G1 also carries G7's throughput measurement.
 **G5**  It sets the dynamic range every arm is measured against, and if
 any class's ceiling is low the whole benchmark for that class is compressed toward the floor.
 
