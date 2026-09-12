@@ -1556,3 +1556,56 @@ listed among the negatives.
 ⇒ **Net: seven readable negatives, one non-null, two uninformative.** The two uninformative ones
 sit in the steering result, which is where the paper's newest claim lives, so §17's framing is
 corrected above rather than left to a reader to notice.
+
+## 19. Steering does NOT compose with seeding — it overrides it
+
+One cell, TERPENE on `W2`, α = 0.3 (its own G9 ceiling) with the frozen L = 64 seed. Health read
+first: coding density 0.9841, `hit_eos` 0.920, 200/200 PASS novelty — the arm is sound, so the
+rate is readable.
+
+| TERPENE, `W2`, 200 each | on-target | |
+|---|---|---|
+| de novo, unsteered | 3/200 | 0.015 |
+| **+ steering only** | 15/200 | 0.075 |
+| **+ 64-nt seed only** | 30/200 | 0.150 |
+| **+ BOTH** | **17/200** | **0.085** |
+
+### 19.1 The combined arm behaves like steering alone
+
+| model for the combined arm | predicts | p | verdict |
+|---|---|---|---|
+| multiplicative (0.015 × 5 × 10) | 150/200 | 3e-46 | **excluded** |
+| additive on rates | 42/200 | 6e-04 | **excluded** |
+| equal to **seed alone** | 30/200 | 0.062 | marginal |
+| equal to **steering alone** | 15/200 | **0.854** | **consistent** |
+| equal to neither | 3/200 | 0.002 | excluded |
+
+⇒ **Adding a real seed to a steered arm buys nothing.** The combined arm is statistically
+indistinguishable from steering alone, and both composition models are excluded decisively. The
+point estimate is *below* seeding alone (0.085 against 0.150) at p = 0.062 — suggestive of active
+interference rather than mere non-addition, but not significant, and it should be reported as
+"no gain" rather than "a loss".
+
+### 19.2 Why this matters: the benchmark's other composition DID work
+
+§11 measured weights × seeding and they composed: 0.014 → 0.130, **9.5×**, p = 1.1e-21. That
+result is what made composition look like a general property of the grid. It is not.
+
+| pair | alone | alone | together | composes? |
+|---|---|---|---|---|
+| per-class weights × seed | 0.005 (pooled wts) | — | **0.130** | ✅ 9.5× |
+| steering × seed | 0.075 | 0.150 | **0.085** | ❌ overrides |
+
+⇒ The distinction worth carrying into the paper: **training-time conditioning composes with a
+seed; inference-time steering replaces it.** A plausible mechanism is that α = 0.3 injected at
+every attention site dominates the residual stream for the whole generation, so whatever the
+64-nt prefix contributes is overwritten rather than built on — but that is an account, not a
+measurement, and nothing here tests it.
+
+⚠ **One cell, one class, n = 200.** This is the only composition point measured for steering, on
+the only class where steering does anything. It should not be generalised to the other three,
+whose steering arms are either a genuine null (RIPP) or underpowered (§18.2).
+
+⚠ A lower α was not tried. If the override account is right, a gentler push might add to the seed
+instead of replacing it — which would make α a composition parameter rather than only a health
+one. Not run.
