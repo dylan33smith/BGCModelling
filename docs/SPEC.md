@@ -1,8 +1,20 @@
 # BGC-BENCH — Build Specification v2.0
 
-**Status:** v3.1 — APPROVED. §3 (scoring) and §4 (data) COMPLETE, verified, and oracle-checked
-against corpus `0225546040b9` on 2026-09-06. §5–§9 NOT BUILT: `bgcbench/model/`,
-`bgcbench/stats/` and all of `bgcbench/conf/` are empty.
+**Status:** v3.1 — APPROVED, and **§5–§9 ARE BUILT AND HAVE RUN.** ⚠ The header previously read
+"§5–§9 NOT BUILT: `bgcbench/model/`, `bgcbench/stats/` and all of `bgcbench/conf/` are empty",
+and cited corpus `0225546040b9`. Both are superseded:
+
+* **Corpus.** The benchmark runs on `c74154974aff985f0a1677d1bf9d1f8491f7272f5fc6c27cb43546f195ff14bd`
+  at `max_len 8192`, `common_n 10109` — NOT `0225546040b9` at 16,000 nt. Sections 4.4–4.9 below
+  still describe the superseded 16 kb / five-class build; they are kept as the design record, and
+  ⚠ **every class list, `common_n`, per-class record count and ladder in §4 predates the rebuild.**
+  The built benchmark is **four** classes (TERPENE, RIPP, ARYLPOLYENE, REDOX_COFACTOR) — NRPS,
+  PKS and BETALACTONE were dropped when the bound fell to 8,192 (FINDINGS §1.5c, §5.3).
+* **Code.** `bgcbench/model/` (load, train, generate, interventions, directions, genconfig),
+  `bgcbench/run/`, `bgcbench/score/` and `bgcbench/data/` are all built; 120 tests pass.
+* **Gates run:** G1, G3, G5, G6, G6b, G7, G9, G10. Still open: G4 (decoding policy), G8
+  (data-scaling sweep), G2 (partial — Evo2 done, GO-4B and bgcfm lack a likelihood check).
+* **Results:** FINDINGS §6–§19, with eight frozen artifacts under `/data2/ds85/bgcbench/runs/`.
 **Purpose:** the sole input to a blind reimplementation. An engineer with this document, the raw
 data, and no access to the prior codebase must be able to build the benchmark.
 
@@ -801,7 +813,7 @@ proportion. Both the rank and the realised parameter fraction are reported for e
   - **Control:** magnitude-matched random direction (§6.3).
   - ⚠ Substrates expose different residual streams (§6.5); the injection site is recorded per
     substrate and an arm that cannot be implemented is NOT APPLICABLE, never a zero.
-- `I2` iterative refine — generate, detect, retain the rule-satisfying span, re-seed from it,
+- `I2` iterative refine — ⚠ **DROPPED from the grid by decision (§14.3), not deferred.** Retained here only so the coordinate it would have occupied is legible. Generate, detect, retain the rule-satisfying span, re-seed from it,
   repeat to a fixed iteration cap.
 
 ### 6.0 Degenerate coordinates — collapse before sizing
@@ -874,7 +886,7 @@ negative.
 | checkpoint selection | the arm is evaluated at its BEST held-out checkpoint, not its last. Training uses a fixed epoch count with no early stopping, so `final` is whatever the last step produced; measured on the first six arms, `W1` and `W2_RIPP` both had a `final` worse than their best, which would have handicapped exactly those two arms |
 | `W1`/`W2` | training loss falls on held-out data of the target class; monotone across ≥5 checkpoints |
 | `W3` | held-out loss WITH the conditioner attached vs WITHOUT it, on the same records. Zero-init makes the unintervened model an exact baseline, so the difference is measurable rather than asserted. A one-sided number — loss with the conditioner only — is not a check: it has no reference |
-| `I1` | the injected direction changes an independent readout of class in activations |
+| `I1` | **three parts, all required (§12.A4)**: (a) projection onto `d` monotone in α, (b) non-trivial KL between steered and unsteered next-token distributions, (c) the direction REPRODUCES — train-derived vs independently val-derived cosine positive at every steered site, mean > 0.3. (a) and (b) are both passed by a RANDOM vector; (c) is what separates content from push |
 | `I2` | the retained span is present in the re-seeded prompt and absent from scored text |
 | `S1` | seed present in prompt, absent from scored span |
 
@@ -1144,7 +1156,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G6b | adapter **depth** sweep — which blocks carry adapters — on held-out loss, at the rank G6 selects | every `W1`/`W2` arm | ✅ RUN 2026-09-11, all-blocks retained (FINDINGS §14) |
 | G7 | ✅ **~0.2 s/sequence** at 8 CPUs, `--minimal` [M] — 50,000 sequences ≈ 2.8 h. **Scoring is NOT the binding resource**, which reopens D3 | Stage 2 sizing |
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
-| G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm |
+| G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm | ✅ RUN 2026-09-11/12, **per class** (§12.A5); FINDINGS §15, §17 |
 | G10 | ✅ **MECHANISM CLOSED** [M] for all three substrates: terminator id round-trips, training text carries it, truncation detects it. Base-model behaviour at 4 kb: Evo2 **0/12** hit_eos (runs to budget) · GO-4B **12/12** (median 553 nt) · **bgcFM 0/12** (median 4,792 nt — the published fine-tune LOST its base model's stopping). BPE ratio measured at **4.8 nt/token**. ⏸ Whether a *fine-tuned* Evo2 emits its terminator is a post-training measurement | every generation arm, and the gene-count axis (§5.1) |
 
 **Bound resolved: 16 kb** [M]. G2 shows the 1B is not the constraint (64k fits in 19 GiB), so the
@@ -1341,11 +1353,11 @@ it.** Prior answers were measured on a different instrument and are not reportab
 * **`I1` activation steering** — ✅ **BUILT 2026-09-10**: `model/directions.py` (difference-of-
   means derivation, record-weighted, unit-normalised), `run/derive_directions.py` (with the §6.4
   manipulation check against an independently derived validation readout), and the
-  `--direction/--alpha/--random-direction` runner path. ⏸ The **α sweep (G9) has not been run**.
-  Directions HAVE been derived: all four classes on the base model at 192 records per side, all
-  four passing the §6.4 check (FINDINGS §14.4). ⚠ Two spec-mandated check halves are still
-  missing — the α-monotonicity of the projection, and the KL divergence between steered and
-  unsteered next-token distributions, which §6 names as the half that licenses reading a null.
+  `--direction/--alpha/--random-direction` runner path. ✅ **G9 HAS RUN** — 2026-09-11/12, per class and per weight state (§12.A5): `W2` ceilings
+  TERPENE 0.3, RIPP 0.3, ARYLPOLYENE 0.1, REDOX_COFACTOR 0.1. Directions are derived for all four
+  classes on the base model AND on the four `W2` per-class adapters, all passing the **three-part**
+  check of §12.A4 — the α-monotonicity and KL halves that were missing are built and pass. Arms
+  run and frozen (`I1_STEERING_FROZEN_2b203f381cefe712`, `I1_PERCLASS_FROZEN_d974b3ee9b83274c`).
   G9
   and I1 are how a steering null gets into the paper on the frozen instrument (§14.6). The prior
   null is a reason to expect the outcome, never a substitute for measuring it here.

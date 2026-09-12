@@ -1471,8 +1471,15 @@ Both at α = 0.1: ARYLPOLYENE **7/200 against an I0 of 7/200** — identical —
 ⚠ ARYLPOLYENE's health verdict is a knife edge and should not be reported as a verdict: its
 termination drop is 0.155 against a 0.150 tolerance, a margin of 0.005 when the standard error on
 a rate of 0.29 at n = 200 is **0.032** — 0.16 SE. It is indistinguishable from the tolerance.
-⇒ It does not matter: its rate *equals* its unsteered rate, so "no effect" holds whichever side
-of the line the health call falls.
+⇒ The health call does not matter: its rate *equals* its unsteered rate either way.
+
+⚠ **But "no effect" is NOT what these two arms support — see §18.2, which supersedes this
+paragraph.** At n = 200 against base rates of 0.035 and 0.005, the ARYLPOLYENE and
+REDOX_COFACTOR comparisons are blind to anything below a **2.3×** and **5.7×** lift
+respectively — and the TERPENE effect this section reports is 5.0×. So ARYLPOLYENE could be
+hiding an effect the size of the headline and this design could not see it. ⇒ §17 reads as
+**one class moved, one genuine null (RIPP, at its own ceiling), two untested** — never as
+"moved one, failed three".
 
 ### 17.3 The control is still confounded, and now unevenly
 
@@ -1512,21 +1519,37 @@ reported across §6–§17 and none had been audited against that rule. This is 
 Power is the 95% upper bound (rule of three where the numerator is zero), and the question asked
 of each is *what effect does this bound actually exclude* — not "is it small".
 
-### 18.1 Readable — powered, with a passing check
+### 18.1 ⚠ CORRECTED — the pooled arms' denominator was wrong, and it changes the verdict
 
-| null | k/n | 95% UB | excludes | manipulation check |
+An earlier version of this table gave the pooled arms `n = 800`. That is the exact error §8.2
+corrected: **a non-class-bearing arm generates 200 sequences ONCE** and scores them against all
+four targets (SPEC §6.0 degenerate collapse), so summing the per-row cells counts the same
+sequence four times. `W0`, `W1`, `W1n` and `W3` are all non-class-bearing; their true n is 200.
+Re-deriving the bounds moves three arms out of "readable".
+
+| null | k/n | 95% UB | must exclude | verdict |
 |---|---|---|---|---|
-| `W1` pooled de novo | 0/800 | 0.0037 | `W2` de novo 0.014 | loss 1.0176 → 0.8958, monotone over 5 ✅ |
-| `W1n` pooled de novo | 0/800 | 0.0037 | `W2` de novo 0.014 | loss 1.0177 → 0.8958, monotone ✅ |
-| `W3` learned conditioner | 1/800 | 0.0069 | `W2` de novo 0.014 | Δ 0.0188 with vs without ✅ |
-| `W0` × `S1` seeded base | 0/800 | 0.0037 | `W2` seeded **0.130** | 800/800 carry a real seed + prefix ✅ |
-| `I1` steering on `W0`, 4 classes | 0/800 | 0.0037 | `W2` steered 0.030 | 3-part check passes on all four ✅ |
-| `I1` steering, RIPP `W2` | 0/200 | 0.0150 | TERPENE's 0.075 | 3-part ✅, **α at RIPP's own ceiling** |
-| RIPP de novo `W2` | 0/200 | 0.0150 | its own seeded 0.020 | loss falls, arm converged ✅ |
+| `W0` × `S1` seeded base | 0/800 | 0.0037 | `W2` seeded 0.130 | ✅ readable (35× margin) |
+| `I1` steering on `W0` | 0/800 | 0.0037 | `W2` steered 0.030 | ✅ readable |
+| `I1` steering, RIPP `W2` | 0/200 | 0.0150 | TERPENE's 0.075 | ✅ readable, **α at RIPP's own ceiling** |
+| RIPP de novo `W2` | 0/200 | 0.0150 | its own seeded 0.020 | ✅ readable, but by a hair |
+| `W1` pooled de novo | 0/**200** | 0.0150 | `W2` de novo 0.014 | ❌ **cannot exclude it** |
+| `W1n` pooled de novo | 1/**200** | 0.0275 | `W2` de novo 0.014 | ❌ **cannot exclude it** |
+| `W3` learned conditioner | 1/**200** | 0.0275 | `W2` de novo 0.014 | ❌ **cannot exclude it** |
 
-⇒ Seven negatives are genuine results. The strongest are `W0 × S1` (a bound 35× below the rate it
-excludes) and `I1` on `W0`. RIPP de novo is the weakest — its bound of 0.0150 clears the 0.020 it
-must exclude by a hair, and should be reported with the bound rather than as a flat zero.
+⇒ **Four readable, not seven.** `W0 × S1` and `I1`-on-`W0` are genuinely strong — bounds far
+below what they exclude. RIPP's two nulls clear their targets but only just, and should be quoted
+with the bound rather than as flat zeros.
+
+⚠ **`W3` can no longer be reported as a null.** Its manipulation check passes (Δ 0.0188 with the
+conditioner attached vs without), but a bound of 0.0275 against the 0.014 it must exclude means
+the arm lacks the power to say the learned conditioner does nothing. Under §6.4 that is
+uninformative, not negative.
+
+⚠ **The pooled-vs-per-class RATE null is underpowered — but §8.2's claim was never a rate claim.**
+"Pooled training yields BGC-like sequence with **no class control**" rests on the confusion
+structure (rows ~all zero) and on per-class arms being perfectly on-target, which n=200 supports.
+The *specificity* finding stands; the *rate* null does not.
 
 ### 18.2 ⚠ Underpowered — must be reported as uninformative
 
