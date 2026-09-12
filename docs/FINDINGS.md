@@ -1501,3 +1501,58 @@ per-class α.
 For TERPENE on the same per-class weights, de novo: I0 3/200 (0.015) → I1 **15/200 (0.075)**.
 The seeded arm on the same weights is 30/200 (0.150, §11). ⇒ Steering at its ceiling buys about
 **half** what a 64-nt real seed buys, and the two have not been combined.
+
+## 18. The null audit — which of this benchmark's negatives are readable
+
+The paper's claim is "what works and what does not", and the *does not* half rests entirely on
+nulls being interpretable. SPEC §6.4 is explicit: **a null requires power AND a passing
+manipulation check, or it is reported as uninformative rather than negative.** Nine negatives are
+reported across §6–§17 and none had been audited against that rule. This is that audit.
+
+Power is the 95% upper bound (rule of three where the numerator is zero), and the question asked
+of each is *what effect does this bound actually exclude* — not "is it small".
+
+### 18.1 Readable — powered, with a passing check
+
+| null | k/n | 95% UB | excludes | manipulation check |
+|---|---|---|---|---|
+| `W1` pooled de novo | 0/800 | 0.0037 | `W2` de novo 0.014 | loss 1.0176 → 0.8958, monotone over 5 ✅ |
+| `W1n` pooled de novo | 0/800 | 0.0037 | `W2` de novo 0.014 | loss 1.0177 → 0.8958, monotone ✅ |
+| `W3` learned conditioner | 1/800 | 0.0069 | `W2` de novo 0.014 | Δ 0.0188 with vs without ✅ |
+| `W0` × `S1` seeded base | 0/800 | 0.0037 | `W2` seeded **0.130** | 800/800 carry a real seed + prefix ✅ |
+| `I1` steering on `W0`, 4 classes | 0/800 | 0.0037 | `W2` steered 0.030 | 3-part check passes on all four ✅ |
+| `I1` steering, RIPP `W2` | 0/200 | 0.0150 | TERPENE's 0.075 | 3-part ✅, **α at RIPP's own ceiling** |
+| RIPP de novo `W2` | 0/200 | 0.0150 | its own seeded 0.020 | loss falls, arm converged ✅ |
+
+⇒ Seven negatives are genuine results. The strongest are `W0 × S1` (a bound 35× below the rate it
+excludes) and `I1` on `W0`. RIPP de novo is the weakest — its bound of 0.0150 clears the 0.020 it
+must exclude by a hair, and should be reported with the bound rather than as a flat zero.
+
+### 18.2 ⚠ Underpowered — must be reported as uninformative
+
+Two arms are not zeros but *no differences*, and "no difference" needs a different question: what
+difference could this comparison have seen?
+
+| arm | I1 | I0 | smallest detectable I1 at 80% power | blind below |
+|---|---|---|---|---|
+| `I1` ARYLPOLYENE `W2` | 7/200 | 7/200 | 16/200 (0.080) | **a 2.3× lift** |
+| `I1` REDOX_COFACTOR `W2` | 2/200 | 1/200 | 6/200 (0.029) | **a 5.7× lift** |
+
+⇒ **Neither licenses "steering does not work for this class."** At n = 200 against base rates of
+0.035 and 0.005, both are blind to effects smaller than 2.3× and 5.7× respectively — and the
+effect that *was* found for TERPENE is 5.0×, so ARYLPOLYENE could be hiding an effect the size of
+the one this benchmark just reported as its headline. §17 must not be read as "steering moved one
+class and failed on three"; it is **one class moved, one genuine null (RIPP), two untested**.
+
+⇒ Fixing them is a sample-size problem, not a method problem: detecting a 2× lift over 0.035
+needs ≈ 950 per arm, ≈ 4.75× the current n.
+
+### 18.3 What this changes
+
+The floor (`W0` de novo 0/800) is not a null at all — nothing was applied, so there is no
+intervention to have landed. It is the reference the others are read against and should never be
+listed among the negatives.
+
+⇒ **Net: seven readable negatives, one non-null, two uninformative.** The two uninformative ones
+sit in the steering result, which is where the paper's newest claim lives, so §17's framing is
+corrected above rather than left to a reader to notice.

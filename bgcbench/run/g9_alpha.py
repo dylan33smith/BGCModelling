@@ -66,6 +66,12 @@ def main() -> int:
                          "the model terminating has broken generation even if density holds, "
                          "but terminating more often is not damage.")
     ap.add_argument("--prefix", default="taxonomy")
+    ap.add_argument("--random-direction", type=int, default=None, metavar="SEED",
+                    help="sweep the SPEC 6.3 random control instead of the derived direction. "
+                         "⚠ The control needs its OWN ceiling: at TERPENE's alpha the random "
+                         "vector broke generation while the real one did not (FINDINGS 17.3), "
+                         "so a control run at the arm's alpha is not health-matched and its "
+                         "zero cannot be read.")
     ap.add_argument("--tag", default="G9")
     args = ap.parse_args()
 
@@ -81,6 +87,8 @@ def main() -> int:
             cmd += ["--adapter", args.adapter]
         if a > 0:
             cmd += ["--direction", args.direction, "--alpha", str(a)]
+            if args.random_direction is not None:
+                cmd += ["--random-direction", str(args.random_direction)]
         print(f"\n=== alpha {a}: {' '.join(cmd)}", flush=True)
         rc = subprocess.run(cmd).returncode
         if rc != 0:
@@ -151,6 +159,7 @@ def main() -> int:
                f"(absolute, one-sided), all against alpha=0")
 
     art = {"gate": "G9", "row_class": args.row_class, "direction": args.direction,
+           "random_direction_seed": args.random_direction,
            "adapter": args.adapter, "alphas": args.alphas, "n_per_alpha": args.n,
            "tolerance": {"coding": args.tol_coding, "nll": args.tol_nll},
            "selection_fields": ["median_coding_density", "median_self_nll",
