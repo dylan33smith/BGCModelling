@@ -1429,3 +1429,75 @@ it. Two of four W2 arms were lost to a decision that saved 50 minutes of sweepin
 REDOX_COFACTOR at their own admissible α is the obvious next step; until then the steering result
 rests on **one class**, and §16.1's headline should be read as "steering moved the endpoint for
 TERPENE", never as "steering works".
+
+
+## 17. I1 at per-class α — steering moves one class of four
+
+`I1_PERCLASS_FROZEN_d974b3ee9b83274c`. §16 ran every class at TERPENE's α = 0.3 and lost two arms
+to it. G9 has now been swept per class and per weight state (SPEC §12.A5), and every `W2` arm
+below runs at **its own** ceiling. Generation health read before any rate.
+
+| class | own α | I1 | I0 | lift | p | Bonferroni ×4 |
+|---|---|---|---|---|---|---|
+| **TERPENE** | 0.3 | **15/200** | 3/200 | **5.0×** | **6.3e-03** | **0.025** |
+| RIPP | 0.3 | 0/200 | 0/200 | — | not computable | — |
+| ARYLPOLYENE | 0.1 | 7/200 | 7/200 | 1.0× | 1.00 | 1.00 |
+| REDOX_COFACTOR | 0.1 | 2/200 | 1/200 | 2.0× | 1.00 | 1.00 |
+| `W0` base, all four | 0.3 | 0/800 | 0/800 | — | — | — |
+
+⇒ **One class of four responds, and it survives correction for testing four.**
+
+### 17.1 The per-class ceilings, and a correction to §16
+
+| class (`W2`) | own ceiling | first failure | §16 ran at | valid there? |
+|---|---|---|---|---|
+| TERPENE | 0.3 | 0.5 | 0.3 | ✅ |
+| RIPP | 0.3 | 0.5 | 0.3 | ✅ |
+| ARYLPOLYENE | 0.1 | 0.2 | 0.3 | ❌ destroyed |
+| REDOX_COFACTOR | 0.1 | 0.2 | 0.3 | ❌ destroyed |
+
+⚠ **RIPP was NOT under-steered, and §16.3 speculated that it might be.** Its ceiling is 0.3 —
+identical to TERPENE's — and its curve is the cleanest measured, coding density holding at ~0.99
+through α = 0.3 before collapsing at 0.5 (termination 0.880 → 0.280). So RIPP's 0/200 was already
+a **valid null at its own maximum tolerable magnitude**, and the re-sweep converts it from a
+suspected artifact into a result. That is the contrast the design exists to make: TERPENE and
+RIPP both tested at their own ceilings, and only TERPENE moves.
+
+### 17.2 What the two re-run arms show
+
+Both at α = 0.1: ARYLPOLYENE **7/200 against an I0 of 7/200** — identical — and REDOX_COFACTOR
+2/200 against 1/200. Neither is an effect.
+
+⚠ ARYLPOLYENE's health verdict is a knife edge and should not be reported as a verdict: its
+termination drop is 0.155 against a 0.150 tolerance, a margin of 0.005 when the standard error on
+a rate of 0.29 at n = 200 is **0.032** — 0.16 SE. It is indistinguishable from the tolerance.
+⇒ It does not matter: its rate *equals* its unsteered rate, so "no effect" holds whichever side
+of the line the health call falls.
+
+### 17.3 The control is still confounded, and now unevenly
+
+At TERPENE's α = 0.3 the random control breaks generation (coding 0.313 against the real arm's
+0.976) so its 0/200 cannot be read. At the lower α = 0.1 the ARYLPOLYENE and REDOX_COFACTOR
+controls stay healthy (coding 0.925 and 0.957) and still score 0/200 and 0/200 — but those are
+the classes where the *real* direction also does nothing, so a healthy control there separates
+nothing.
+
+⇒ **The one arm that moved is the one whose control is unreadable.** The causal claim for TERPENE
+rests entirely on I1 vs I0 at matched health, and a clean test of whether the direction's
+*content* did the work still requires a random control swept to its own health ceiling. Not run.
+
+### 17.4 ⚠ The W0 sweeps are not usable, and are not being acted on
+
+The per-class sweeps were run on `W0` too and their curves are noise. `W0`'s α = 0 baseline has
+coding density ~0.20, so relative tolerances on a small base swing wildly: W0-REDOX_COFACTOR at
+α = 1.0 reads coding density 0.583 against a 0.202 baseline — a near-3× **increase** — and is
+marked admissible, which is a measurement artifact being read as a ceiling. Combined with all
+eight `W0` arms returning 0/800 and the baseline never terminating, **steering the base model is
+reported as the powered null it already is** (95% upper bound 0.375%) rather than pursued at a
+per-class α.
+
+### 17.5 Scale — steering against the other levers
+
+For TERPENE on the same per-class weights, de novo: I0 3/200 (0.015) → I1 **15/200 (0.075)**.
+The seeded arm on the same weights is 30/200 (0.150, §11). ⇒ Steering at its ceiling buys about
+**half** what a 64-nt real seed buys, and the two have not been combined.
