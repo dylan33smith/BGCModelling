@@ -1489,9 +1489,11 @@ controls stay healthy (coding 0.925 and 0.957) and still score 0/200 and 0/200 �
 the classes where the *real* direction also does nothing, so a healthy control there separates
 nothing.
 
-⇒ **The one arm that moved is the one whose control is unreadable.** The causal claim for TERPENE
-rests entirely on I1 vs I0 at matched health, and a clean test of whether the direction's
-*content* did the work still requires a random control swept to its own health ceiling. Not run.
+⇒ **The one arm that moved is the one whose control is unreadable** — *at the time this section
+was written.* ✅ **RESOLVED in §20:** the random control was given its own G9 sweep (ceiling
+α = 0.1 against the real direction's 0.3) and run there. Health-matched, it scores **3/200 —
+identical to not steering at all** — against the real direction's 15/200, p = 6.3e-03. The
+direction's content does the work.
 
 ### 17.4 ⚠ The W0 sweeps are not usable, and are not being acted on
 
@@ -1632,3 +1634,51 @@ whose steering arms are either a genuine null (RIPP) or underpowered (§18.2).
 ⚠ A lower α was not tried. If the override account is right, a gentler push might add to the seed
 instead of replacing it — which would make α a composition parameter rather than only a health
 one. Not run.
+
+## 20. The control, matched on health instead of on α — the direction's CONTENT does the work
+
+§16.3 and §17.3 both recorded a hole: the random-direction control gave 0/200, but at TERPENE's
+α = 0.3 it had *broken generation* (coding density 0.313 against the real arm's 0.976), so its
+zero could not separate "carries no class content" from "destroyed the model". SPEC §6.3's
+control is matched on **‖d‖**, and §16.2 showed that is not the match that matters. This closes it.
+
+**G9 was run on the random direction itself.** Its own ceiling is **α = 0.1** — against the real
+direction's 0.3. Then both were run at their own ceilings, so both arms are healthy and the only
+difference is what the vector contains.
+
+| TERPENE, `W2`, 200 each | α | coding | `hit_eos` | on-target |
+|---|---|---|---|---|
+| unsteered (`I0`) | — | 0.951 | 0.830 | 3/200 = 0.015 |
+| **REAL direction** | 0.3 | 0.976 | 0.940 | **15/200 = 0.075** |
+| **RANDOM direction** | 0.1 | 0.937 | 0.845 | **3/200 = 0.015** |
+
+| contrast | p |
+|---|---|
+| real vs random, **both health-matched** | **6.3e-03** |
+| random vs unsteered | **1.000** |
+
+⇒ **A random direction pushed as hard as it can be without breaking generation does exactly
+nothing** — 3/200, identical to not steering at all. The real direction at *its* ceiling gives
+15/200. The effect is the direction's **content**, not the perturbation.
+
+⇒ This is the causal claim §16.1 could not make. It no longer rests on I1-vs-I0 alone.
+
+### 20.1 The methodological point, which generalises past this project
+
+SPEC §6.3 specifies a **magnitude-matched** random control, and matching ‖d‖ turned out to be the
+wrong invariant: at equal norm the random vector is a far more destructive perturbation, so the
+"control" was not a control but a second, broken arm. Measured here, the real direction tolerates
+**3× the magnitude** before generation degrades (0.3 vs 0.1).
+
+⇒ **Match the control on generation health, not on norm** — give it its own G9 sweep and run it
+at its own ceiling. A norm-matched control will systematically flatter the intervention, because
+the intervention's direction is by construction one the model tolerates and a random one is not.
+⚠ This is a defect in the spec as written, not in its implementation; §6.3 should be amended.
+
+### 20.2 What is still not established
+
+⚠ **One class.** This closes the control for TERPENE only — the sole class where steering does
+anything (§17). It says nothing about RIPP's genuine null or the two underpowered arms (§18.2).
+
+⚠ **It does not rescue the composition result.** §19's finding that steering overrides seeding
+was measured at α = 0.3 and is unaffected by anything here.
