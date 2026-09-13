@@ -1453,3 +1453,90 @@ lifts and nulls all need re-measuring.
 on the grounds that the prior programme had closed steering. That reasoning confused *knowing*
 with *being able to show*, and would have left the paper unable to report the steering result at
 all.
+
+---
+
+## 15. GenomeOcean Stage 1 — the mirror of Evo2, and where it cannot be one
+
+Stage 1 is repeated on `go-4b` to make the substrate comparison the paper's subject. The rule is
+**same data, same endpoint, same protocol, same order**; only substrate-dependent constants are
+re-measured. Where a structural difference makes an arm non-identical, §6.5 applies — it is
+reported as a difference, never equalised by handicapping one side and never scored as a zero.
+
+### 15.1 What is shared, unchanged
+
+The corpus, the splits, the class set, the frozen scoring config `ee8c025c1593`, `--minlength 1`,
+the novelty gate, `n_per_row` 200, `budget_nt` 8,192, temperature 1.0, top-k 4, top-p 1.0,
+`rng_seed` 0, the L = 64 nt seed, and the arm grid (W0/W1/W1n/W2/W3 × S0/S1 × I0/I1). **One
+dataset exists** (§4.4.3): GenomeOcean trains on exactly the records Evo2 trained on.
+
+### 15.2 The four structural differences, measured not assumed
+
+| | Evo2-1B | GenomeOcean-4B | consequence |
+|---|---|---|---|
+| tokenizer | byte-level, 1 nt/token | BPE 4096, **~4.8 nt/token** | every token budget converts; the nucleotide budget is what is held equal |
+| attention sites | **4 of 25** blocks (3,10,17,24) | **24 of 24** layers | `I1`'s site set is ambiguous — see §15.3 |
+| adapter targets | `l1/l2/l3`, `out_filter_dense`, `Wqkv`, `out_proj` | `q/k/v/o_proj`, `gate/up/down_proj` | mirrored **by role**; GO has no Hyena filter and that absence is reported, not padded |
+| termination | does not stop natively; needs a decoder shim | **stops natively and eagerly** | both need the same nucleotide floor — see §15.4 |
+
+⚠ A fifth difference is deliberately NOT exploited. GenomeOcean can take a **trainable class
+token** and Evo2 cannot. §4.3 forbids a class token on both, so GO runs without the one
+conditioning channel it uniquely supports. That is the honest comparison of the two as they
+stand, and it is also the single most interesting thing a follow-up could test.
+
+### 15.3 `I1` site selection — matched on DEPTH, not on count
+
+Evo2's four attention blocks sit at fractional depths 0.12, 0.40, 0.68, 0.96. GenomeOcean has
+attention everywhere, so "the same arm" is ambiguous: inject at all 24 and the substrates differ
+in how hard they are pushed as well as in what they are; inject at four matched positions and the
+contrast is about the substrate.
+
+⇒ **Primary GO `I1` arm: layers 3, 10, 16, 23** (`interventions.matched_depth_subset`), the same
+relative depths. The all-24 variant is a secondary arm if time allows, and the realised site list
+and coverage are recorded per arm regardless (§6.5).
+
+### 15.4 ⚠ The min-token floor was MISSING on the HF path, and would have broken the comparison
+
+`suppress_terminator` gives Evo2 a floor of `min_new_tokens` and **returns early for every other
+family**, so the HuggingFace generation path had no floor at all. GenomeOcean terminates natively
+and eagerly — the prior project measured EOS firing straight after the seed, 61/200 empty
+generations, and a floor taking that arm from 0.400 to 0.580.
+
+⇒ Without it, GO would have been scored on truncated output and the deficit attributed to the
+substrate. Fixed, and **the floor is in NUCLEOTIDES**: 1,000 nt is 1,000 tokens for Evo2 and
+**208** for GenomeOcean at 4.8 nt/token. Passing 1,000 tokens to both would demand 4.8× more
+sequence from GO — not the same floor.
+
+### 15.5 Gates to re-measure for `go-4b` — every substrate-dependent constant
+
+| gate | why it cannot be inherited |
+|---|---|
+| **G2** likelihood health | never run for GO (§14.2 records it PARTIAL). Real vs shuffled cores. **Blocking: run first.** |
+| **G3** seed length | L = 64 nt is ~13 BPE tokens against 64 byte tokens. The threshold is a property of the tokenizer as much as the model. |
+| **G6** adapter rank | swept on held-out loss, per substrate — §6 says so explicitly. |
+| **G6b** adapter depth | 24 layers, all with attention; Evo2's answer (placement decisive, early blocks) may not transfer. |
+| **G9** α × site | per class AND per weight state (§12.A5), on a different residual stream. |
+| G10 termination | ✅ already measured for GO: 12/12 `hit_eos`, median 553 nt. |
+| G5 / G1 instrument | ✅ substrate-independent — antiSMASH does not know which model wrote the sequence. |
+
+### 15.6 Order of operations
+
+1. **G2** likelihood health — if GO cannot model these cores, nothing downstream is interpretable.
+2. **G6** rank, then **G6b** depth, on the pooled `W1n` arm (held-out loss only, §2.4).
+3. Train `W0`/`W1`/`W1n`/`W2`×4/`W3` at the selected rank and depth.
+4. Stage 1 de novo, both prefix conditions (see §15.7).
+5. **G3** seed sweep, then the seeded arms at the selected L.
+6. Derive `I1` directions (three-part check, §12.A4), **G9** per class, then the `I1` arms with
+   health-matched random controls (§20.1).
+7. Freeze, then the composition cell.
+
+### 15.7 ⚠ The taxonomy prefix does not transfer, and both conditions must run
+
+Evo2 was pretrained with GTDB lineages, which is why the prefix is its native format and why
+§10 could show it causal. **GenomeOcean was not.** Running GO prefixed would hand it a format it
+has never seen; running it unprefixed makes its arms non-comparable to Evo2's headline results.
+
+⇒ **Run both**, as Evo2 effectively has (`W2_*_noprefix` and `W2_*_tax` arms both exist). The
+GO prefix arm then measures something Evo2's cannot: whether a lineage prefix helps a model that
+was never trained on one. ⚠ Do not read a GO prefix null as the same result as an Evo2 prefix
+null — they are different claims about different pretraining.

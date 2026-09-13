@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import torch
@@ -36,6 +36,27 @@ EVO2_LORA_TARGETS = ["l1", "l2", "l3", "out_filter_dense", "Wqkv", "out_proj"]
 #: blocks (3, 10, 17, 24) carry `inner_mha_cls.Wqkv/out_proj`. 104 adapted modules in all.
 EVO2_N_BLOCKS = 25
 EVO2_ATTENTION_BLOCKS = (3, 10, 17, 24)
+
+#: GenomeOcean-4B, enumerated from the loaded model: a standard 24-layer decoder, hidden
+#: 3,072, with `model.layers.N.self_attn.{q,k,v,o}_proj` and
+#: `model.layers.N.mlp.{gate,up,down}_proj`. Every layer carries both, so unlike Evo2 there
+#: is no attention/non-attention split.
+#:
+#: ⚠ THE TARGET SET MIRRORS EVO2'S BY ROLE, NOT BY NAME. Evo2 adapts its MLP (`l1/l2/l3`),
+#: its attention projections (`Wqkv`, `out_proj`) and its Hyena output filter
+#: (`out_filter_dense`). The GenomeOcean equivalent is the attention projections plus the
+#: MLP; it has no Hyena filter, which is a structural absence and is reported as one
+#: (SPEC 6.5), never padded with an unrelated module to make the counts match.
+GO_LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj",
+                   "gate_proj", "up_proj", "down_proj"]
+GO_N_LAYERS = 24
+
+#: family -> (targets, n_blocks). `target_regex` uses this so a depth set means the same
+#: thing on both substrates: "which blocks carry adapters".
+SUBSTRATE_LORA = {
+    "evo2": (EVO2_LORA_TARGETS, EVO2_N_BLOCKS, "blocks"),
+    "genomeocean": (GO_LORA_TARGETS, GO_N_LAYERS, "model.layers"),
+}
 
 #: G6b depth sets. WHICH blocks carry adapters is a free parameter that SPEC 6 never
 #: declared -- it defends rank and is silent on placement -- so it is swept the same way,
@@ -54,6 +75,31 @@ DEPTH_SETS: dict[str, tuple[int, ...]] = {
     "attention_only": EVO2_ATTENTION_BLOCKS,
     "every_other": tuple(range(0, EVO2_N_BLOCKS, 2)),
 }
+
+
+def go_target_regex(layers, targets=None) -> str:
+    """peft `target_modules` regex for GenomeOcean, restricted to `layers`."""
+    t = targets or GO_LORA_TARGETS
+    b = "|".join(str(i) for i in sorted(set(layers)))
+    att = "|".join(x for x in t if x.endswith("_proj") and x[0] in "qkvo")
+    mlp = "|".join(x for x in t if x in ("gate_proj", "up_proj", "down_proj"))
+    parts = []
+    if att:
+        parts.append(rf"self_attn\.({att})")
+    if mlp:
+        parts.append(rf"mlp\.({mlp})")
+    return rf"model\.layers\.({b})\.({'|'.join(parts)})"
+
+
+def depth_sets_for(family: str) -> dict:
+    """DEPTH_SETS for a substrate, so G6b means the same thing on both."""
+    n = SUBSTRATE_LORA[family][1]
+    third = n // 3
+    return {"all": tuple(range(n)),
+            "early": tuple(range(0, third)),
+            "middle": tuple(range(third, 2 * third)),
+            "late": tuple(range(2 * third, n)),
+            "every_other": tuple(range(0, n, 2))}
 
 
 def target_regex(blocks: tuple[int, ...] | list[int],
@@ -257,11 +303,21 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
             cfgobj.to_dict = _to_dict
         except Exception:
             setattr(base, "config", type("C", (), {"to_dict": staticmethod(_to_dict)})())
+    fam = getattr(sub, "family", "evo2")
+    # ⚠ TARGETS ARE PER SUBSTRATE. `cfg.targets` defaults to Evo2's module names; handing
+    # those to GenomeOcean matches nothing and peft trains an adapter over zero modules --
+    # which raises, but only after a model load, and would otherwise look like a config typo
+    # rather than a substrate mismatch.
+    if fam == "genomeocean" and cfg.targets == EVO2_LORA_TARGETS:
+        cfg = replace(cfg, targets=list(GO_LORA_TARGETS))
+    dsets = depth_sets_for(fam) if fam in SUBSTRATE_LORA else DEPTH_SETS
     if cfg.depth:
-        if cfg.depth not in DEPTH_SETS:
-            raise ValueError(f"unknown depth set {cfg.depth!r}; have {sorted(DEPTH_SETS)}")
-        tmods = target_regex(DEPTH_SETS[cfg.depth], cfg.targets)
-        print(f"  depth set {cfg.depth}: blocks {list(DEPTH_SETS[cfg.depth])}", flush=True)
+        if cfg.depth not in dsets:
+            raise ValueError(f"unknown depth set {cfg.depth!r} for {fam}; have {sorted(dsets)}")
+        blocks = dsets[cfg.depth]
+        tmods = (go_target_regex(blocks, cfg.targets) if fam == "genomeocean"
+                 else target_regex(blocks, cfg.targets))
+        print(f"  [{fam}] depth set {cfg.depth}: blocks {list(blocks)}", flush=True)
     else:
         tmods = cfg.targets
     peft_cfg = LoraConfig(r=cfg.rank, lora_alpha=cfg.alpha, lora_dropout=cfg.dropout,

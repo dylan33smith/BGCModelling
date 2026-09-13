@@ -1109,3 +1109,105 @@ def test_manipulation_check_requires_no_anti_aligned_site():
     # and a strong all-positive direction passes, so these are not vacuously failing
     good = _stub_check([0.9, 0.8, 0.7, 0.0], zero_sites=(3,))
     assert good["passes"] is True, "a strong reproducing direction was rejected"
+
+
+def test_hf_generation_applies_the_min_token_floor_in_NUCLEOTIDES():
+    """Evo2 gets a floor of `min_new_tokens` via `suppress_terminator`, which returns early
+    for every other family -- so the HF path had NO floor at all.
+
+    ⚠ Two defects in one. GenomeOcean terminates natively and eagerly (the prior project
+    measured EOS straight after the seed, 61/200 empty generations), so with no floor a
+    cross-substrate comparison would score GO on truncated output and blame the substrate.
+    And the floor is 1,000 NUCLEOTIDES: passing 1,000 TOKENS to a BPE model at ~4.8 nt/token
+    would demand ~4,800 nt, 4.8x the sequence Evo2 must produce. Neither is the same floor.
+    """
+    from bgcbench.model import generate as G
+    src = Path(G.__file__).read_text()
+    body = src[src.index("def _run_hf("):]
+    assert "min_new_tokens=min_new" in body, \
+        "the HF path does not pass a min-token floor; GO can stop immediately after the seed"
+    assert "cfg.min_new_tokens / sub.approx_nt_per_token" in body, \
+        "the floor is not converted from nucleotides to tokens per substrate"
+
+    # and the conversion itself
+    from bgcbench.model.genconfig import FROZEN
+    nt = FROZEN["min_new_tokens"]
+    assert int(nt / 1.0) == 1000, "byte-level substrate should keep a 1,000-token floor"
+    assert 180 < int(nt / 4.8) < 230, \
+        f"BPE substrate floor {int(nt / 4.8)} tokens is not ~1,000 nt at 4.8 nt/token"
+
+
+def test_attention_sites_finds_both_substrate_families():
+    """Evo2 names its attention module `inner_mha_cls`, GenomeOcean names it `self_attn`.
+    A hardcoded suffix silently returns ZERO sites on the other family -- and `_MeanCollector`
+    would then raise, but only after a 4B-parameter model load."""
+    import torch.nn as nn
+
+    from bgcbench.model.interventions import ATTENTION_SUFFIXES, attention_sites
+
+    assert "inner_mha_cls" in ATTENTION_SUFFIXES and "self_attn" in ATTENTION_SUFFIXES
+
+    class GoLayer(nn.Module):
+        def __init__(self, h):
+            super().__init__()
+            self.self_attn = nn.Linear(h, h)
+
+    class GoModel(nn.Module):
+        def __init__(self, h, n):
+            super().__init__()
+            self.layers = nn.ModuleList([GoLayer(h) for _ in range(n)])
+
+    m = GoModel(8, 24)
+    sites = attention_sites(m)
+    assert len(sites) == 24, f"found {len(sites)} GO attention sites, expected 24"
+    assert all(n.endswith("self_attn") for n, _ in sites)
+
+    # subset selection, which is how a cross-substrate arm is depth-matched
+    sub = attention_sites(m, subset=[3, 10, 16, 23])
+    assert len(sub) == 4 and sub[0][0].endswith("layers.3.self_attn")
+    try:
+        attention_sites(m, subset=[99])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an out-of-range site index was accepted")
+
+
+def test_matched_depth_subset_puts_GO_at_evo2s_relative_depths():
+    """Evo2's 4 attention blocks sit at 3/10/17/24 of 25 — fractional depths 0.12–0.96.
+    Matching GO on COUNT rather than depth would make the arms differ in how hard the model
+    is pushed as well as in what it is; matching on depth keeps the contrast about the
+    substrate. The realised site list is recorded either way (SPEC 6.5)."""
+    from bgcbench.model.interventions import matched_depth_subset
+    got = matched_depth_subset(24)
+    assert got == [3, 10, 16, 23], f"GO matched depths {got}, expected [3, 10, 16, 23]"
+    assert len(matched_depth_subset(25)) == 4
+    # never out of range at either extreme
+    for n in (4, 5, 24, 25, 48):
+        s = matched_depth_subset(n)
+        assert all(0 <= i < n for i in s), f"n={n} produced {s}"
+
+
+def test_lora_targets_are_per_substrate():
+    """Evo2's module names match NOTHING in GenomeOcean. Handing them to peft trains an
+    adapter over zero modules, which fails after a model load and reads like a config typo
+    rather than a substrate mismatch."""
+    import re
+
+    from bgcbench.model.train import (GO_LORA_TARGETS, SUBSTRATE_LORA, depth_sets_for,
+                                      go_target_regex)
+    assert set(SUBSTRATE_LORA) == {"evo2", "genomeocean"}
+    assert not (set(GO_LORA_TARGETS) & {"l1", "l2", "l3", "out_filter_dense", "Wqkv"}), \
+        "GO targets overlap Evo2's module names, which cannot both be right"
+
+    rx = go_target_regex([3, 10, 16, 23])
+    for name, want in (("model.layers.3.self_attn.q_proj", True),
+                       ("model.layers.3.mlp.gate_proj", True),
+                       ("model.layers.23.self_attn.o_proj", True),
+                       ("model.layers.7.mlp.up_proj", False),
+                       ("blocks.3.mlp.l1", False)):
+        assert bool(re.fullmatch(rx, name)) is want, f"{name} matched {not want}"
+
+    d = depth_sets_for("genomeocean")
+    assert len(d["all"]) == 24 and d["late"][-1] == 23
+    assert len(depth_sets_for("evo2")["all"]) == 25

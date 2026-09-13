@@ -307,8 +307,23 @@ def _run_hf(sub, arm, prompts, cfg):
         enc = {k: v.to(sub.model.device) for k, v in enc.items()
                if k in ("input_ids", "attention_mask")}
         plen = enc["input_ids"].shape[1]
+        # ⚠ THE MIN-TOKEN FLOOR APPLIES HERE TOO, AND IT WAS MISSING. Evo2 gets a floor of
+        # `cfg.min_new_tokens` via `suppress_terminator`, which returns early for every other
+        # family -- so the HF path had no floor at all. GenomeOcean terminates natively and
+        # eagerly: the prior project measured EOS firing straight after the seed, 61/200
+        # empty generations, and a min-token floor taking that arm from 0.400 to 0.580.
+        # Without this, a cross-substrate comparison would score GO on truncated output and
+        # attribute the deficit to the substrate.
+        #
+        # ⚠ THE FLOOR IS IN NUCLEOTIDES, CONVERTED PER SUBSTRATE. `min_new_tokens` is 1,000
+        # and Evo2 is byte-level, so for Evo2 it is 1,000 nt. Passing 1,000 TOKENS to a BPE
+        # model at ~4.8 nt/token would demand ~4,800 nt -- 4.8x the sequence, which is not
+        # the same floor. Both substrates must clear the same nucleotide bar.
+        min_new = max(1, int(cfg.min_new_tokens / sub.approx_nt_per_token))
+        min_new = min(min_new, max_new)
         with torch.no_grad():
-            gen = sub.model.generate(**enc, max_new_tokens=max_new, do_sample=True,
+            gen = sub.model.generate(**enc, max_new_tokens=max_new,
+                                     min_new_tokens=min_new, do_sample=True,
                                      temperature=arm.temperature, top_k=arm.top_k,
                                      top_p=arm.top_p,
                                      eos_token_id=sub.terminator_id,

@@ -36,9 +36,44 @@ import torch
 import torch.nn as nn
 
 
-def attention_sites(model) -> list[tuple[str, nn.Module]]:
-    """The attention blocks, in model order. Enumerated, never assumed."""
-    return [(n, m) for n, m in model.named_modules() if n.endswith("inner_mha_cls")]
+#: How each substrate family names its attention module. Enumerated from the loaded model,
+#: never assumed -- Evo2 exposes `inner_mha_cls` on 4 of its 25 blocks, GenomeOcean exposes
+#: `self_attn` on all 24 of its layers.
+ATTENTION_SUFFIXES = ("inner_mha_cls", "self_attn")
+
+
+def attention_sites(model, subset: list[int] | None = None) -> list[tuple[str, nn.Module]]:
+    """The attention blocks, in model order. Enumerated, never assumed.
+
+    ⚠ SUBSTRATES DIFFER IN HOW MANY THERE ARE, AND SPEC 6.5 REQUIRES THAT BE REPORTED
+    RATHER THAN EQUALISED. Evo2-1B has 4 attention blocks among 25 (coverage 0.16);
+    GenomeOcean-4B is a standard decoder with attention at all 24 layers (coverage 1.00).
+    An arm attached at 4 of 25 sites is not the arm attached at 24 of 24.
+
+    `subset` selects site INDICES after enumeration, which is how a cross-substrate arm can
+    be matched on relative depth rather than on count -- see `matched_depth_subset`.
+    """
+    sites = [(n, m) for n, m in model.named_modules()
+             if any(n.endswith(sfx) for sfx in ATTENTION_SUFFIXES)]
+    if subset is None:
+        return sites
+    bad = [i for i in subset if i < 0 or i >= len(sites)]
+    if bad:
+        raise ValueError(f"site indices {bad} out of range for {len(sites)} attention sites")
+    return [sites[i] for i in subset]
+
+
+def matched_depth_subset(n_sites: int, reference_depths=(0.12, 0.40, 0.68, 0.96)) -> list[int]:
+    """Site indices at the same RELATIVE depths Evo2 exposes.
+
+    ⚠ WHY MATCH DEPTH RATHER THAN COUNT. Evo2's four attention blocks sit at 3, 10, 17 and
+    24 of 25 -- fractional depths 0.12, 0.40, 0.68, 0.96. GenomeOcean has attention
+    everywhere, so "the same arm" is ambiguous: inject at all 24 and the two substrates
+    differ in how hard they are pushed as well as in what they are; inject at 4 matched
+    positions and the comparison is about the substrate. This returns the latter, and the
+    realised site list is recorded per arm either way (SPEC 6.5).
+    """
+    return sorted({min(n_sites - 1, max(0, round(d * n_sites))) for d in reference_depths})
 
 
 def site_report(model) -> dict:
