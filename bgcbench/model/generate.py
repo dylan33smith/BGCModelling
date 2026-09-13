@@ -331,6 +331,8 @@ def _run_hf(sub, arm, prompts, cfg):
         for row in gen:
             ids = row.tolist()[plen:]          # STRIP THE PROMPT — never score the seed
             hits.append(sub.terminator_id in ids)
-            txt = sub.tokenizer.decode(ids, skip_special_tokens=True)
+            # sub.detokenize, NOT tokenizer.decode -- decode() separates BPE tokens
+            # with a space, which clean() masks to N. See Substrate.detokenize.
+            txt = sub.detokenize(ids)
             texts.append(sub.clean(txt))
     return texts, hits

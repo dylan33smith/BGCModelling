@@ -115,6 +115,32 @@ class Substrate:
             return text, False
         return text[:i], True
 
+    # ---- detokenisation ------------------------------------------------------------
+    def detokenize(self, ids) -> str:
+        """Token ids -> nucleotide text, WITHOUT a separator between tokens.
+
+        ⚠ DO NOT REPLACE THIS WITH `tokenizer.decode()`. GenomeOcean's fast tokenizer has
+        no `backend_tokenizer.decoder`, so HuggingFace falls back to `" ".join(tokens)` and
+        puts a SPACE between every BPE token. `clean()` then masks each space to N, which
+        at ~4.8 nt/token is an N every ~5 bases: no 21-mer is N-free, so the novelty gate's
+        k-mer set is empty and it raises (KNOWN_WRONG #3 -- it fails closed, which is how
+        this was caught), and had it passed, antiSMASH would have been handed sequence with
+        every ORF destroyed and GenomeOcean would have scored ~0 for a reason that has
+        nothing to do with the model.
+
+        Measured: 'ATGCGG...ACGGGG' (63 nt) decodes to 75 characters via `decode()` and to
+        the original 63 via this method.
+
+        Evo2 never reaches here -- vortex's generate returns text, not ids -- but the
+        dispatch is explicit rather than implied, because a silent fallthrough is what
+        produced the bug above.
+        """
+        if self.family == EVO2:
+            return self.tokenizer.detokenize(list(ids))
+        toks = self.tokenizer.convert_ids_to_tokens(list(ids))
+        special = set(self.tokenizer.all_special_tokens)
+        return "".join(t for t in toks if t not in special)
+
     @staticmethod
     def clean(text: str) -> str:
         """MASK non-nucleotide characters to N. Never delete them.

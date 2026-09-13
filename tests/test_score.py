@@ -1275,3 +1275,81 @@ def test_direction_encoding_handles_both_tokenizer_conventions():
     src = Path(D.__file__).read_text()
     body = src[src.index("def _encode("):src.index("def class_means(")]
     assert 'sub.family == "evo2"' in body, "the family branch is gone; GO will crash again"
+
+
+def test_bpe_detokenisation_does_not_inject_separators_that_clean_masks_to_N():
+    """RED TEST for the bug that killed all eight GenomeOcean Stage 1 generation arms.
+
+    `tokenizer.decode()` on GenomeOcean returns `" ".join(tokens)` -- its fast tokenizer
+    has no `backend_tokenizer.decoder`, so HuggingFace falls back to space-joining. Every
+    space is then masked to N by `clean()`, at ~4.8 nt/token an N every ~5 bases, so NO
+    21-mer is N-free and the novelty gate's k-mer set is empty.
+
+    The assertion is on the k-mer set, not on the string, because the k-mer set is what
+    actually failed: the gate raised rather than returning 0.0 (KNOWN_WRONG #3 -- the gate
+    fails closed, which is the only reason this surfaced instead of handing antiSMASH
+    sequence with every ORF destroyed).
+    """
+    from bgcbench.model.load import Substrate
+    from bgcbench.score.novelty import canonical_kmers
+
+    TOKENS = {10: "ATGCGG", 11: "ATT", 12: "ACAGGCG", 13: "TGAG", 14: "CCA",
+              15: "CCGCG", 16: "CCCGG", 17: "CCTTTT", 18: "TATG", 19: "TATTTT",
+              20: "TAG", 21: "TAGAG", 22: "ACGGGG", 2: "[SEP]"}
+
+    class _HFLikeTokenizer:
+        all_special_tokens = ["[UNK]", "[SEP]", "[PAD]", "[CLS]", "[MASK]"]
+
+        def convert_ids_to_tokens(self, ids):
+            return [TOKENS[i] for i in ids]
+
+        def decode(self, ids, skip_special_tokens=True):
+            # exactly what HuggingFace does with no backend decoder
+            return " ".join(TOKENS[i] for i in ids
+                            if not (skip_special_tokens and TOKENS[i].startswith("[")))
+
+    sub = Substrate(id="g", family="genomeocean", checkpoint="c", terminator_id=2,
+                    terminator_str="", appends_terminator=True, native_stop=True,
+                    approx_nt_per_token=4.8, tokenizer=_HFLikeTokenizer())
+
+    ids = list(range(10, 23)) + [2]
+    expected = "".join(TOKENS[i] for i in range(10, 23))
+
+    # the old path: every 21-mer straddles a masked separator, so the gate sees nothing
+    broken = sub.clean(sub.tokenizer.decode(ids, skip_special_tokens=True))
+    assert "N" in broken
+    assert canonical_kmers(broken) == set(), (
+        "fixture no longer reproduces the bug, so passing proves nothing")
+
+    # the fix: the nucleotides survive intact and the gate has something to measure
+    got = sub.detokenize(ids)
+    assert got == expected, f"detokenize lost or added characters: {got!r}"
+    cleaned = sub.clean(got)
+    assert "N" not in cleaned
+    assert len(canonical_kmers(cleaned)) == len(expected) - 21 + 1
+
+
+def test_generation_decode_path_survives_the_real_genomeocean_tokenizer():
+    """The fixture above encodes what HuggingFace does; this checks it against the actual
+    tokenizer, so the test cannot pass on a mimicry that has drifted from the library."""
+    try:
+        from transformers import AutoTokenizer
+        tok = AutoTokenizer.from_pretrained("pGenomeOcean/GenomeOcean-4B",
+                                            trust_remote_code=True)
+    except Exception as e:                                   # no cache, no network
+        print(f"  SKIP: GenomeOcean tokenizer unavailable: {e}")
+        return
+
+    from bgcbench.model.load import Substrate
+    sub = Substrate(id="g", family="genomeocean", checkpoint="c",
+                    terminator_id=int(tok.convert_tokens_to_ids("[SEP]")),
+                    terminator_str="", appends_terminator=True, native_stop=True,
+                    approx_nt_per_token=4.8, tokenizer=tok)
+
+    seq = ("ATGCGGATTACAGGCGTGAGCCACCGCGCCCGGCCTTTTTATGTATTTTTAGTAGAGACGGGG"
+           "TTTCACCATGTTGGCCAGGCTGGTCTCGAACTCCTGACCTCAGGTGATCCGCCCGCCTCGGC")
+    ids = tok(seq)["input_ids"]
+    assert sub.detokenize(ids) == seq
+    assert sub.clean(sub.detokenize(ids)) == seq
+    assert "N" in sub.clean(tok.decode(ids, skip_special_tokens=True)), (
+        "the library no longer space-joins; the guard in detokenize may be removable")
