@@ -56,8 +56,16 @@ FROZEN = {
     "decoding": {
         # Evo2: G11 is N/A. top_k=4 over a 4-letter alphabet is already unrestrictive.
         "evo2": {"temperature": 1.0, "top_k": 4, "top_p": 1.0},
-        # GenomeOcean: ⏳ PLACEHOLDER, pending G11. Must not be read as measured.
-        "genomeocean": {"temperature": 1.0, "top_k": 0, "top_p": 1.0},
+        # GenomeOcean: SET BY G11, 2026-09-13 (`g11/G11_go-4b.json`), n=50 per config on
+        # the pooled W1n arm, selected on distance to REAL held-out sequence and never on
+        # the endpoint. Deviation from real, mean |relative| over distinct-21mer / coding
+        # density / median ORF length:
+        #   t=1.0 k=4   0.3111  ⛔ distinct-21mer 0.3522 -- 65% of positions are REPEATS
+        #   t=1.0 k=64  0.0777      t=1.0 k=0    0.0962      t=1.0 k=0 p=.95  0.0524
+        #   t=0.9 k=0   0.0465      t=1.0 k=256  0.0276  ✅ selected
+        # ⚠ k=256 beat UNRESTRICTED sampling (0.0276 vs 0.0962), so "top_k off" -- the
+        # prior implementation's setting -- is not the answer either. It had to be measured.
+        "genomeocean": {"temperature": 1.0, "top_k": 256, "top_p": 1.0},
     },
     "rng_seed": 0,
 

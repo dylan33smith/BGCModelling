@@ -1941,3 +1941,89 @@ neither reached a number.
 FROZEN. Next per SPEC §15.6 is step 5 — G3 seed sweep, then the seeded arms — which is the
 comparison §24.3 says is missing. The §10 unblind-and-diff against the prior implementation is
 now unblocked for this component, the freeze having been taken first.
+
+## 25. G11 — GenomeOcean's decoding, and the defect that made §24 unreportable
+
+Found by the SPEC §10 unblind-and-diff against the prior implementation, taken **after** GO
+Stage 1 was frozen (§24), so the diff is evidence rather than rationalisation.
+
+### 25.1 The defect
+
+`FROZEN` held ONE decoding triple — `temperature 1.0, top_k 4, top_p 1.0` — and applied it to
+both substrates. That is a configuration matched across substrates, which SPEC §14A forbids, and
+it survived because the value is correct for Evo2 and the failure is invisible in the output.
+
+QUESTION  What does `top_k=4` do to each substrate's next-token distribution?
+MODEL     rows labelled — Evo2-1B vs GenomeOcean-4B, base weights
+ARM       no adapter, no prefix, teacher-forced on 8 real held-out TERPENE cores. This is a
+          property of the DECODER, not of any arm.
+METRIC    probability mass surviving the filter. **1.0 means the filter does nothing.**
+UNIT      probability mass (0–1); tokens
+
+| substrate | vocab | mass kept by `top_k=4` | real nucleus at p=0.95 |
+|---|---|---|---|
+| Evo2-1B | 512, byte-level; 4 bases carry the mass | **0.9999** | 3.3 tokens |
+| GenomeOcean-4B | 4,096, BPE at ~4.8 nt/token | **0.1937** | **1,012 tokens** |
+
+Over a 4-letter alphabet the filter is a no-op. Over a 4,096-token vocabulary it discards **81%
+of the distribution at every step**. The prior implementation had flagged exactly this in its own
+pre-registration — *"sensible over a 4-letter byte alphabet, meaningless over a 4,096-token BPE
+vocabulary"* — and used `top_k` off.
+
+### 25.2 G11, and what the defect actually cost
+
+QUESTION  Which decoding configuration makes GenomeOcean's output resemble real BGC sequence?
+MODEL     GenomeOcean-4B
+ARM       pooled `W1n` adapter, rank 4, all 24 layers, prefix `none`, de novo, n=50 per config.
+          **antiSMASH was never invoked** — selection is on structural statistics only (§2.4).
+METRIC    distance to REAL held-out TERPENE val (distinct-21mer 1.000, coding 0.953, ORF 885 nt),
+          as mean absolute relative deviation. **Lower is better.**
+UNIT      fraction, fraction, nt; deviation is dimensionless
+
+| temperature | top_k | top_p | median len (nt) | distinct-21mer | coding | median ORF (nt) | deviation |
+|---|---|---|---|---|---|---|---|
+| 1.0 | **4** ← what §24 ran | 1.0 | 1,501 | **0.3522** | 0.9169 | 1,104 | 0.3111 |
+| 1.0 | 64 | 1.0 | 2,219 | 0.9994 | 0.9494 | 683 | 0.0777 |
+| **1.0** | **256** | **1.0** | **2,043** | **1.0000** | **0.9640** | **822** | **0.0276** ✅ |
+| 1.0 | 0 (off) | 1.0 | 2,196 | 1.0000 | 0.9333 | 648 | 0.0962 |
+| 1.0 | 0 | 0.95 | 1,707 | 1.0000 | 0.9422 | 756 | 0.0524 |
+| 0.9 | 0 | 1.0 | 2,107 | 1.0000 | 0.9536 | 762 | 0.0465 |
+
+⇒ **`top_k=4` is the only rung that collapses, and it collapses hard**: distinct-21mer 0.3522
+against 1.0000 for all five others — two thirds of its 21-mer positions are duplicates. A sequence
+that repeats itself every few bases does not contain ORFs that form clusters, so this is a
+complete explanation for a near-zero antiSMASH rate. Its inflated median ORF (1,104 nt vs real 885,
+where every healthy rung sits BELOW real) is the same symptom: one run-on reading frame through
+repetitive sequence, not gene structure.
+
+⇒ ⚠ **`top_k=256` beat UNRESTRICTED sampling, 0.0276 vs 0.0962.** Some truncation helps this
+model. So the prior implementation's `top_k` off is **not** the right answer either, and adopting
+its preset would have imported an unmeasured constant. This had to be measured on our own
+instrument, which is the §12.A7 rule working rather than an argument against it.
+
+### 25.3 What this invalidates, and what it does not
+
+| artifact | status |
+|---|---|
+| `GO_STAGE1_FROZEN_1c2acf1b1ce67b8f` (§24) | valid record of what was run; **invalid source of any GenomeOcean rate** |
+| GO G2 likelihood health (§22 preamble) | **stands** — reads held-out loss, never samples |
+| GO G6 rank (§22), G6b depth (§23) | **stand** — held-out loss only |
+| GO I1 site sweep | **stands** — KL only |
+| every Evo2 arm, all stages | **stands** — `top_k=4` keeps 0.9999 of Evo2's mass |
+
+The defect is GenomeOcean-only and generation-only. It is not a benchmark-wide invalidation.
+
+### 25.4 The structural fix
+
+A shared decoding scalar no longer exists: `FROZEN["decoding"]` is keyed by substrate family,
+`decoding_for()` raises on an unknown family rather than falling back, `ArmSpec`'s decoding fields
+default to `None`, and the generation dispatcher refuses to sample while they are unresolved.
+`off_frozen()` compares them against the family the run recorded, so drift stays auditable through
+the nesting. The test asserts BOTH that every family has a complete triple AND that no top-level
+scalar exists to be inherited.
+
+⚠ **Recorded against our own gate:** `distinct_21mer_fraction` is a pathology detector, not a
+fidelity measure. On 800 nt: uniform-random 1.000, a real TERPENE core 1.000, `ATGC` repeated
+0.005. Real and random are indistinguishable on it, so it contributes nothing between two healthy
+configurations and everything against a degenerate one — coding density and ORF length are what
+separate the healthy ones.
