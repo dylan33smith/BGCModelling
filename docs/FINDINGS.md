@@ -1797,3 +1797,64 @@ G2 health gate (0.813 vs 0.912 nats/nt).
 generated-cluster detection rates is untested, and §13.2 records the retraction of exactly that
 inference on Evo2. It is reported as what it is: GenomeOcean is the weaker density model of this
 corpus.
+
+## 23. GenomeOcean-4B, G6b — placement barely matters here, and on Evo2 it dominated
+
+**MODEL** GenomeOcean-4B · **ARM** `W1n` pooled (nucleotide-balanced), no prefix, de novo ·
+**GATE** G6b, adapter depth at the rank G6 selected (4) · **CRITERION** held-out loss only.
+**SETS** GO's own thirds of its 24 layers — not Evo2's blocks-of-25 (§14A).
+
+`all` is `GO_G6_r4_W1n` itself (rank 4, every layer) and was not re-run.
+
+| depth set | layers | held-out loss (nats/token) | vs `all` | × noise | trainable | best step |
+|---|---|---|---|---|---|---|
+| `all` | 0–23 | **4.79216** | — | — | 7,569,408 | 125 |
+| `every_other` | 0,2,…,22 | 4.80167 | +0.00951 | 0.6 | 3,784,704 | 125 |
+| `early` | 0–7 | 4.81074 | +0.01858 | 1.1 | 2,523,136 | 75 |
+| `late` | 16–23 | 4.83325 | +0.04109 | 2.5 | 2,523,136 | 100 |
+| `middle` | 8–15 | 4.83884 | +0.04668 | 2.8 | 2,523,136 | 50 |
+
+Within-run plateau noise: **0.01659** nats/token. Worst set against `all`: **2.8× noise**.
+
+### 23.1 The cross-substrate contrast, capacity-matched on both sides
+
+GO's three thirds hold **exactly** 2,523,136 parameters each; Evo2's held 3.32M/3.72M/3.44M
+(within 12%). So on both substrates this isolates placement from parameter count.
+
+| substrate | capacity-matched spread | that substrate's noise | × noise |
+|---|---|---|---|
+| Evo2-1B | 0.35852 nats/nt | 0.00157 | **228×** |
+| GenomeOcean-4B | 0.02810 nats/token | 0.01659 | **1.7×** |
+
+⇒ **Placement matters ~135× more on Evo2 than on GenomeOcean.** On Evo2, moving a fixed-capacity
+adapter from the early blocks to the late ones is catastrophic (§14). On GenomeOcean the same move
+costs 1.7× the noise — detectable, but nothing like decisive.
+
+⚠ **This is the first place the two substrates genuinely disagree**, and it is a result about the
+architectures rather than about the task. A candidate account: Evo2 is a **hybrid** stack — 21
+Hyena blocks with attention at only 4 depths — so its layers are not interchangeable, while
+GenomeOcean is a **uniform** 24-layer decoder where every layer is the same kind of object and
+adaptation is largely substitutable across depth. ⚠ That is a hypothesis suggested by the
+measurement, not something this measurement tests.
+
+### 23.2 ⚠ This does NOT contradict GenomeOcean's site sweep, and the distinction matters
+
+GO's I1 site sweep found its late third essentially inert — reach 0.001 against the early third's
+1.09, a ~1,000× gap (§ site-sweep results). Here, adapting its late third costs only 2.5× noise.
+Those are **different interventions measured by different quantities**:
+
+| | what is done | what is measured | GO's answer |
+|---|---|---|---|
+| G6b (this) | **train** LoRA at those layers | held-out loss | placement barely matters (1.7×) |
+| site sweep | **inject** a fixed direction at those layers at generation time | KL against unsteered | placement matters enormously (~1,000×) |
+
+⇒ On GenomeOcean, **adaptation works anywhere but injection only lands early.** There is no
+contradiction: training reshapes what a layer computes, while injection must survive propagation
+through everything downstream. This is the same content-versus-reach distinction that forced the
+retraction in §14.4 — recorded here in advance rather than after.
+
+### 23.3 Selected depth
+
+**GenomeOcean retains `all` layers** — it is the minimum and the natural default, exactly as Evo2
+retained all-blocks. The rules that produced the two answers were different (§22.2) but the depth
+answer coincides.
