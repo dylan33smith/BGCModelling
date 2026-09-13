@@ -1693,3 +1693,47 @@ anything (§17). It says nothing about RIPP's genuine null or the two underpower
 
 ⚠ **It does not rescue the composition result.** §19's finding that steering overrides seeding
 was measured at α = 0.3 and is unaffected by anything here.
+
+## 21. Reporting status — EXPLORATORY, and what that costs
+
+By decision (SPEC §12.A6, 2026-09-13) this benchmark is reported as **exploratory**. Stage 1 is
+the result; Stage 2 is parked (SPEC §14.7), not dropped.
+
+### 21.1 The line
+
+| available | not available |
+|---|---|
+| rates with intervals: seeding 0.130, steering 0.075, de novo 0.014 | *"seeding beats steering"* without stating the separation and its power |
+| contrasts overwhelming at the realised n (seeding vs de novo, p = 1.1e-21) | any p-value presented as **confirmatory** |
+| the four readable negatives of §18.1 | *"steering does not work for ARYLPOLYENE"* — §18.2, blind below 2.3× |
+| causal claims backed by a health-matched control (§20) | ranked claims across substrates |
+
+⚠ **Why the p-values are descriptive and not confirmatory.** Cells, contrasts, α values and even
+a tolerance were chosen *after* reading interim results. Each choice was legitimate exploration —
+and each voids the guarantee a p-value carries. The write-up must disclose the adaptive sequence
+rather than present the final grid as if it had been planned.
+
+### 21.2 What the write-up owes, none of it needing new generation
+
+1. Exploratory status stated in the abstract and results, not a footnote.
+2. An interval on every reported rate.
+3. A minimum-detectable-effect figure beside every comparison.
+4. One paragraph disclosing which arms were chosen after seeing what.
+
+### 21.3 Stage 2 sizing, computed now so the decision can be taken later
+
+n per arm for 80% power; the Bonferroni column assumes a family of 7 primary contrasts.
+
+| contrast | rates | n @0.05 | n @Bonf/7 |
+|---|---|---|---|
+| seeding vs de novo | 0.130 / 0.014 | 32 | **50** |
+| steering vs de novo | 0.075 / 0.015 | 83 | **131** |
+| real vs random direction | 0.075 / 0.015 | 83 | **131** |
+| per-class vs pooled, seeded | 0.130 / 0.077 | 256 | **406** |
+| ARYLPOLYENE's underpowered gap | 0.070 / 0.035 | 310 | **493** |
+| per-class vs pooled, **de novo** | 0.014 / 0.005 | 858 | **1,364** |
+| steering + seed vs seed alone | 0.107 / 0.130 | 1,547 | **2,459** |
+
+⇒ **n = 400 per arm** covers everything through ARYLPOLYENE's gap: 32 arms, ~12 h generation,
+0.7 h scoring. ⚠ The bottom two are unaffordable at any realistic n and would have to be declared
+**bounded rather than tested** — a Stage 2 that pretended otherwise would be worse than none.

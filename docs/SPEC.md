@@ -1323,6 +1323,37 @@ for it — the largest magnitude *it* tolerates. Every other class ran at a borr
 
 ⇒ G9 is now **one sweep per (class, weight state)**, and an arm may only be read at its own α.
 
+
+#### A6 — the benchmark is reported as EXPLORATORY; Stage 2 becomes conditional (2026-09-13)
+
+§6.2 specifies Stage 2 as the powered, pre-registered benchmark, and §6.1 casts Stage 1 as a
+shakedown whose rates exist to power it. **By decision, this paper reports Stage 1 as the
+result**, framed as exploratory, and Stage 2 is deferred rather than scheduled.
+
+**What that permits.** Descriptive and effect-size claims: *"seeding gave 0.130, steering 0.075,
+de novo 0.014 on per-class weights."* Rates, confidence intervals, and contrasts whose evidence
+is overwhelming at the realised n (seeding vs de novo is p = 1.1e-21 and needs no ceremony).
+
+**What it forbids, and this is the operative half:**
+* ⚠ **No claim that an arm or a substrate is BETTER than another** unless the interval separation
+  is stated and the comparison's power is reported alongside it.
+* ⚠ **No NEGATIVE claim from an underpowered arm.** FINDINGS §18 already found two: ARYLPOLYENE
+  and REDOX_COFACTOR steering are blind below 2.3× and 5.7× lifts, so "steering does not work for
+  this class" is not available. §18.1's four readable negatives remain readable.
+* ⚠ **No p-value presented as confirmatory.** Cells, contrasts and α were all chosen adaptively
+  after reading interim results — legitimate exploration, and exactly what voids a p-value's
+  guarantee. Report them as descriptive statistics with the selection process disclosed.
+
+**Requirements this imposes on the write-up**, all cheap and none needing new generation:
+1. The exploratory status is stated in the abstract and the results section, not a footnote.
+2. Every reported rate carries an interval.
+3. Every comparison carries its minimum detectable effect at the realised n.
+4. The adaptive choices are disclosed as a paragraph: which arms were chosen after seeing what.
+
+⇒ **Stage 2 is PARKED, not dropped** — §14.7. It becomes necessary the moment the paper wants to
+rank arms or substrates, or to assert a null it cannot currently support. Its sizing is already
+computed (FINDINGS §21) so the decision can be taken later without re-deriving anything.
+
 ## 13. What this spec deliberately does not contain
 
 No expected results, no prior rates, no hypotheses about which arm will win. Those belong in the
@@ -1406,6 +1437,28 @@ Both were measured before the terminator fix, i.e. on ~8,190 nt of post-terminat
 * **Lift is undefined against a zero floor.** §3.5 divides by the unconditioned marginal, which
   is 0.000. Reports correctly emit `null` rather than dividing; the substitute in use is an
   absolute rate difference with an exact binomial interval.
+
+### 14.7 Stage 2 — the powered, pre-registered benchmark `PARKED 2026-09-13`
+
+The paper reports Stage 1 as exploratory (§12.A6), so Stage 2 is parked rather than scheduled.
+**It is not dropped, and here is precisely when it becomes necessary:**
+
+| trigger | why Stage 2 is required |
+|---|---|
+| ranking arms or substrates ("seeding beats steering", "Evo2 beats GO") | a ranked claim needs the contrast powered and pre-specified |
+| asserting any null the current n cannot support | §18.2's two underpowered arms; a null needs power AND a manipulation check (§6.4) |
+| presenting any p-value as confirmatory | every cell, contrast and α here was chosen adaptively after reading interim results |
+| a reviewer asking for multiplicity control | no correction family was pre-specified across dozens of comparisons |
+
+**Cost, already computed** (FINDINGS §21, so the decision needs no new derivation): n = 400 per
+arm covers seeding, steering, the real-vs-random control and ARYLPOLYENE's gap — 32 arms, ~12 h
+generation, 0.7 h scoring. Two contrasts are NOT affordable at any realistic n and would have to
+be declared bounded rather than tested: pooled-vs-per-class de novo (~1,364/arm) and the
+steering×seeding composition null (~2,459/arm).
+
+⚠ **The pre-registration must be written and hashed BEFORE the first Stage 2 sequence is
+generated** (§6.2). Running the arms first and writing the plan after produces Stage 1 again at
+higher n, not Stage 2.
 
 ### 14.6 ⚠ Old results are NOT publishable — what must be re-measured
 
