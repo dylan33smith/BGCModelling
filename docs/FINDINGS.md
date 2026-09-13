@@ -1581,58 +1581,70 @@ listed among the negatives.
 sit in the steering result, which is where the paper's newest claim lives, so §17's framing is
 corrected above rather than left to a reader to notice.
 
-## 19. Steering does NOT compose with seeding — it overrides it
+## 19. Steering adds nothing to seeding — and the "override" reading did NOT replicate
 
-One cell, TERPENE on `W2`, α = 0.3 (its own G9 ceiling) with the frozen L = 64 seed. Health read
-first: coding density 0.9841, `hit_eos` 0.920, 200/200 PASS novelty — the arm is sound, so the
+`COMPOSITION_FROZEN_*`. All four classes, each at **its own** G9 α, with the frozen L=64 seed.
+All four arms healthy (coding drop ≤ 2.7%, no termination loss, 800/800 PASS novelty), so every
 rate is readable.
 
-| TERPENE, `W2`, 200 each | on-target | |
-|---|---|---|
-| de novo, unsteered | 3/200 | 0.015 |
-| **+ steering only** | 15/200 | 0.075 |
-| **+ 64-nt seed only** | 30/200 | 0.150 |
-| **+ BOTH** | **17/200** | **0.085** |
+| class | α | seed alone | steer alone | **BOTH** | both vs seed | both vs steer |
+|---|---|---|---|---|---|---|
+| TERPENE | 0.3 | 30/200 | 15/200 | **17/200** | p = 0.062 | p = 0.85 |
+| **ARYLPOLYENE** | 0.1 | 63/200 | 7/200 | **65/200** | **p = 0.92** | **p = 4e-15** |
+| RIPP | 0.3 | 4/200 | 0/200 | **0/200** | p = 0.12 | p = 1.00 |
+| REDOX_COFACTOR | 0.1 | 7/200 | 2/200 | **4/200** | p = 0.54 | p = 0.69 |
+| **pooled** | — | 104/800 (0.130) | 24/800 (0.030) | **86/800 (0.107)** | **p = 0.189** | p < 1e-15 |
 
-### 19.1 The combined arm behaves like steering alone
+### 19.1 ⚠ RETRACTED: "steering overrides seeding"
 
-| model for the combined arm | predicts | p | verdict |
-|---|---|---|---|
-| multiplicative (0.015 × 5 × 10) | 150/200 | 3e-46 | **excluded** |
-| additive on rates | 42/200 | 6e-04 | **excluded** |
-| equal to **seed alone** | 30/200 | 0.062 | marginal |
-| equal to **steering alone** | 15/200 | **0.854** | **consistent** |
-| equal to neither | 3/200 | 0.002 | excluded |
+An earlier version of this section, measured on **TERPENE alone**, reported that steering
+*overrides* seeding — the combined arm tracking steering-alone rather than seed-alone — and
+offered a mechanism (α at every attention site dominating the residual stream, overwriting the
+prefix). **The other three classes refute it.**
 
-⇒ **Adding a real seed to a steered arm buys nothing.** The combined arm is statistically
-indistinguishable from steering alone, and both composition models are excluded decisively. The
-point estimate is *below* seeding alone (0.085 against 0.150) at p = 0.062 — suggestive of active
-interference rather than mere non-addition, but not significant, and it should be reported as
-"no gain" rather than "a loss".
+ARYLPOLYENE is decisive and was chosen as the sharp test precisely because its seeded rate is the
+benchmark's highest: override predicted the combined arm would collapse from 63/200 to ~7/200.
+It came back **65/200** — statistically identical to seeding alone (p = 0.92) and nine-fold above
+steering alone (p = 4e-15). Seeding dominates completely; steering neither helps nor hurts it.
 
-### 19.2 Why this matters: the benchmark's other composition DID work
+⇒ On the two classes with enough signal to tell, the combined arm tracks **steering** for TERPENE
+and **seeding** for ARYLPOLYENE. One-all. RIPP and REDOX_COFACTOR have rates too small to
+separate the hypotheses. **The override claim rested on n = 1 class and does not generalise.**
 
-§11 measured weights × seeding and they composed: 0.014 → 0.130, **9.5×**, p = 1.1e-21. That
-result is what made composition look like a general property of the grid. It is not.
+⚠ And TERPENE's own drop was never significant: 17/200 against 30/200 is **p = 0.062**. §19 as
+first written treated a marginal single-class result as a mechanism.
 
-| pair | alone | alone | together | composes? |
-|---|---|---|---|---|
-| per-class weights × seed | 0.005 (pooled wts) | — | **0.130** | ✅ 9.5× |
-| steering × seed | 0.075 | 0.150 | **0.085** | ❌ overrides |
+### 19.2 What the four classes DO support
 
-⇒ The distinction worth carrying into the paper: **training-time conditioning composes with a
-seed; inference-time steering replaces it.** A plausible mechanism is that α = 0.3 injected at
-every attention site dominates the residual stream for the whole generation, so whatever the
-64-nt prefix contributes is overwritten rather than built on — but that is an account, not a
-measurement, and nothing here tests it.
+⇒ **Steering adds nothing to a seeded arm.** Pooled, 86/800 with both against 104/800 with the
+seed alone — p = 0.189, no significant difference — while both are far above steering alone
+(24/800). Whether steering *subtracts* is **unresolved**: TERPENE hints at a drop (p = 0.062),
+ARYLPOLYENE shows none whatever (p = 0.92), and no pooled test separates them.
 
-⚠ **One cell, one class, n = 200.** This is the only composition point measured for steering, on
-the only class where steering does anything. It should not be generalised to the other three,
-whose steering arms are either a genuine null (RIPP) or underpowered (§18.2).
+⇒ This still contrasts with the composition that DID work. §11's weights × seeding composed 9.5×
+(0.014 → 0.130, p = 1.1e-21). Steering × seeding does not compose in either direction — it is
+simply **redundant with the stronger lever**.
 
-⚠ A lower α was not tried. If the override account is right, a gentler push might add to the seed
-instead of replacing it — which would make α a composition parameter rather than only a health
-one. Not run.
+| pair | composes? |
+|---|---|
+| per-class weights × seed | ✅ 9.5× |
+| steering × seed | ❌ no gain, no reliable loss — seeding dominates |
+
+⇒ For the paper's method table: **seeding is the dominant intervention and steering is subsumed
+by it.** Steering is worth reporting for what §17 and §20 establish — it moves the endpoint for
+one class, causally, at its own ceiling — not as something that stacks.
+
+### 19.3 Bounds
+
+⚠ ARYLPOLYENE's combined arm, 65/200 = **0.325**, is the single highest rate any arm in this
+benchmark has produced. It comes from seeding, not from the combination.
+
+⚠ Only TERPENE and ARYLPOLYENE carry enough signal to distinguish the hypotheses; RIPP (4/200
+seeded) and REDOX_COFACTOR (7/200) are too small, and their rows should not be read as evidence
+either way.
+
+⚠ One α per class, the G9 ceiling. A gentler push was never tried, so "steering adds nothing at
+its maximum tolerable magnitude" is what is measured — not "at any magnitude".
 
 ## 20. The control, matched on health instead of on α — the direction's CONTENT does the work
 
