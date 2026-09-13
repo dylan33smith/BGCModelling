@@ -1211,3 +1211,35 @@ def test_lora_targets_are_per_substrate():
     d = depth_sets_for("genomeocean")
     assert len(d["all"]) == 24 and d["late"][-1] == 23
     assert len(depth_sets_for("evo2")["all"]) == 25
+
+
+def test_unwrap_finds_logits_in_a_huggingface_output_object():
+    """vortex returns nested tuples; HuggingFace returns a CausalLMOutputWithPast dataclass
+    whose `.logits` is the tensor and which is NOT a tuple.
+
+    ⚠ The tuple-only version fell through to None and raised "could not locate logits in
+    model output" on GenomeOcean's FIRST training step — after a 4B-parameter model load.
+    Checking `.logits` first also avoids walking `past_key_values`, which is large and full
+    of 3-D tensors that are not logits.
+    """
+    import torch
+
+    from bgcbench.model.train import _unwrap
+
+    want = torch.zeros(2, 5, 7)
+
+    class HFOut:                      # stand-in for CausalLMOutputWithPast
+        def __init__(self, logits, past):
+            self.logits = logits
+            self.past_key_values = past
+
+    # a plausible KV cache: 3-D tensors that must NOT be mistaken for logits
+    past = tuple((torch.ones(2, 5, 9), torch.ones(2, 5, 9)) for _ in range(3))
+    got = _unwrap(HFOut(want, past))
+    assert got is want, "did not return the .logits tensor"
+    assert got.shape == (2, 5, 7)
+
+    # the vortex shape still works
+    assert _unwrap((None, (torch.zeros(1, 3, 4),))).shape == (1, 3, 4)
+    assert _unwrap(torch.zeros(2, 2)) is None          # 2-D is not logits
+    assert _unwrap(None) is None

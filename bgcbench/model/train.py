@@ -175,7 +175,18 @@ class TrainConfig:
 
 
 def _unwrap(o):
-    """vortex returns nested tuples; find the [B, T, V] tensor."""
+    """Find the [B, T, V] logits in whatever a substrate's forward returns.
+
+    ⚠ TWO SHAPES, NOT ONE. vortex returns nested tuples and needs the recursive search.
+    HuggingFace returns a `CausalLMOutputWithPast` dataclass whose `.logits` is the tensor
+    and which is NOT a tuple -- so the tuple-only version fell straight through to None and
+    raised "could not locate logits in model output" on the first GenomeOcean training step,
+    after the model load. Checking `.logits` first also avoids walking `past_key_values`,
+    which is large and contains 3-D tensors of the wrong meaning.
+    """
+    lg = getattr(o, "logits", None)
+    if torch.is_tensor(lg) and lg.dim() == 3:
+        return lg
     if torch.is_tensor(o):
         return o if o.dim() == 3 else None
     if isinstance(o, (tuple, list)):
