@@ -39,6 +39,20 @@ Step 3 is a deliverable. Freezing before comparison is what makes the diff evide
    uninformative, not negative.
 7. **No arm is optimised against the benchmark endpoint** (§2.4). Rank sweeps read held-out loss.
 
+## Cross-substrate work
+
+**Nothing is matched across substrates except the TASK** (SPEC §14A). Rank, depth set, injection
+sites, α, probe magnitude, batch size — all chosen per substrate by measurement. A configuration
+that resembles the other model's gets no privilege. What is held identical is the corpus, splits,
+classes, scoring config, novelty gate, n, the **nucleotide** budget and the endpoint.
+
+## Reporting results
+
+Every measurement is reported with **the substrate AND the arm/regime it came from**, and every
+comparison states what is being compared and what each side means. A bare number or an unexplained
+set name is not a result — `early_third` and `evo2_matched` mean nothing to a reader who was not
+in the code. Name the model, name the arm, say what the contrast is, then give the number.
+
 ## Filesystem
 
 * Artifacts live on `/data2`, never in the repo.

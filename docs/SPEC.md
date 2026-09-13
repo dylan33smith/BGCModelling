@@ -1509,6 +1509,36 @@ all.
 
 ---
 
+## 14A. STANDING RULE — nothing is matched across substrates except the TASK
+
+**The two models are treated differently and given the same task. What is compared is the task
+outcome, never the configuration.**
+
+⇒ Every substrate-dependent parameter is chosen **per substrate, by measurement**: the adapter
+rank, the adapter depth set, the injection site set, the injection magnitude α, the probe
+magnitude used to select any of those, the batch size, the token budget's conversion to
+nucleotides. A configuration that resembles the other model's gets **no privilege** and is not a
+tie-breaker.
+
+⚠ **What IS held identical**, because it is the task: the corpus, the splits, the class set, the
+frozen scoring config, the novelty gate, `n_per_row`, the **nucleotide** budget, the seed length
+in nucleotides, and the endpoint. Anything a substrate needs in its own units converts from the
+nucleotide figure (§15.4) rather than being copied as a token count.
+
+**Measured cost of getting this wrong.** GenomeOcean's I1 site set was nearly imposed as Evo2's
+relative depths (`evo2_matched`: layers 3, 10, 16, 23, one per depth region, mimicking Evo2's
+4-of-25 spacing). Measured against GenomeOcean's own best set (`early_third`: layers 0–7,
+concentrated): **0.023 against 1.093 reach — a ~47× penalty.** GenomeOcean wants injection
+concentrated early; Evo2's spacing spreads it across depth. Had the matched set been used, GO's
+steering arm would have run at ~2% of its achievable effect and any null from it would have been
+an artifact of the site choice rather than a property of the substrate.
+
+⚠ **The rule reaches the measuring instrument too, and that is where it was first broken.** After
+correctly refusing to match the SITES, the site sweep still probed both substrates at one effect
+size (KL ≈ 1.0). For Evo2 that is α ≈ 1.0, above its own measured health ceiling of 0.3 — so its
+site sets were ranked in a regime its generation does not survive. **Probe each substrate inside
+its own working regime**, defined by its own G9 ceiling.
+
 ## 15. GenomeOcean Stage 1 — the mirror of Evo2, and where it cannot be one
 
 Stage 1 is repeated on `go-4b` to make the substrate comparison the paper's subject. The rule is
