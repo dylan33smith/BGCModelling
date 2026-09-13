@@ -1737,3 +1737,63 @@ n per arm for 80% power; the Bonferroni column assumes a family of 7 primary con
 ⇒ **n = 400 per arm** covers everything through ARYLPOLYENE's gap: 32 arms, ~12 h generation,
 0.7 h scoring. ⚠ The bottom two are unaffordable at any realistic n and would have to be declared
 **bounded rather than tested** — a Stage 2 that pretended otherwise would be worse than none.
+
+## 22. GenomeOcean-4B, G6 — rank is indistinguishable from noise here too
+
+**MODEL** GenomeOcean-4B · **ARM** `W1n` pooled (nucleotide-balanced), no prefix, de novo ·
+**GATE** G6, adapter rank · **CRITERION** held-out loss only, no generation, no antiSMASH (§2.4).
+
+Ranks {4, 8, 16, 32}. ⚠ Rank 64 was dropped by decision before it ran: Evo2's curve was flat
+across a 16× range, so the top rung is the least informative, and the GPU is shared with another
+user's job.
+
+| rank | best held-out loss (nats/token) | nats/nt | vs best | × noise | trainable | % of model | best step |
+|---|---|---|---|---|---|---|---|
+| 4 | 4.79216 | 0.9984 | +0.00337 | 0.22 | 7,569,408 | 0.178% | 125 |
+| 8 | 4.79151 | 0.9982 | +0.00272 | 0.18 | 15,138,816 | 0.355% | 125 |
+| 16 | 4.79130 | 0.9982 | +0.00251 | 0.17 | 30,277,632 | 0.707% | 125 |
+| 32 | **4.78879** | 0.9977 | — | 0.00 | 60,555,264 | 1.404% | 125 |
+
+Within-run plateau noise: **0.01511** nats/token. Across-rank spread for **8× the parameters**:
+**0.00337** — **0.22× the noise it sits inside.**
+
+⇒ **Rank does not matter on GenomeOcean either.** Measured independently on this substrate, by
+its own sweep, per §14A — not inherited from Evo2.
+
+### 22.1 The cross-substrate statement this licenses
+
+| substrate | parameter range swept | loss moved | relative to that substrate's own noise |
+|---|---|---|---|
+| Evo2-1B | 16× (rank 4→64) | 0.00078 nats/nt | **0.48×** |
+| GenomeOcean-4B | 8× (rank 4→32) | 0.00337 nats/token | **0.22×** |
+
+⇒ **Two architectures, two independent sweeps, same answer: LoRA rank is not the binding
+constraint on this task.** This is a claim about the *task*, which is the only kind §14A permits
+— and it is the stronger for the substrates having been swept separately rather than matched.
+
+### 22.2 The selected rank, and why it differs from Evo2's
+
+**GenomeOcean: rank 4.** The curve is flat, so every rank tested is statistically tied and the
+**smallest tied rank** is taken. **Evo2: rank 16**, retained for a different and equally stated
+reason — continuity with the arms in §8, §10 and §11 that had already run at 16.
+
+⇒ Same gate, same criterion, **different answers arrived at by stated rules**. That is what §14A
+asks for; matching the two would have been the error.
+
+⚠ **The trainable FRACTIONS therefore differ and the paper must say so**: Evo2 rank 16 is 0.94%
+of its model, GenomeOcean rank 4 is 0.178% of its. §6 notes that cross-substrate capacity
+equivalence is the trainable *fraction*, not the rank — so this is a real asymmetry. It is
+defensible only because both sweeps found the axis flat: if rank mattered on either substrate,
+this gap would be a confound rather than a footnote.
+
+### 22.3 On the loss figures themselves
+
+GenomeOcean's pooled arm reaches **0.998 nats/nt**; Evo2's pooled arm reaches **~0.896**. On the
+same corpus, same splits, same classes, each in its native input format, **Evo2-1B models these
+cores better than GenomeOcean-4B at a quarter the parameters** — consistent with the untrained
+G2 health gate (0.813 vs 0.912 nats/nt).
+
+⚠ This is a *likelihood* comparison, not an endpoint one. Whether it predicts anything about
+generated-cluster detection rates is untested, and §13.2 records the retraction of exactly that
+inference on Evo2. It is reported as what it is: GenomeOcean is the weaker density model of this
+corpus.
