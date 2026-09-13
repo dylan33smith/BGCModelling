@@ -46,12 +46,31 @@ sites, α, probe magnitude, batch size — all chosen per substrate by measureme
 that resembles the other model's gets no privilege. What is held identical is the corpus, splits,
 classes, scoring config, novelty gate, n, the **nucleotide** budget and the endpoint.
 
-## Reporting results
+## Reporting results — the header is REQUIRED on every table
 
-Every measurement is reported with **the substrate AND the arm/regime it came from**, and every
-comparison states what is being compared and what each side means. A bare number or an unexplained
-set name is not a result — `early_third` and `evo2_matched` mean nothing to a reader who was not
-in the code. Name the model, name the arm, say what the contrast is, then give the number.
+Every measurement carries the substrate AND the arm it came from. A bare number or an internal
+set name (`early_third`, `pair_01`, `W1n`) means nothing to a reader who was not in the code.
+
+**Every table gets this header. No exceptions, including small ones and cross-substrate ones:**
+
+```
+QUESTION  what this table answers, in one line
+MODEL     substrate(s). If rows differ, label the rows, not just the header.
+ARM       weight state + prefix + regime (de novo / seeded) + any intervention
+METRIC    the quantity, and WHAT DIRECTION IS BETTER
+UNIT      ⚠ state it, and NEVER mix units in one column without a conversion column
+```
+
+⚠ **The failure mode that has actually happened:** a cross-substrate table put Evo2's
+`0.35852 nats/NUCLEOTIDE` next to GenomeOcean's `0.02810 nats/TOKEN` in adjacent rows. GO is BPE
+at ~4.8 nt/token, so those are not the same scale; the comparison lived entirely in a `× noise`
+column that was never explained. If two rows are in different units, either convert them or make
+the comparable column the one the reader's eye lands on, and say which.
+
+⚠ **Also required:** when a table is a CONTRAST, say what each side IS before the numbers
+(`early_third` = GO layers 0–7 concentrated; `evo2_matched` = layers 3/10/16/23 spread across
+depth). And when two tables in one message come from different arms or different weight states,
+say so explicitly — the reader cannot see that from the numbers.
 
 ## Filesystem
 
