@@ -104,10 +104,18 @@ class _MeanCollector:
 
 def _encode(sub, rec: dict, prefix_kind: str, max_len_nt: int) -> list[int]:
     """Identical text construction to training (`train._encode2`), so the activations the
-    direction is derived from are the ones the arm actually produces."""
+    direction is derived from are the ones the arm actually produces.
+
+    ⚠ THE TWO TOKENIZERS RETURN DIFFERENT THINGS FROM `tokenize()`. Evo2's byte-level
+    tokenizer returns integer ids; a HuggingFace tokenizer returns STRING pieces, so
+    `int("ATG")` raises and every GenomeOcean derivation died on its first record. This
+    mirrors `train._encode2`, which already branched on family -- the divergence was here.
+    """
     prefix = rec.get("tax_tag", "") if prefix_kind == "taxonomy" else ""
     text = sub.training_text(rec["sequence"][:max_len_nt], prefix=prefix)
-    return [int(x) for x in sub.tokenizer.tokenize(text)]
+    if sub.family == "evo2":
+        return [int(x) for x in sub.tokenizer.tokenize(text)]
+    return sub.tokenizer(text)["input_ids"]
 
 
 @torch.no_grad()

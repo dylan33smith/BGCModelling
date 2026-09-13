@@ -1243,3 +1243,35 @@ def test_unwrap_finds_logits_in_a_huggingface_output_object():
     assert _unwrap((None, (torch.zeros(1, 3, 4),))).shape == (1, 3, 4)
     assert _unwrap(torch.zeros(2, 2)) is None          # 2-D is not logits
     assert _unwrap(None) is None
+
+
+def test_direction_encoding_handles_both_tokenizer_conventions():
+    """Evo2's byte-level `tokenize()` returns integer IDS; a HuggingFace tokenizer returns
+    STRING pieces. `int("ATG")` raises, and every GenomeOcean direction derivation died on
+    its first record.
+
+    ⚠ `train._encode2` already branched on family for exactly this reason — `directions._encode`
+    was written from it and dropped the branch, so the divergence was invisible until a second
+    substrate ran. Pinned by exercising both conventions.
+    """
+    from bgcbench.model import directions as D
+
+    class _Tok:
+        def __init__(self, mode): self.mode = mode
+        def tokenize(self, t):
+            return [ord(c) for c in t] if self.mode == "ids" else list(t)
+        def __call__(self, t): return {"input_ids": [7, 8, 9]}
+
+    class _S:
+        def __init__(self, fam, mode):
+            self.family, self.tokenizer = fam, _Tok(mode)
+        def training_text(self, seq, prefix=""): return prefix + seq
+
+    rec = {"sequence": "ATGC"}
+    assert D._encode(_S("evo2", "ids"), rec, "none", 100) == [65, 84, 71, 67]
+    # the HF convention must NOT go through int(); it takes the __call__ path
+    assert D._encode(_S("genomeocean", "str"), rec, "none", 100) == [7, 8, 9]
+
+    src = Path(D.__file__).read_text()
+    body = src[src.index("def _encode("):src.index("def class_means(")]
+    assert 'sub.family == "evo2"' in body, "the family branch is gone; GO will crash again"

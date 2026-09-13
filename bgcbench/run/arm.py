@@ -273,6 +273,8 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         # requirement the frozen record did not meet.
         intervention_active_sites=((sub.meta or {}).get("intervention_active_sites")
                                    if intervention is not None else None),
+        intervention_site_subset=((sub.meta or {}).get("intervention_site_subset")
+                                  if intervention is not None else None),
         intervention_degenerate_sites=((sub.meta or {}).get("intervention_degenerate_sites")
                                        if intervention is not None else None),
         # SPEC 6.4: a null is uninformative unless the intervention verifiably landed. The
@@ -439,6 +441,10 @@ def main() -> int:
     ap.add_argument("--alpha", type=float, default=None,
                     help="I1 injection magnitude. Required with --direction; swept by G9 "
                          "against the manipulation check, never the endpoint (SPEC 2.4).")
+    ap.add_argument("--sites", nargs="+", type=int, default=None,
+                    help="I1: restrict injection to these attention-site indices. The other "
+                         "half of G9 (§6: site AND magnitude are swept together); without it "
+                         "the site set is an unexamined default of 'all of them'.")
     ap.add_argument("--random-direction", type=int, default=None, metavar="SEED",
                     help="SPEC 6.3 control: magnitude-matched random vectors at the same "
                          "alpha, so anything I1 achieves that this does not is the "
@@ -486,7 +492,8 @@ def main() -> int:
                 "silently dropped and the arm would report both while running one. "
                 "Compose I1 with a LoRA weight state, or extend run_arm to hold both.")
         sub, intervention = attach_direction(sub, args.direction, args.alpha,
-                                             randomise=args.random_direction)
+                                             randomise=args.random_direction,
+                                             sites=args.sites)
         print(f"attached {sub.meta['intervention_kind']} alpha={args.alpha} "
               f"from {args.direction}"
               + (f" on top of {adapter}" if adapter else " on the BASE model"), flush=True)

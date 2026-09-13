@@ -327,7 +327,8 @@ def attach_intervention(sub: Substrate, path: str) -> tuple[Substrate, object]:
 
 
 def attach_direction(sub: Substrate, path: str, alpha: float,
-                     randomise: int | None = None) -> tuple[Substrate, object]:
+                     randomise: int | None = None,
+                     sites: list[int] | None = None) -> tuple[Substrate, object]:
     """Attach an I1 derived-direction injection for generation (SPEC 6, gate G9).
 
     `randomise` builds SPEC 6.3's magnitude-matched random control instead, at the same
@@ -345,6 +346,23 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     base = sub.model.model if sub.family == EVO2 else sub.model
     ck = torch.load(path, map_location="cpu", weights_only=False)
     hidden = int(ck["hidden"])
+    # ⚠ SITE SELECTION IS THE OTHER HALF OF G9. §6 specifies "injection site AND magnitude,
+    # swept together"; only α was ever swept, and the site set sat at an unexamined default
+    # of "every attention site". `sites` restricts injection to chosen indices by zeroing
+    # every other row, which keeps the direction tensor the same shape as the site list the
+    # model exposes -- so the realised coverage is still recorded honestly (§6.5).
+    if sites is not None:
+        keep = set(int(i) for i in sites)
+        d0 = ck["directions"]
+        if any(i < 0 or i >= d0.shape[0] for i in keep):
+            raise ValueError(f"site indices {sorted(keep)} out of range for {d0.shape[0]}")
+        d0 = d0.clone()
+        for i in range(d0.shape[0]):
+            if i not in keep:
+                d0[i] = 0.0
+        ck = dict(ck)
+        ck["directions"] = d0
+        ck["site_subset"] = sorted(keep)
     dev = next(base.parameters()).device
     if randomise is not None:
         iv = random_direction_control(base, hidden, seed=int(randomise), alpha=alpha)
@@ -401,6 +419,7 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
             f"BGCBENCH_ALLOW_FAILED_CHECK=1 to run it as a deliberate diagnostic.")
     sub.meta["intervention"] = path
     sub.meta["intervention_alpha"] = float(alpha)
+    sub.meta["intervention_site_subset"] = ck.get("site_subset")
     sub.meta["intervention_sites"] = ck.get("sites")
     sub.meta["intervention_direction_class"] = ck.get("target_class")
     return sub, iv
