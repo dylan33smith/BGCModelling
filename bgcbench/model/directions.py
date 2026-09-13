@@ -398,3 +398,45 @@ def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_k
             "passes": bool(mean_kl > min_kl),
             "criterion": (f"mean KL(steered || unsteered) over next-token distributions "
                           f"> {min_kl} nats/position -- the intervention reached the output")}
+
+
+@torch.no_grad()
+def alpha_for_target_kl(sub, records, directions, prefix_kind, max_len_nt,
+                        target_kl: float = 1.0, device: str = "cuda:0",
+                        limit: int = 8, lo: float = 1e-3, hi: float = 4.0,
+                        iters: int = 8) -> dict:
+    """Find the α at which injection produces a TARGET effect size, not a target magnitude.
+
+    ⚠ WHY THIS EXISTS. A probe α is a knob, and the same knob setting means wildly different
+    things on different models: at α = 1 Evo2-1B sits at KL 0.197 nats/position while
+    GenomeOcean-4B sits at 3.44-7.81 with ~98% of next-token choices flipped — far outside
+    any usable range. Probing both at α = 1 measures one model in its working regime and the
+    other in its wreckage, and then reads the wreckage as a failed monotonicity check.
+
+    This is the same lesson §20.1 records for the random-direction control: matching on the
+    nominal magnitude is the wrong invariant, and matching on the realised EFFECT is the
+    right one. Bisects α so mean KL against unsteered lands near `target_kl`.
+    """
+    def kl_at(a):
+        return kl_vs_unsteered(sub, records, directions, prefix_kind, max_len_nt,
+                               alpha=float(a), device=device, limit=limit)["mean_kl_nats"]
+
+    k_hi = kl_at(hi)
+    if k_hi < target_kl:                       # even the ceiling is gentle
+        return {"alpha": float(hi), "realised_kl": k_hi, "target_kl": target_kl,
+                "note": "target KL not reachable below hi; returning hi"}
+    a_lo, a_hi = lo, hi
+    best = (hi, k_hi)
+    for _ in range(iters):
+        mid = 0.5 * (a_lo + a_hi)
+        k = kl_at(mid)
+        if abs(k - target_kl) < abs(best[1] - target_kl):
+            best = (mid, k)
+        if k > target_kl:
+            a_hi = mid
+        else:
+            a_lo = mid
+    return {"alpha": float(best[0]), "realised_kl": float(best[1]),
+            "target_kl": target_kl,
+            "criterion": ("alpha bisected so mean KL against unsteered lands near the target "
+                          "-- substrates are probed at matched EFFECT, not matched magnitude")}

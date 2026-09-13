@@ -6,6 +6,24 @@ attention site that is not degenerate", on both substrates. Matching a second su
 that default would propagate an unmeasured choice and call the result a controlled
 comparison.
 
+⚠ EACH SUBSTRATE IS PROBED IN ITS OWN WORKING REGIME, AND NOTHING IS MATCHED ACROSS THEM.
+The two models are treated differently and given the same TASK; what is compared is the task
+outcome, never the configuration. So the site set, the injection magnitude and the probe
+magnitude are each chosen per substrate, by measurement, and a candidate motivated by
+resembling the other model is not privileged.
+
+Concretely: `evo2_matched` appears in GenomeOcean's candidate list only because an earlier
+plan would have imposed Evo2's relative depths on it. Measured, it reaches 0.023 against
+`early_third`'s 1.093 — a ~47x penalty — because Evo2's 4-of-25 spacing spreads injection
+across depth while GenomeOcean wants it concentrated early. It is retained as evidence that
+matching would have been wrong, never as a contender.
+
+⚠ AND THE PROBE MUST SIT INSIDE THE SUBSTRATE'S OWN HEALTH CEILING. Ranking site sets at a
+magnitude the model cannot actually be run at ranks them in a regime its generation does not
+survive. Evo2's ceiling is α = 0.3 (G9, FINDINGS §15), so Evo2 is probed there. A substrate
+whose ceiling is not yet measured is probed provisionally (`--target-kl`) and re-confirmed
+once its own α sweep has run.
+
 ⚠ THE CRITERION IS NOT THE ENDPOINT (§2.4). Two endpoint-free quantities per candidate set:
 
   reach   mean KL(steered ‖ unsteered) over next-token distributions -- how hard the
@@ -87,6 +105,12 @@ def main() -> int:
     ap.add_argument("--alpha", type=float, default=1.0,
                     help="FIXED probe magnitude for the site comparison. Not the generation "
                          "alpha -- that is swept afterwards, at the winning site set.")
+    ap.add_argument("--target-kl", type=float, default=None,
+                    help="calibrate the probe alpha so mean KL lands here, instead of using "
+                         "--alpha literally. ⚠ The same alpha means different things on "
+                         "different substrates: at alpha=1 Evo2 sits at KL 0.197 and GO at "
+                         "3.4-7.8 with ~98%% of tokens flipped. Probing both at one magnitude "
+                         "compares a working model with a wrecked one (§20.1).")
     ap.add_argument("--limit", type=int, default=16)
     ap.add_argument("--max-len-nt", type=int, default=corpus_max_len())
     ap.add_argument("--tag", default="G9SITES")
@@ -113,9 +137,18 @@ def main() -> int:
         from bgcbench.data import taxonomy
         taxonomy.attach(va_t, taxonomy.load_table())
 
+    probe_alpha = args.alpha
+    calib = None
+    if args.target_kl is not None:
+        calib = D.alpha_for_target_kl(sub, va_t, d_all, args.prefix, args.max_len_nt,
+                                      target_kl=args.target_kl, limit=min(8, args.limit))
+        probe_alpha = calib["alpha"]
+        print(f"probe alpha calibrated to KL~{args.target_kl}: alpha={probe_alpha:.4f} "
+              f"(realised KL {calib['realised_kl']:.3f})", flush=True)
+
     cands = candidate_sets(n_sites)
     print(f"{args.substrate}: {n_sites} attention sites, {len(cands)} candidate sets, "
-          f"probe alpha {args.alpha}\n", flush=True)
+          f"probe alpha {probe_alpha:.4f}\n", flush=True)
     print(f"{'site set':16s} {'sites':22s} {'reach (KL)':>11s} {'fidelity':>9s} {'min cos':>8s} {'adm':>5s}")
     rows = []
     for name, idx in cands.items():
@@ -129,7 +162,7 @@ def main() -> int:
                   f"{'no live site':>5s}")
             continue
         kl = D.kl_vs_unsteered(sub, va_t, d, args.prefix, args.max_len_nt,
-                               alpha=args.alpha, limit=args.limit)
+                               alpha=probe_alpha, limit=args.limit)
         fid = [cos[i] for i in live] if cos else []
         mean_fid = sum(fid) / len(fid) if fid else None
         min_fid = min(fid) if fid else None
@@ -147,7 +180,9 @@ def main() -> int:
     best = max(adm, key=lambda r: r["reach_kl_nats"]) if adm else None
     OUT.mkdir(parents=True, exist_ok=True)
     out = {"gate": "G9-sites", "substrate": args.substrate, "target": args.target,
-           "adapter": adapter, "probe_alpha": args.alpha, "n_attention_sites": n_sites,
+           "adapter": adapter, "probe_alpha": probe_alpha,
+           "probe_alpha_requested": args.alpha, "probe_alpha_calibration": calib,
+           "n_attention_sites": n_sites,
            "selection_fields": ["reach_kl_nats", "fidelity_mean_cosine", "min_cosine"],
            "endpoint_fields_read": [],
            "criterion": ("admissible = mean steered-site train/val cosine > 0.3 and no "
