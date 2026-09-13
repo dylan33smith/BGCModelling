@@ -1613,13 +1613,25 @@ sequence from GO — not the same floor.
    health-matched random controls (§20.1).
 7. Freeze, then the composition cell.
 
-### 15.7 ⚠ The taxonomy prefix does not transfer, and both conditions must run
+### 15.7 ⚠ The taxonomy prefix is NOT run on GenomeOcean — DROPPED 2026-09-13
 
-Evo2 was pretrained with GTDB lineages, which is why the prefix is its native format and why
-§10 could show it causal. **GenomeOcean was not.** Running GO prefixed would hand it a format it
-has never seen; running it unprefixed makes its arms non-comparable to Evo2's headline results.
+Evo2 was pretrained with GTDB lineages, which is why the prefix is its native input format and
+why §10 could show it causal. **GenomeOcean was not.** A lineage prefix on GO is a format it has
+never seen.
 
-⇒ **Run both**, as Evo2 effectively has (`W2_*_noprefix` and `W2_*_tax` arms both exist). The
-GO prefix arm then measures something Evo2's cannot: whether a lineage prefix helps a model that
-was never trained on one. ⚠ Do not read a GO prefix null as the same result as an Evo2 prefix
-null — they are different claims about different pretraining.
+⚠ **An earlier version of this section required BOTH prefix conditions on GO**, reasoning that
+Evo2 has both (`W2_*_noprefix` and `W2_*_tax`) so GO should too. **That is matching for its own
+sake and §14A forbids it.** Evo2 has both conditions because the prefix is a real channel for
+Evo2 and the pair measures it. On GO there is no such channel to measure — the prefixed arm would
+exist only to resemble Evo2's grid.
+
+⇒ **GenomeOcean runs on bare nucleotide sequence, its native condition.** Every GO arm is
+`--prefix none`. The comparison remains valid because §14A holds the TASK identical, not the
+input formatting: both substrates receive the same corpus, splits, classes, endpoint and
+nucleotide budget, each in the form it was pretrained to read.
+
+⚠ Consequence to state in the paper: Evo2's headline arms carry a taxonomy prefix and GO's do
+not, so the two are not input-identical. That is a property of the substrates, not a confound
+introduced here — equalising it would mean either stripping Evo2 of its native format or handing
+GO one it cannot use, and both make the comparison worse.
+
