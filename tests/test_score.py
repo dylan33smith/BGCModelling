@@ -1353,3 +1353,44 @@ def test_generation_decode_path_survives_the_real_genomeocean_tokenizer():
     assert sub.clean(sub.detokenize(ids)) == seq
     assert "N" in sub.clean(tok.decode(ids, skip_special_tokens=True)), (
         "the library no longer space-joins; the guard in detokenize may be removable")
+
+
+def test_freeze_id_convention_is_stable_and_content_addressed():
+    """A freeze is the SPEC §10 step-2 artifact: it is what makes the later unblind-and-diff
+    evidence rather than rationalisation. Two things must hold, and the second is the one
+    that would rot silently.
+
+    1. The id is CONTENT-ADDRESSED -- change any recorded number and the id changes, so a
+       bundle cannot be edited after the fact while keeping its name.
+    2. The convention MATCHES the bundles already on disk. Evo2's Stage 1 was frozen under
+       sha256(body-without-freeze_id, sort_keys)[:16]; if GO's bundles used anything else,
+       the two substrates' freezes would not be comparable artifacts and nobody would
+       notice, because each would be internally consistent.
+    """
+    from bgcbench.run.freeze import freeze_id
+
+    body = {"what": "x", "runs": {"a": {"n_detected": 12, "n": 200}}}
+    base = freeze_id(body)
+    assert len(base) == 16 and all(c in "0123456789abcdef" for c in base)
+
+    # the id must not depend on its own previous value, or re-freezing would drift
+    assert freeze_id({**body, "freeze_id": "deadbeefdeadbeef"}) == base
+    assert freeze_id({**body, "freeze_id": None}) == base
+
+    # content-addressed: one changed count changes the id
+    moved = {"what": "x", "runs": {"a": {"n_detected": 13, "n": 200}}}
+    assert freeze_id(moved) != base
+
+    # key ORDER must not change the id, or the same bundle freezes twice under two names
+    assert freeze_id({"runs": body["runs"], "what": "x"}) == base
+
+    # and the convention must still reproduce a bundle frozen under it earlier
+    import json
+    from pathlib import Path
+    ref = Path("/data2/ds85/bgcbench/runs/SEEDED_DIAGONAL_FROZEN_f1a5fa95dbdc07a1.json")
+    if not ref.exists():
+        print("  SKIP: reference bundle not on this filesystem")
+        return
+    d = json.loads(ref.read_text())
+    assert freeze_id(d) == d["freeze_id"] == "f1a5fa95dbdc07a1", (
+        "the freeze-id convention has changed; existing bundles are no longer reproducible")

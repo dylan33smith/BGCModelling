@@ -1858,3 +1858,86 @@ retraction in §14.4 — recorded here in advance rather than after.
 **GenomeOcean retains `all` layers** — it is the minimum and the natural default, exactly as Evo2
 retained all-blocks. The rules that produced the two answers were different (§22.2) but the depth
 answer coincides.
+
+## 24. GenomeOcean-4B, Stage 1 de novo — FROZEN, and mostly at the floor
+
+**Bundle:** `GO_STAGE1_FROZEN_1c2acf1b1ce67b8f.json`, eight arms, frozen 2026-09-13 **before**
+any comparison against the prior implementation (SPEC §10 step 2).
+
+### 24.1 What was run
+
+QUESTION  On the de novo task, what does each GenomeOcean weight state produce?
+MODEL     GenomeOcean-4B (every row)
+ARM       weight state as labelled · rank 4 · all 24 layers · prefix `none` (§15.7) ·
+          **de novo**, unseeded · no inference-time intervention
+METRIC    antiSMASH detect and on-target counts. **Higher is better.**
+UNIT      counts out of n = 200 per row
+
+Rank and depth come from GO's own G6/G6b sweeps (§22, §23), not from Evo2 (SPEC §14A).
+`W0` base, `W1`/`W1n`/`W3` are one pooled distribution of 200 scored against all four classes —
+the four rows are **not** four independent samples. `W2` is four separate per-class adapters.
+
+| arm | what it is | detected | on-target | median_len (nt) | hit_eos |
+|---|---|---|---|---|---|
+| `GO_W0` | base weights, the floor | 0/200 | 0/200 | 1,293 | 0.930 |
+| `GO_W1` | pooled adapter, record-balanced | 1/200 | 1/200 (RIPP) | 1,747 | 0.805 |
+| `GO_W1n` | pooled adapter, nucleotide-balanced | 0/200 | 0/200 | 1,506 | 0.905 |
+| `GO_W3` | learned per-site offset conditioner, rank 4, 24 sites | 0/200 | 0/200 | 1,089 | 0.975 |
+| `GO_W2_TERPENE` | per-class adapter | 1/200 | 1/200 | 1,090 | 0.975 |
+| `GO_W2_RIPP` | per-class adapter | 0/200 | 0/200 | 992 | 0.975 |
+| `GO_W2_ARYLPOLYENE` | per-class adapter | 0/200 | 0/200 | 4,872 | 0.655 |
+| **`GO_W2_REDOX_COFACTOR`** | per-class adapter | **12/200** | **8/200** | 5,700 | 0.575 |
+
+Every 0/200 has a 95% upper bound of 0.015 by the rule of three. "0" means below 1.5%, not never.
+
+### 24.2 The one arm that moves, and why it is not yet a class result
+
+`GO_W2_REDOX_COFACTOR` is 12/200 against 1/600 for the other three per-class adapters pooled
+(p = 4.7e-07), and 12/200 against the matched Evo2 arm's 1/200 (p = 3.0e-03).
+
+⚠ **Generation length is not constant across these arms and it moves the same direction as the
+result.** The two arms with long output (REDOX 5,700 nt, ARYLPOLYENE 4,872 nt) are the two that
+terminate least; the two short ones (TERPENE 1,090, RIPP 992) terminate almost always. A 5,700 nt
+generation has ~5x the room to assemble a detectable cluster as a 1,000 nt one, so some of
+REDOX's margin may be that its adapter taught GenomeOcean to keep going rather than to build BGCs.
+
+Two facts stop that from being the whole story, which is why it needs measuring rather than
+asserting: ARYLPOLYENE is nearly as long and scored **0/200**; and the confound cannot arise on
+Evo2 at all, where every de novo arm ran to the full 8,192 nt budget (`hit_eos` = 0.0) so length
+was constant. **This is a substrate-specific confound, not a shared one**, and it is the first
+thing to resolve before any GO class claim is made.
+
+### 24.3 ⚠ The comparison a reader will want is NOT in this bundle
+
+Every arm here is **de novo**. SPEC §15.6 puts the seed sweep and the seeded arms at step 5 and
+this bundle is step 4. On Evo2, seeding is the largest effect in the whole project — 14/800 de
+novo to 118/800 seeded, **8.4x**, p = 2.9e-23 (§11) — larger than rank, depth, prefix or steering.
+
+So a GenomeOcean number from this bundle **must not** be compared against any seeded Evo2 number,
+and any impression that GenomeOcean underperforms Evo2 cannot be drawn from it. The like-for-like
+reading is the opposite and is not significant either way: GO's best de novo arm is 12/200
+(0.060) with **no prefix**, against Evo2's best de novo arm at 7/200 (0.035) **with** its native
+taxonomy prefix — p = 0.35.
+
+### 24.4 Two defects found and fixed while producing this bundle
+
+Both were in the GenomeOcean path, both were caught by guards rather than by inspection, and
+neither reached a number.
+
+1. **BPE detokenisation injected separators.** GenomeOcean's fast tokenizer has no
+   `backend_tokenizer.decoder`, so HuggingFace's `decode()` returns `" ".join(tokens)`. `clean()`
+   masks each space to N, giving an N every ~4.8 nt — no 21-mer was N-free, so the novelty gate's
+   k-mer set was empty and it raised. All eight arms died. Had the gate returned the passing value
+   on an empty set (KNOWN_WRONG #3, the prior implementation's behaviour), antiSMASH would have
+   been handed sequence with every ORF destroyed and **GenomeOcean would have scored ~0 across all
+   eight arms for a reason that has nothing to do with the model.** Fixed in `6329ba6`
+   (`Substrate.detokenize`), two mutation-tested tests.
+2. **Pooled arms invoked without `--train-classes`.** A shell-script error, refused at the guard:
+   one pooled distribution would have been replicated into four confusion rows and lift would have
+   read 1.000 by construction.
+
+### 24.5 Status
+
+FROZEN. Next per SPEC §15.6 is step 5 — G3 seed sweep, then the seeded arms — which is the
+comparison §24.3 says is missing. The §10 unblind-and-diff against the prior implementation is
+now unblocked for this component, the freeze having been taken first.
