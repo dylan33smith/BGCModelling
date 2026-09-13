@@ -236,8 +236,36 @@ def test_generation_config_is_frozen_and_hashed_like_scoring():
     h = genconfig.config_hash()
     assert len(h) == 12 and h == genconfig.config_hash()
     assert genconfig.FROZEN["n_per_row"] == 200
-    for k in ("budget_nt", "temperature", "top_k", "top_p", "rng_seed", "batch_size"):
+    for k in ("budget_nt", "rng_seed", "batch_size"):
         assert k in genconfig.FROZEN, f"{k} is not frozen and could differ between arms"
+
+    # ⚠ DECODING IS FROZEN PER SUBSTRATE FAMILY, NOT SHARED (SPEC §12.A7). A single shared
+    # `top_k` is what applied Evo2's value (a no-op over 4 letters) to GenomeOcean (which
+    # discards 81% of a 4,096-token distribution), so the invariant is BOTH that every
+    # family has a complete triple AND that no shared scalar exists to be inherited.
+    for k in ("temperature", "top_k", "top_p"):
+        assert k not in genconfig.FROZEN, (
+            f"{k} is a shared top-level default again; one value cannot be correct for a "
+            f"byte-level and a BPE substrate at once (SPEC §12.A7)")
+    table = genconfig.FROZEN["decoding"]
+    assert set(table) >= {"evo2", "genomeocean"}
+    for fam, d in table.items():
+        assert set(d) == {"temperature", "top_k", "top_p"}, f"{fam} decoding is incomplete"
+    assert genconfig.decoding_for("evo2")["top_k"] == 4, (
+        "Evo2 keeps top_k=4: measured 0.9999 of its mass survives, so it is unrestrictive")
+
+    # an unknown family must RAISE, never fall back -- a silent fallback is how one
+    # substrate's decoding reached the other in the first place
+    try:
+        genconfig.decoding_for("not_a_family")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("decoding_for fell back instead of raising on an unknown family")
+
+    # and a mutation of the returned dict must not reach the frozen table
+    genconfig.decoding_for("evo2")["top_k"] = 999
+    assert genconfig.decoding_for("evo2")["top_k"] == 4, "decoding_for leaks a live reference"
 
 
 MODEL_USABLE_CONTEXT = 8192          # evo2-1b config max_seqlen, measured (see below)

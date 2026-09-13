@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from bgcbench.model.genconfig import FROZEN
+from bgcbench.model.genconfig import FROZEN, decoding_for
 from bgcbench.model.load import EVO2, Substrate
 
 
@@ -37,9 +37,25 @@ class ArmSpec:
     prefix: str = "none"
     adapter_path: str | None = None
     steer: dict[str, Any] = field(default_factory=dict)
-    temperature: float = FROZEN["temperature"]
-    top_k: int = FROZEN["top_k"]
-    top_p: float = FROZEN["top_p"]
+    # ⚠ None means UNRESOLVED, not "use a default". Decoding is per substrate (§12.A7) and
+    # an ArmSpec is built before the substrate is known, so these are filled by
+    # `with_decoding(family)` and the generation paths refuse to sample while they are None.
+    # A dataclass default here is what let one shared `top_k` reach both substrates.
+    temperature: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+
+
+    def with_decoding(self, family: str) -> "ArmSpec":
+        """Return a copy with any UNSET decoding field filled from the substrate's own
+        configuration (SPEC 12.A7). An explicitly-set value is left alone, so a sweep can
+        still override one axis without silently inheriting the rest from the other model."""
+        from dataclasses import replace
+        d = decoding_for(family)
+        return replace(self,
+                       temperature=d["temperature"] if self.temperature is None else self.temperature,
+                       top_k=d["top_k"] if self.top_k is None else self.top_k,
+                       top_p=d["top_p"] if self.top_p is None else self.top_p)
 
 
 @dataclass
@@ -183,6 +199,9 @@ def _seed_everything(seed: int) -> None:
 
 def _run(sub: Substrate, arm: ArmSpec, prompts: list[str],
          cfg: GenConfig) -> tuple[list[str], list[bool]]:
+    # BOTH sampling paths pass through here, so the decoding guard belongs here and not in
+    # either branch -- a guard on one family only would let the other sample unresolved.
+    _require_decoding(arm)
     _seed_everything(cfg.seed)
     if sub.family == EVO2:
         return _run_evo2(sub, arm, prompts, cfg)
@@ -288,6 +307,17 @@ def _run_evo2(sub, arm, prompts, cfg):
     if any(t is None for t in texts):
         raise RuntimeError("a prompt produced no generation; bucketing lost a record")
     return texts, hits
+
+
+def _require_decoding(arm) -> None:
+    """⚠ Both sampling paths go through this. Sampling with `temperature=None` would raise
+    somewhere deep in a library with a message that says nothing about substrates."""
+    missing = [k for k in ("temperature", "top_k", "top_p") if getattr(arm, k) is None]
+    if missing:
+        raise ValueError(
+            f"arm {arm.arm_id!r} has unresolved decoding {missing}. Call "
+            f"ArmSpec.with_decoding(<substrate family>) first -- decoding is per substrate "
+            f"(SPEC 12.A7) and there is deliberately no shared default.")
 
 
 def _run_hf(sub, arm, prompts, cfg):

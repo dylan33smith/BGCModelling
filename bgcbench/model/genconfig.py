@@ -35,10 +35,30 @@ FROZEN = {
     # long classes would have looked worst because their references are longest.
     "budget_nt": 8192,
 
-    # SPEC 7.3: identical decoding across arms.
-    "temperature": 1.0,
-    "top_k": 4,
-    "top_p": 1.0,
+    # SPEC 7.3 / §12.A7: DECODING IS PER SUBSTRATE, and it is keyed by family here so a
+    # single shared scalar cannot exist to be matched across substrates by accident.
+    #
+    # ⚠ THIS WAS ONE SHARED TRIPLE AND IT WAS A DEFECT. `top_k: 4` is correct for Evo2 and
+    # catastrophic for GenomeOcean, and the difference is invisible in the output. Measured
+    # on 8 held-out TERPENE cores, teacher-forced, base weights:
+    #
+    #   Evo2-1B         vocab   512 (byte-level)  top-4 keeps 0.9999 of the mass  nucleus  3.3
+    #   GenomeOcean-4B  vocab 4,096 (BPE 4.8nt)   top-4 keeps 0.1937 of the mass  nucleus 1012
+    #
+    # So on Evo2 the filter is a no-op -- the alphabet IS four letters -- while on
+    # GenomeOcean it throws away 81% of the distribution at every step and renormalises
+    # over the rest. Eight GO Stage 1 arms were generated through that before it was found
+    # (GO_STAGE1_FROZEN_1c2acf1b1ce67b8f; those rates are not reportable).
+    #
+    # Values per family are selected by GATE G11 against the structural statistics of real
+    # held-out sequence, never against the endpoint (§2.4) and never copied from the other
+    # substrate or from the prior implementation's preset.
+    "decoding": {
+        # Evo2: G11 is N/A. top_k=4 over a 4-letter alphabet is already unrestrictive.
+        "evo2": {"temperature": 1.0, "top_k": 4, "top_p": 1.0},
+        # GenomeOcean: ⏳ PLACEHOLDER, pending G11. Must not be read as measured.
+        "genomeocean": {"temperature": 1.0, "top_k": 0, "top_p": 1.0},
+    },
     "rng_seed": 0,
 
     # batch size affects padding and kernel selection, not the sampling distribution, but
@@ -92,6 +112,22 @@ FROZEN = {
 }
 
 
+def decoding_for(family: str) -> dict:
+    """The decoding triple for a substrate family (§12.A7).
+
+    ⚠ RAISES on an unknown family rather than falling back to a default. A silent fallback
+    is exactly how one substrate's decoding came to be applied to the other: the wrong value
+    produces valid-looking sequence and nothing downstream can tell.
+    """
+    table = FROZEN["decoding"]
+    if family not in table:
+        raise KeyError(
+            f"no decoding configuration for substrate family {family!r}. Decoding is per "
+            f"substrate (SPEC 12.A7) and must be selected by G11 against real sequence -- "
+            f"never inherited from another family. Known: {sorted(table)}")
+    return dict(table[family])
+
+
 def config_hash() -> str:
     """Fingerprint of the FROZEN literal — the INTENT. Use `realised_hash` for a run.
 
@@ -115,9 +151,25 @@ def realised_hash(r: dict) -> str:
 
 
 def off_frozen(r: dict) -> dict:
-    """Which realised values differ from FROZEN. Empty dict means a frozen-config run."""
-    return {k: {"frozen": FROZEN[k], "realised": r[k]}
-            for k in FROZEN if k in r and FROZEN[k] != r[k]}
+    """Which realised values differ from FROZEN. Empty dict means a frozen-config run.
+
+    ⚠ DECODING IS NESTED AND FLATTENED IN `realised`. FROZEN holds `decoding[family]` while
+    a run records `temperature`/`top_k`/`top_p` at the top level, so the generic loop below
+    can never see them and drift would go unreported -- which is the auditing half of the
+    §12.A7 defect. They are compared explicitly, against the family the run recorded.
+    """
+    out = {k: {"frozen": FROZEN[k], "realised": r[k]}
+           for k in FROZEN if k != "decoding" and k in r and FROZEN[k] != r[k]}
+    fam = r.get("substrate_family")
+    if fam and fam in FROZEN["decoding"]:
+        for k, v in FROZEN["decoding"][fam].items():
+            if k in r and r[k] != v:
+                out[k] = {"frozen": v, "realised": r[k], "family": fam}
+    elif any(k in r for k in ("temperature", "top_k", "top_p")):
+        out["decoding"] = {"frozen": "per-family table", "realised": "UNRESOLVABLE",
+                           "why": f"substrate_family={fam!r} is not in the decoding table, "
+                                  f"so this run's decoding cannot be audited"}
+    return out
 
 
 def check_uniform(reports: list[dict]) -> None:

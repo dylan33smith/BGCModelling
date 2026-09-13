@@ -241,7 +241,7 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         top_p=arm.top_p, seeded=arm.seeded, seed_len_nt=arm.seed_len_nt, prefix=arm.prefix,
         weight_state=arm.weight_state, adapter=arm.adapter_path,
         adapter_sha=_sha_of(arm.adapter_path), row_class=row_class or "ALLROWS",
-        substrate=sub.id, checkpoint=sub.checkpoint,
+        substrate=sub.id, substrate_family=sub.family, checkpoint=sub.checkpoint,
         scoring_config=antismash.config_hash(), corpus_sha256=_corpus_sha(),
         termination_mode=sub.termination_mode,
         # SPEC 6.5: an arm attached at 4 of 25 sites is not the same arm as one at 32 of
@@ -507,6 +507,12 @@ def main() -> int:
                   # degenerate collapse and fill every confusion row from ONE distribution
                   # -- reporting a class-conditional arm as though it were unconditioned.
                   inference_control=("steer" if args.direction else "none"))
+    # SPEC 12.A7: decoding comes from the SUBSTRATE, not from a shared constant. This must
+    # happen before both generation AND report building, so the `realised` block records the
+    # values that were actually sampled with rather than the unresolved Nones.
+    arm = arm.with_decoding(sub.family)
+    print(f"decoding [{sub.family}]: temperature={arm.temperature} top_k={arm.top_k} "
+          f"top_p={arm.top_p}", flush=True)
     # class-bearing iff something in the coordinate carries the class
     # the class must enter at GENERATION time for a target to mean anything
     # ⚠ A TAXONOMY PREFIX IS NOT A CLASS CHANNEL. It names an organism, not a compound

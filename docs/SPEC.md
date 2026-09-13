@@ -1184,6 +1184,7 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 | G8 | data-scaling: effective_n at which the endpoint saturates | **the class set (§4.4)** and equal-n subsampling |
 | G9 | steering layer × magnitude, swept on generation quality — never on the endpoint (§2.4) | the `I1` arm | ✅ RUN 2026-09-11/12, **per class** (§12.A5); FINDINGS §15, §17 |
 | G10 | ✅ **MECHANISM CLOSED** [M] for all three substrates: terminator id round-trips, training text carries it, truncation detects it. Base-model behaviour at 4 kb: Evo2 **0/12** hit_eos (runs to budget) · GO-4B **12/12** (median 553 nt) · **bgcFM 0/12** (median 4,792 nt — the published fine-tune LOST its base model's stopping). BPE ratio measured at **4.8 nt/token**. ⏸ Whether a *fine-tuned* Evo2 emits its terminator is a post-training measurement | every generation arm, and the gene-count axis (§5.1) |
+| G11 | **decoding configuration, per substrate** (§12.A7) — swept on the structural statistics of the generation against REAL held-out sequence, never on the endpoint (§2.4) | every generation arm on that substrate | ⏳ OPEN for `go-4b`. **N/A for Evo2**: `top_k=4` keeps 0.9999 of its mass, so the frozen value is already unrestrictive there |
 
 **Bound resolved: 8,192 nt** [M]. ⚠ REVERSED — this read "Bound resolved: 16 kb" and reasoned from G2's memory measurements that the bound was a COST decision. FINDINGS §1.5c showed that mistook *it runs* for *it works*: held-out NLL rises 0.8049 at 8,192 → 1.2388 at 15,900 against ln(4)=1.386 for a uniform model, i.e. near chance. It is a MODEL-QUALITY decision. Superseded reasoning follows: G2 shows the 1B is not the constraint (64k fits in 19 GiB), so the
 bound is a cost decision; 16k captures ~92% of 32k's data benefit at half the generation and
@@ -1353,6 +1354,62 @@ is overwhelming at the realised n (seeding vs de novo is p = 1.1e-21 and needs n
 ⇒ **Stage 2 is PARKED, not dropped** — §14.7. It becomes necessary the moment the paper wants to
 rank arms or substrates, or to assert a null it cannot currently support. Its sizing is already
 computed (FINDINGS §21) so the decision can be taken later without re-deriving anything.
+
+### 12.A7 AMENDMENT 2026-09-13 — DECODING PARAMETERS ARE PER SUBSTRATE. `top_k` was not.
+
+**What was wrong.** §7.3 froze `temperature 1.0, top_k 4, top_p 1.0` and applied it to every arm
+on **both** substrates. That is a configuration matched across substrates, which §14A forbids, and
+it was not caught because the value is correct for Evo2 and the failure is invisible in the output.
+
+**Measured**, 8 held-out TERPENE cores, teacher-forced, base weights, no prefix:
+
+| substrate | vocab | probability mass surviving `top_k=4` | real nucleus at p=0.95 |
+|---|---|---|---|
+| Evo2-1B | 512, byte-level; 4 bases carry the mass | **0.9999** | 3.3 tokens |
+| GenomeOcean-4B | 4,096, BPE at ~4.8 nt/token | **0.1937** | **1,012 tokens** |
+
+On Evo2 the filter is a no-op — the alphabet IS four letters. On GenomeOcean it **discards 81% of
+the probability mass at every step** and renormalises over the remaining 19%, sampling from 4
+tokens where the model's own distribution spans about a thousand. Severe top-k truncation drives a
+model into short, repetitive, early-terminating output, which is what `GO_STAGE1_FROZEN_1c2acf1b1ce67b8f`
+shows (median 992–5,700 nt against an 8,192 nt budget, `hit_eos` up to 0.975) and it is the leading
+explanation for that bundle's length confound (FINDINGS §24.2).
+
+**The rule.** `temperature`, `top_k`, `top_p`, any repetition penalty, and any minimum-length floor
+are **per substrate, selected by measurement**, exactly as rank, depth, injection sites and α
+already are. What stays identical across substrates is the corpus, splits, classes, scoring config,
+novelty gate, n, the **nucleotide** budget, and the endpoint. `FROZEN` therefore holds decoding
+values **keyed by substrate family**, and a single shared scalar for these fields is a defect.
+
+⚠ **Do NOT resolve this by copying the prior implementation's preset** (`temperature 0.9,
+top_k off, top_p 1.0, repetition_penalty 1.2`). That preset was itself inherited from GenomeOcean's
+upstream demo rather than measured here, and adopting it would import an unmeasured constant while
+spending the §10 blind credit for nothing. It is selected by **G11**.
+
+**Scope of the damage.** Generation only. GO's G2 likelihood health, G6 rank, G6b depth and the I1
+site sweep all read held-out loss or KL and never sample, so they stand. Every Evo2 arm stands —
+`top_k=4` is a no-op there, which is why this is a GenomeOcean-only defect and not a benchmark-wide
+one. `GO_STAGE1_FROZEN_1c2acf1b1ce67b8f` remains a valid record of what was run and an invalid
+source of any GenomeOcean rate.
+
+### 12.A8 AMENDMENT 2026-09-13 — G11, the decoding gate
+
+**G11 selects a substrate's decoding configuration, and its criterion is NOT the endpoint (§2.4).**
+It never reads `detected`, `on_target`, `products` or `observed_classes`. It reads only whether
+generated sequence has the STRUCTURAL STATISTICS of real sequence:
+
+| statistic | why it is not the endpoint | what truncation does to it |
+|---|---|---|
+| distinct 21-mer fraction | a pure string property of the generation | collapses — repeats |
+| prodigal coding density | ORF coverage, no cluster rule, no marker set | falls |
+| median ORF length | ditto | falls |
+| median length / `hit_eos` | generation health, already reported per arm | shortens, terminates early |
+
+**Selection rule, stated before the sweep runs:** the admissible configuration is the one whose
+median statistics are **closest to the real held-out corpus** on the first three, with distance
+computed as the mean absolute relative deviation. Ties break toward the LESS restrictive setting,
+because a restriction that buys nothing is a confound with no benefit. The reference is real
+held-out sequence, never another arm and never the prior implementation's numbers.
 
 ## 13. What this spec deliberately does not contain
 
