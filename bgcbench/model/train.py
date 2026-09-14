@@ -146,6 +146,34 @@ def build_scheduler(opt, cfg, steps_per_epoch: int):
     return torch.optim.lr_scheduler.LambdaLR(opt, factor)
 
 
+def _upcast_trainable_to_fp32(model) -> int:
+    """Put the TRAINABLE (adapter) parameters in fp32. Returns how many were cast.
+
+    ⚠ THIS IS THE CAST peft WOULD HAVE DONE, AND IT WAS BEING SKIPPED. `autocast_adapter_dtype=False`
+    is set because peft 0.19's own cast probes `torch.float8_e8m0fnu`, which torch 2.5.1 does not
+    have, and raises before training starts. Disabling the flag dodged the broken probe but also
+    threw away the upcast, so every adapter trained in bfloat16 -- confirmed on disk: all 45
+    shipped adapters are BF16.
+
+    Why it matters: an AdamW update is ~lr in magnitude and rounds to ZERO when it is below half a
+    bf16 ulp. Measured on the real shipped adapters at lr=5e-5, 6.9% of GenomeOcean's `lora_A`
+    entries and 16.9% of Evo2's cannot change at all; AdamW's moments are bf16 too. It gets sharply
+    worse as the learning rate decays, and the schedule added alongside this spends ~30% of
+    training below the point where >50% of `lora_A` is frozen -- i.e. the LR fix makes this defect
+    worse, which is why the two land together.
+
+    The base model stays bf16; only the ~0.2% of parameters that actually receive gradients are
+    cast, so the memory cost is negligible and the forward pass is unchanged.
+    """
+    import torch
+    n = 0
+    for prm in model.parameters():
+        if prm.requires_grad and prm.dtype in (torch.float16, torch.bfloat16):
+            prm.data = prm.data.to(torch.float32)
+            n += 1
+    return n
+
+
 def train_config_hash(cfg) -> str:
     """Training had NO frozen config and no hash: nine of twelve CLI flags appeared in no
     artifact. Arms must differ in DATA, never in optimisation, and nothing recorded whether
@@ -159,7 +187,18 @@ def train_config_hash(cfg) -> str:
 @dataclass
 class TrainConfig:
     rank: int = 16
-    alpha: int = 32
+    #: ⚠ `alpha` IS DERIVED FROM `rank`, not an independent constant. peft computes the LoRA
+    #: update scale as `lora_alpha / r`, so a FIXED alpha makes the update magnitude a
+    #: function of whatever rank a gate happened to pick: at alpha=32 GenomeOcean's rank 4
+    #: ran at 8.0x while Evo2's rank 16 ran at 2.0x, and the G6 rank sweep swept scaling
+    #: 8/4/2/1 alongside rank -- so rank and update magnitude were never separated.
+    #: Setting the SCALING is the honest knob; alpha follows. 2.0 is the prior
+    #: implementation's value (r=16, alpha=32) and the common default.
+    lora_scaling: float = 2.0
+
+    @property
+    def alpha(self) -> int:
+        return max(1, int(round(self.lora_scaling * self.rank)))
     dropout: float = 0.05
     lr: float = 5e-5
     #: EARLY STOPPING replaces a guessed epoch count. Fixed epochs cannot know whether an
@@ -173,18 +212,12 @@ class TrainConfig:
     max_epochs: int = 40
     eval_every: int = 25            # optimizer steps between held-out evaluations
     patience: int = 4               # evaluations without improvement before stopping
-    min_delta: float = 1e-4         # smaller than this is not an improvement
+    #: ⚠ RAISED 1e-4 -> 5e-3. The old value was ~151x BELOW the measured noise floor of this
+    #: estimator, so "improved" and "did not improve" were partly adjudicating noise. Measured
+    #: checkpoint-to-checkpoint sd across the shipped training logs is 2.0e-3 to 1.55e-2
+    #: (median 7.8e-3); 5e-3 sits above the reproducibility floor and below the plateau noise.
+    min_delta: float = 5e-3
 
-    #: ⚠ EARLY STOPPING MUST NOT FIRE BEFORE THE MODEL HAS SEEN THE DATA ONCE.
-    #: Measured across every adapter trained before 2026-09-13: 15 of 17 shipped INSIDE
-    #: their first epoch, on BOTH substrates -- GO_W2_ARYLPOLYENE at 5.0% of one epoch,
-    #: GO_W1 at 6.2%, evo2 W2_TERPENE_noprefix at 24.9%. `patience=4` at `eval_every=25`
-    #: is 100 optimizer steps of patience against a 2,011-step epoch on the pooled arms,
-    #: so the rule was adjudicating convergence on ~5% of the data. The prior
-    #: implementation trained 3 FULL epochs (2,112 steps where ours stopped at 75).
-    #: This floor makes "converged" mean something: the stop rule is still `patience`,
-    #: but it cannot be consulted until one full pass is done.
-    min_epochs: float = 1.0
 
     #: ⚠ THERE WAS NO LEARNING-RATE SCHEDULE AT ALL. `lr` was applied flat for the whole
     #: run, with no warmup and no decay, in BOTH training loops. The prior implementation
@@ -201,8 +234,31 @@ class TrainConfig:
     #: because the arms differ 4x in epoch length (502 vs 2011 steps) and a step-denominated
     #: horizon would anneal the pooled arms four times faster than the per-class ones.
     warmup_steps: int = 50
-    decay_epochs: float = 3.0
     lr_schedule: str = "linear"      # "linear" | "cosine" | "constant"
+
+    #: ⚠ ONE KNOB FOR THE PLANNED RUN. It is BOTH the early-stopping floor and the LR decay
+    #: horizon, because setting those independently lets them disagree -- and they did: at
+    #: min_epochs=1.0 with a 3-epoch decay horizon, an arm stopping just past the floor
+    #: finishes at 66-67% of peak LR, which is warmup plus a mild taper rather than
+    #: annealing. The whole benefit of a decay schedule is settling at a low LR, and that
+    #: configuration never reached one.
+    #:
+    #: 3.0 is the prior implementation's value: it trained 3 epochs AND decayed over 3
+    #: epochs, and its held-out loss fell monotonically across all three. Early stopping
+    #: still runs as a safety net; it simply cannot fire before the planned run is done.
+    #:
+    #: ⚠ COST: training time scales directly with this. 3.0 is ~3x 1.0.
+    train_epochs: float = 3.0
+
+    @property
+    def min_epochs(self) -> float:
+        """The early-stopping floor IS the planned run -- see `train_epochs`."""
+        return self.train_epochs
+
+    @property
+    def decay_epochs(self) -> float:
+        """The decay horizon IS the planned run -- see `train_epochs`."""
+        return self.train_epochs
     micro_batch: int = 1
     grad_accum: int = 16
     max_len_nt: int = 16000
@@ -394,9 +450,11 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
         from peft import PeftModel
         model = PeftModel.from_pretrained(base, resume_from, is_trainable=True,
                                           autocast_adapter_dtype=False)
+        _upcast_trainable_to_fp32(model)
         print(f"  resumed from {resume_from}", flush=True)
     else:
         model = get_peft_model(base, peft_cfg, autocast_adapter_dtype=False)
+    _upcast_trainable_to_fp32(model)
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     model.train()
@@ -585,7 +643,7 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
 
 @torch.no_grad()
 def evaluate(sub, model, records: list[dict], cfg: TrainConfig,
-             device: str = "cuda:0", limit: int = 32) -> float:
+             device: str = "cuda:0", limit: int = 200) -> float:
     """Held-out loss — the SPEC 6.4 manipulation check for a weight-state arm, and the
     criterion for the G6 rank sweep (never the benchmark endpoint, SPEC 2.4)."""
     model.eval()
@@ -600,8 +658,15 @@ def evaluate(sub, model, records: list[dict], cfg: TrainConfig,
     picked: list[dict] = []
     if by_cls:
         per = max(1, limit // len(by_cls))
+        # ⚠ A SEEDED RANDOM SAMPLE, NOT `v[:per]`. The splits are accession-sorted, so the
+        # head of each class is a handful of genomes: the old 32-record default scored 28
+        # genomes out of 1,010 records (3.2%) and early stopping adjudicated convergence on
+        # them. The seed is fixed, so the SAME records are still scored at every checkpoint
+        # and the comparison stays paired -- only the selection is unbiased.
         for v in by_cls.values():
-            picked.extend(v[:per])
+            pool = list(v)
+            random.Random(12345).shuffle(pool)
+            picked.extend(pool[:per])
     for r in (picked or records[:limit]):
         ids, plen = _encode2(sub, r, cfg)
         x = torch.tensor([ids], device=device)
@@ -836,7 +901,7 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
 
 
 @torch.no_grad()
-def _eval_offset(sub, base, records, cfg, device, limit: int = 32):
+def _eval_offset(sub, base, records, cfg, device, limit: int = 200):
     """Held-out loss WITH the conditioner attached -- it is already attached by the caller's
     context manager, so this measures the intervened model, which is what the manipulation
     check needs."""
@@ -846,7 +911,10 @@ def _eval_offset(sub, base, records, cfg, device, limit: int = 32):
     picked: list[dict] = []
     per = max(1, limit // max(len(by), 1))
     for v in by.values():
-        picked.extend(v[:per])
+        # seeded sample, not the head of an accession-sorted file — see evaluate()
+        pool = list(v)
+        random.Random(12345).shuffle(pool)
+        picked.extend(pool[:per])
     tot, n = 0.0, 0
     for r in (picked or records[:limit]):
         ids, plen = _encode2(sub, r, cfg)

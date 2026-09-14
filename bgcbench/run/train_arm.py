@@ -60,14 +60,11 @@ def main() -> int:
                     help="THERE WAS NO SCHEDULE BEFORE 2026-09-14 -- lr was flat for the "
                          "whole run. 'constant' reproduces that.")
     ap.add_argument("--warmup-steps", type=int, default=50)
-    ap.add_argument("--decay-epochs", type=float, default=3.0,
-                    help="decay horizon in EPOCHS, so arms with 4x different epoch lengths "
-                         "anneal at the same rate relative to the data.")
-    ap.add_argument("--min-epochs", type=float, default=1.0,
-                    help="early stopping cannot fire before this many epochs. Default 1.0: "
-                         "15 of 17 adapters trained before 2026-09-13 shipped INSIDE their "
-                         "first epoch on both substrates, so `converged` meant converged on "
-                         "5-40%% of the data.")
+    ap.add_argument("--train-epochs", type=float, default=3.0,
+                    help="the PLANNED run: both the early-stopping floor AND the LR decay "
+                         "horizon, so the two cannot disagree. Default 3.0 matches the prior "
+                         "implementation, whose loss fell monotonically across all three "
+                         "epochs. Training time scales directly with this.")
     ap.add_argument("--max-epochs", type=int, default=40,
                     help="SPEC 12.A2: high enough that the cap never binds, so early "
                          "stopping is the single termination rule for every arm.")
@@ -114,9 +111,8 @@ def main() -> int:
         train, val = train[:args.limit], val[:max(8, args.limit // 8)]
 
     cfg = TrainConfig(rank=args.rank, max_epochs=args.max_epochs,
-                      min_epochs=args.min_epochs,
+                      train_epochs=args.train_epochs,
                       lr_schedule=args.lr_schedule, warmup_steps=args.warmup_steps,
-                      decay_epochs=args.decay_epochs,
                       eval_every=args.eval_every, patience=args.patience,
                       grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
                       balance=args.balance, method=args.method,
