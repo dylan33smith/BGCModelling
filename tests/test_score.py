@@ -1682,3 +1682,104 @@ def test_eval_cadence_is_proportionate_to_the_eval_set_size():
         "patience window is tighter than the prior's 750 steps")
     # and the floor must still dominate: early stopping cannot pre-empt the planned run
     assert cfg.train_epochs * 502 > cfg.eval_every * cfg.patience or cfg.train_epochs >= 3.0
+
+
+def test_both_substrates_are_seeded_from_byte_identical_prefixes():
+    """The seeded cross-substrate comparison is only meaningful if both models continue the
+    SAME prefixes. That holds today by construction — `usable_seed_pool` sorts by accession
+    and filters on length, so the seed set is a pure function of (test split, seed_len_nt),
+    and `seed_len_nt` lives in the SHARED part of FROZEN.
+
+    ⚠ This test exists because SPEC §15.6 step 5 used to say GenomeOcean should run its own
+    G3 seed sweep and use "the selected L". That contradicts §14A, which lists the seed
+    length among what is held identical BECAUSE IT IS THE TASK. Per-substrate selection is
+    right for rank, depth, sites, α and decoding — all properties of the model. It is wrong
+    for the seed, and the failure would be silent: both arms would run, both would report,
+    and the numbers simply would not be comparable.
+    """
+    import hashlib
+    import json
+    from pathlib import Path
+    from bgcbench.model.genconfig import FROZEN
+    from bgcbench.model.generate import usable_seed_pool, _seed_text
+
+    # seed length must NOT be per-substrate
+    assert "seed_len_nt" in FROZEN and isinstance(FROZEN["seed_len_nt"], int), (
+        "seed_len_nt must be a single shared scalar")
+    assert not isinstance(FROZEN["seed_len_nt"], dict), (
+        "seed_len_nt has been made per-substrate; the two models would continue different "
+        "prefixes and no seeded comparison between them would be valid (SPEC §14A)")
+
+    splits = Path("/data2/ds85/bgcbench/splits")
+    if not splits.is_dir():
+        print("  SKIP: splits not on this filesystem")
+        return
+
+    L = FROZEN["seed_len_nt"]
+    for cls in ("TERPENE", "RIPP"):
+        f = splits / cls / "test.jsonl"
+        if not f.exists():
+            continue
+        recs = [json.loads(l) for l in open(f)]
+        pool = usable_seed_pool(recs, L)
+        seeds = [_seed_text(pool[i % len(pool)], L) for i in range(FROZEN["n_per_row"])]
+        assert all(len(x) == L for x in seeds), "a ragged seed changes the decode path"
+        # determinism: recomputing must give the identical set, since nothing about a
+        # substrate enters the computation
+        again = [_seed_text(usable_seed_pool(recs, L)[i % len(pool)], L)
+                 for i in range(FROZEN["n_per_row"])]
+        assert hashlib.sha256("".join(seeds).encode()).digest() == \
+               hashlib.sha256("".join(again).encode()).digest(), (
+            f"{cls} seed set is not reproducible; it cannot be shared across substrates")
+
+
+def test_task_is_shared_and_treatment_is_per_substrate():
+    """The one structural invariant behind SPEC §14A, asserted in both directions.
+
+    TASK fields (corpus, n, nucleotide budget, seed length, endpoint) must be SHARED — a
+    per-substrate seed length would mean the two models are not solving the same problem.
+    TREATMENT fields (rank, depth, sites, α, decoding) must be PER SUBSTRATE — a shared one
+    is how `top_k=4` reached GenomeOcean (keeping 19% of its probability mass) and how
+    `lora_alpha=32` gave it an 8.0x update where Evo2 got 2.0x.
+    """
+    from bgcbench.model.genconfig import FROZEN
+    from bgcbench.model import substrate_config as SC
+
+    # --- TASK: shared scalars, never per-family dicts -------------------------------
+    for field in ("n_per_row", "budget_nt", "seed_len_nt", "min_new_tokens", "rng_seed"):
+        assert field in FROZEN, f"{field} is not frozen"
+        assert not isinstance(FROZEN[field], dict), (
+            f"FROZEN[{field!r}] has become per-substrate. That field is the TASK; making it "
+            f"per-substrate silently voids every cross-substrate comparison that uses it.")
+
+    # --- TREATMENT: per family, and no shared scalar left behind --------------------
+    assert isinstance(FROZEN["decoding"], dict) and set(FROZEN["decoding"]) >= {"evo2", "genomeocean"}
+    for field in ("temperature", "top_k", "top_p"):
+        assert field not in FROZEN, f"{field} is a shared scalar again"
+
+    for fam in ("evo2", "genomeocean"):
+        cfg = SC.for_substrate(fam)
+        assert set(cfg) == {"rank", "depth", "prefix", "lora_scaling"}
+        prov = SC.provenance(fam)
+        assert set(prov) == set(cfg), "every value must carry its provenance"
+        assert all(p.strip() for p in prov.values()), (
+            "a value with no recorded gate is indistinguishable from a measured one")
+
+    # the two substrates must not be silently identical on the fields that are theirs to differ
+    assert SC.for_substrate("evo2")["prefix"] != SC.for_substrate("genomeocean")["prefix"], (
+        "both substrates have the same prefix setting; GenomeOcean was never pretrained on "
+        "GTDB lineages (SPEC §15.7)")
+
+    # unknown family raises rather than falling back
+    for fn in (SC.for_substrate, SC.provenance):
+        try:
+            fn("not_a_family")
+        except KeyError:
+            pass
+        else:
+            raise AssertionError(f"{fn.__name__} fell back instead of raising")
+
+    # anything adopted rather than measured must SAY so, so §14 stays honest
+    assert "lora_scaling" in SC.unmeasured("evo2")
+    assert "rank" in SC.unmeasured("genomeocean"), (
+        "GenomeOcean's rank 16 was inherited, not measured on GO; that must stay visible")

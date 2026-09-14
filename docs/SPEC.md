@@ -1665,7 +1665,15 @@ sequence from GO — not the same floor.
 2. **G6** rank, then **G6b** depth, on the pooled `W1n` arm (held-out loss only, §2.4).
 3. Train `W0`/`W1`/`W1n`/`W2`×4/`W3` at the selected rank and depth.
 4. Stage 1 de novo, both prefix conditions (see §15.7).
-5. **G3** seed sweep, then the seeded arms at the selected L.
+5. Seeded arms at the **SHARED** `seed_len_nt` (64). ⚠ **G3 IS NOT RE-RUN FOR GenomeOcean AND
+   L IS NOT RE-SELECTED** — corrected 2026-09-14. This step previously read "G3 seed sweep, then
+   the seeded arms at the selected L", which contradicts §14A: the seed length is part of the
+   **TASK**, not of the treatment, and §14A lists it among what is held identical. Two substrates
+   given prefixes of different lengths are not solving the same problem, and the seeded
+   cross-substrate comparison — the one the paper exists to make — would be void.
+   Everything that is a property of the MODEL (rank, depth, injection sites, α, decoding) is still
+   chosen per substrate by measurement. The seed is not one of those. G3 may be re-run on
+   GenomeOcean as a *reported measurement*, but the benchmark arms use L = 64 either way.
 6. Derive `I1` directions (three-part check, §12.A4), **G9** per class, then the `I1` arms with
    health-matched random controls (§20.1).
 7. Freeze, then the composition cell.
