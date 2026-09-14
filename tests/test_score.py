@@ -1926,3 +1926,83 @@ def test_no_entry_point_defaults_the_prefix_to_one_substrates_value():
     from bgcbench.model.substrate_config import for_substrate
     assert for_substrate("evo2")["prefix"] == "taxonomy"
     assert for_substrate("genomeocean")["prefix"] == "none"
+
+
+def test_g9_alpha_forwards_substrate_and_sites_to_the_arm_it_launches():
+    """g9_alpha shells out to `run.arm` for every alpha. Two things it must forward, and it
+    forwarded neither.
+
+    ⚠ `--substrate`: run.arm DEFAULTS it to "evo2-1b", so every GenomeOcean alpha sweep
+    launched EVO2 carrying a GenomeOcean adapter. It fails loudly at peft attach rather than
+    producing a wrong number, but phase C could never produce a GenomeOcean alpha at all.
+
+    ⚠ `--sites`: G9 is site AND magnitude swept together (SPEC §6). An alpha measured at the
+    default every-site subset is an alpha for a DIFFERENT intervention than the one phase D
+    runs at the sites the site sweep chose — which is the entire justification for running
+    the site sweep between the directions and the alpha.
+    """
+    import inspect
+    from bgcbench.run import g9_alpha as G
+
+    src = inspect.getsource(G)
+    assert '"--substrate", args.substrate' in src, (
+        "g9_alpha does not forward --substrate; run.arm would default to evo2-1b")
+    assert '"--sites"' in src and "args.sites" in src, (
+        "g9_alpha does not accept or forward --sites; the alpha would be measured at the "
+        "default every-site subset")
+    # and it must RECORD what it used, or the artifact cannot be audited
+    assert '"sites": args.sites' in src, "the chosen sites are not recorded in the artifact"
+
+
+def test_a_direction_cannot_be_attached_under_a_different_prefix():
+    """`derive()` records `prefix` in the artifact and `save()` persists it — and nothing
+    read it back. A direction derived under a GTDB lineage could be attached to an arm
+    generating from bare sequence, silently: the activation geometry of "lineage + core" is
+    not that of "core", so the vector describes activations the arm never produces.
+
+    This is the same class of mismatch as the weight-state check, and it went unguarded
+    precisely because the field existed and looked like it was doing work.
+    """
+    import tempfile
+    from pathlib import Path
+    import torch
+    from bgcbench.model.load import Substrate, attach_direction
+
+    def _sub(prefix_kind):
+        s = Substrate(id="g", family="genomeocean", checkpoint="c", terminator_id=2,
+                      terminator_str="", appends_terminator=True, native_stop=True,
+                      approx_nt_per_token=4.8)
+        s.model = torch.nn.Linear(4, 4)
+        s.meta = {"adapter": None, "prefix_kind": prefix_kind}
+        return s
+
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "d.pt"
+        torch.save({"hidden": 4, "directions": torch.randn(2, 4), "adapter": None,
+                    "prefix": "taxonomy", "check_all_pass": True}, f)
+        try:
+            attach_direction(_sub("none"), str(f), 0.3)
+        except ValueError as e:
+            assert "prefix" in str(e).lower()
+        else:
+            raise AssertionError(
+                "a taxonomy-derived direction attached to a bare-sequence arm without error")
+
+        # the matching case must get PAST the prefix guard (it then fails on the stub model,
+        # which is the proof it got through rather than being blocked here)
+        torch.save({"hidden": 4, "directions": torch.randn(2, 4), "adapter": None,
+                    "prefix": "none", "check_all_pass": True}, f)
+        try:
+            attach_direction(_sub("none"), str(f), 0.3)
+        except ValueError as e:
+            assert "prefix" not in str(e).lower(), f"matching prefixes wrongly blocked: {e}"
+        except RuntimeError:
+            pass          # reached the model — past the guard, which is what we are asserting
+
+    # and the guard must be positioned to fail FAST, before any model work
+    import inspect
+    from bgcbench.model import load as L
+    src = inspect.getsource(L.attach_direction)
+    assert src.index("want_p = ck.get") < src.index("DirectionInjection("), (
+        "the prefix check runs after the injection is built; it is a metadata comparison "
+        "and should cost milliseconds, not a model construction")

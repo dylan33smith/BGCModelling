@@ -381,6 +381,22 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     base = sub.model.model if sub.family == EVO2 else sub.model
     ck = torch.load(path, map_location="cpu", weights_only=False)
     hidden = int(ck["hidden"])
+    # ⚠ THE PREFIX MUST MATCH TOO, AND IT WAS WRITTEN BUT NEVER READ. `derive()` records
+    # `prefix` in the artifact and `save()` persists it, yet nothing in the package compared
+    # it back -- so a direction derived under a GTDB lineage could be attached to an arm
+    # generating from bare sequence, or the reverse, with no error. The activation geometry
+    # of "lineage + core" is not that of "core", so the vector would be from a different
+    # input distribution and the arm would measure nothing in particular. This is the same
+    # class of mismatch the weight-state check above catches, and it went unguarded because
+    # the field existed and looked like it was doing work.
+    want_p = ck.get("prefix")
+    got_p = sub.meta.get("prefix_kind")
+    if want_p is not None and got_p is not None and want_p != got_p:
+        raise ValueError(
+            f"direction was derived with prefix={want_p!r} but the arm generates with "
+            f"prefix={got_p!r}. Those are different input distributions, so the direction "
+            f"describes activations the arm never produces. Re-derive at the arm's prefix.")
+
     # ⚠ SITE SELECTION IS THE OTHER HALF OF G9. §6 specifies "injection site AND magnitude,
     # swept together"; only α was ever swept, and the site set sat at an unexamined default
     # of "every attention site". `sites` restricts injection to chosen indices by zeroing

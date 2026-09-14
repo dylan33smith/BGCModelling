@@ -491,6 +491,10 @@ def main() -> int:
                 "intervention.attached() context, so the second set of hooks would be "
                 "silently dropped and the arm would report both while running one. "
                 "Compose I1 with a LoRA weight state, or extend run_arm to hold both.")
+        # ⚠ TELL attach_direction WHAT PREFIX THIS ARM GENERATES WITH, so it can refuse a
+        # direction derived under a different one. Without this the cross-check reads None
+        # and silently passes -- a guard that exists and does nothing.
+        sub.meta["prefix_kind"] = args.prefix
         sub, intervention = attach_direction(sub, args.direction, args.alpha,
                                              randomise=args.random_direction,
                                              sites=args.sites)

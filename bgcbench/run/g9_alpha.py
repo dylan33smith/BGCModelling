@@ -41,7 +41,13 @@ def _self_nll(sub, seqs: list[str], device: str = "cuda:0") -> list[float]:
         for s in seqs:
             if len(s) < 2:
                 continue
-            ids = [int(x) for x in sub.tokenizer.tokenize(s)]
+            # ⚠ TOKENISE PER FAMILY. `sub.tokenizer.tokenize` is vortex's byte-level API and
+            # returns ints; GenomeOcean's HF tokenizer returns STRING tokens, so int() raises.
+            # directions.py and g2_health.py both branch here; this one did not.
+            if sub.family == "evo2":
+                ids = [int(x) for x in sub.tokenizer.tokenize(s)]
+            else:
+                ids = sub.tokenizer(s)["input_ids"]
             x = torch.tensor([ids], dtype=torch.long, device=device)
             lo = _unwrap(base(x))
             lp = F.log_softmax(lo.float(), dim=-1)[:, :-1]
@@ -71,6 +77,11 @@ def main() -> int:
                          "manual GenomeOcean invocation that forgot the flag silently fed it a "
                          "GTDB lineage -- a format it was never pretrained on (SPEC 15.7) -- and "
                          "nothing raised.")
+    ap.add_argument("--sites", nargs="+", type=int, default=None,
+                    help="⚠ INJECTION SITES, forwarded to run.arm. G9 is site AND magnitude "
+                         "swept together (SPEC 6); an alpha measured at the default "
+                         "every-site subset is an alpha for a DIFFERENT intervention than "
+                         "one measured at the sites G9's site half chose.")
     ap.add_argument("--random-direction", type=int, default=None, metavar="SEED",
                     help="sweep the SPEC 6.3 random control instead of the derived direction. "
                          "⚠ The control needs its OWN ceiling: at TERPENE's alpha the random "
@@ -92,10 +103,17 @@ def main() -> int:
     rows = []
     for a in args.alphas:
         arm = f"{args.tag}_a{a}_{args.row_class}"
-        cmd = [sys.executable, "-m", "bgcbench.run.arm", "--arm", arm,
+        # ⚠ --substrate MUST BE FORWARDED. run.arm defaults it to "evo2-1b", so without this
+        # every GenomeOcean alpha sweep launched EVO2 carrying a GenomeOcean adapter. It
+        # fails loudly at peft attach rather than producing a wrong number, but phase C could
+        # never produce a GenomeOcean alpha at all.
+        cmd = [sys.executable, "-m", "bgcbench.run.arm",
+               "--substrate", args.substrate, "--arm", arm,
                "--row-class", args.row_class, "--n", str(args.n),
                "--prefix", args.prefix, "--stage", "stage1", "--off-frozen",
                "--batch-size", "50"]
+        if args.sites:
+            cmd += ["--sites"] + [str(i) for i in args.sites]
         if args.adapter:
             cmd += ["--adapter", args.adapter]
         if a > 0:
@@ -178,7 +196,8 @@ def main() -> int:
            "selection_fields": ["median_coding_density", "median_self_nll",
                                 "hit_eos_rate", "distinct_21mer_frac"],
            "endpoint_fields_read": [],
-           "criterion": why, "chosen_alpha": chosen, "rows": rows}
+           "criterion": why, "chosen_alpha": chosen, "sites": args.sites,
+           "rows": rows}
     p = OUT / f"{args.tag}_{args.row_class}.json"
     p.write_text(json.dumps(art, indent=1))
     print(f"\n{'alpha':>6s} {'coding':>8s} {'self-NLL':>9s} {'med len':>8s} {'eos':>6s} {'admissible':>11s}")

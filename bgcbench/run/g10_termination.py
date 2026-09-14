@@ -109,7 +109,13 @@ def check(sub, n_probe: int, budget_nt: int) -> dict:
             lens.append(len(sub.clean(body)))
     else:
         import torch
-        enc = sub.tokenizer(["ACGTACGTACGTACGTACGT"] * n_probe, return_tensors="pt")
+        # ⚠ _encode_prompts, NOT the raw tokenizer. GenomeOcean's TemplateProcessing appends
+        # [SEP] -- which IS sub.terminator_id -- so a bare tokenizer call made this probe
+        # measure termination starting ONE TOKEN PAST the model's own terminator, a context
+        # no arm generates from. That is the same defect generate.py fixed; this gate kept it,
+        # which is worse here because G10 is the gate that certifies termination.
+        from bgcbench.model.generate import _encode_prompts
+        enc = _encode_prompts(sub, ["ACGTACGTACGTACGTACGT"] * n_probe)
         # the GenomeOcean tokenizer emits token_type_ids; the model does not accept them
         enc = {k: v.to(sub.model.device) for k, v in enc.items()
                if k in ("input_ids", "attention_mask")}
@@ -125,7 +131,9 @@ def check(sub, n_probe: int, budget_nt: int) -> dict:
         for row in gen:
             ids = row.tolist()
             hits += sub.terminator_id in ids[enc["input_ids"].shape[1]:]
-            txt = sub.tokenizer.decode(ids, skip_special_tokens=True)
+            # ⚠ Substrate.detokenize, NOT tokenizer.decode -- decode() space-joins GO's BPE
+            # tokens and clean() masks each space to N (KNOWN_WRONG #3).
+            txt = sub.detokenize(ids)
             lens.append(len(sub.clean(txt)))
     lens.sort()
     res["T4"] = {"n": len(lens), "budget_nt": budget_nt,
