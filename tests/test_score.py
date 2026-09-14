@@ -1649,6 +1649,7 @@ def test_eval_cadence_is_proportionate_to_the_eval_set_size():
     3-epoch run. This test exists so a future change to one is not made without the other.
     """
     import inspect
+    from pathlib import Path
     from bgcbench.model.train import TrainConfig
     from bgcbench.model import train as T
 
@@ -1658,6 +1659,21 @@ def test_eval_cadence_is_proportionate_to_the_eval_set_size():
     assert inspect.signature(T._eval_offset).parameters["limit"].default == limit, (
         "the two eval paths must score the same number of records, or the W3 arms are "
         "early-stopped on a different estimator than every other arm")
+    # ⚠ CHECK THE ENTRY POINT, NOT JUST THE DATACLASS. run/train_arm.py passes its own CLI
+    # defaults into TrainConfig, so a CLI default SHADOWS the dataclass. Raising
+    # TrainConfig.eval_every to 250 on 2026-09-14 changed nothing for any real run because
+    # --eval-every still defaulted to 25 -- and the first version of this test passed
+    # throughout, because it only ever looked at TrainConfig().
+    import re
+    cli_src = (Path(__file__).resolve().parents[1] / "bgcbench/run/train_arm.py").read_text()
+    for flag, field in (("eval-every", "eval_every"), ("patience", "patience")):
+        m = re.search(r'add_argument\("--' + flag + r'"[^)]*?default=([^,)]+)', cli_src, re.S)
+        assert m, f"--{flag} not found in the CLI"
+        expr = m.group(1).strip()
+        assert expr == f"TrainConfig.{field}", (
+            f"--{flag} defaults to {expr!r} instead of deriving from TrainConfig.{field}; a "
+            f"literal here silently overrides the dataclass for every real run")
+
     assert cfg.eval_every >= 250, (
         f"eval_every={cfg.eval_every} with limit={limit} evaluates far more often than the "
         f"prior implementation did on the same-sized set")

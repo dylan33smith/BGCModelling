@@ -68,8 +68,11 @@ def main() -> int:
     ap.add_argument("--max-epochs", type=int, default=40,
                     help="SPEC 12.A2: high enough that the cap never binds, so early "
                          "stopping is the single termination rule for every arm.")
-    ap.add_argument("--eval-every", type=int, default=25)
-    ap.add_argument("--patience", type=int, default=4)
+    # ⚠ MUST TRACK TrainConfig.eval_every. This CLI default is passed explicitly into
+    # TrainConfig, so it OVERRIDES the dataclass -- raising the dataclass default alone
+    # changed nothing for any real run, which is exactly what happened on 2026-09-14.
+    ap.add_argument("--eval-every", type=int, default=TrainConfig.eval_every)
+    ap.add_argument("--patience", type=int, default=TrainConfig.patience)
     ap.add_argument("--resume-from", default=None,
                     help="continue training an existing adapter instead of starting over")
     ap.add_argument("--grad-accum", type=int, default=16)
