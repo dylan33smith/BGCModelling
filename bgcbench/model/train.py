@@ -255,7 +255,23 @@ class TrainConfig:
     #: still runs as a safety net; it simply cannot fire before the planned run is done.
     #:
     #: ⚠ COST: training time scales directly with this. 3.0 is ~3x 1.0.
-    train_epochs: float = 3.0
+    #: MEASURED 2026-09-14 by a 3-epoch probe with every fix applied (fp32 adapters,
+    #: alpha/r = 2.0, warmup + decay, 200-record seeded eval). Evo2 W2_TERPENE_tax:
+    #:   step  250 (0.5 ep)  val 0.92063  *best*
+    #:   step  500 (1.0 ep)  val 0.92470
+    #:   step  750 (1.5 ep)  val 0.92690
+    #:   step 1000 (2.0 ep)  val 0.93045
+    #:   step 1250 (2.5 ep)  val 0.93067
+    #:   step 1500 (3.0 ep)  val 0.93333
+    #: Train loss fell 0.866 -> 0.569 across the same span, so this is overfitting, not a
+    #: plateau. 3.0 spent two and a half epochs making the model worse. The fixes DID work --
+    #: 0.92063 beats the pre-fix arm's best of 0.94390 -- just not by training longer.
+    #:
+    #: 1.0 is also the floor the model must clear to have seen every training record once,
+    #: which is the stated requirement. Held-out loss is NOT the endpoint, so "best by val"
+    #: and "has seen all the data" are different checkpoints and the gap is real: `epoch/`
+    #: and `best/` are both written, and the arms read `epoch/`.
+    train_epochs: float = 1.0
 
     @property
     def min_epochs(self) -> float:
@@ -543,7 +559,7 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
                 opt.zero_grad(set_to_none=True)
                 step += 1
 
-                if step % cfg.eval_every == 0:
+                if step % cfg.eval_every == 0 or step == min_steps:
                     vl = evaluate(sub, model, val_records, cfg, device) \
                         if val_records else None
                     tl = round(run_loss / max(run_n, 1), 5)
@@ -575,6 +591,17 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
                         print(f"  FULL-EPOCH CHECKPOINT at step {step} "
                               f"({step / steps_per_epoch:.2f} epochs), val {vl}", flush=True)
 
+                    # ⚠ THE PLANNED RUN IS OVER AT THE FLOOR. `train_epochs` is BOTH the
+                    # floor and the LR decay horizon, so at `min_steps` the learning rate has
+                    # annealed to ~0 and every further step changes nothing while still
+                    # costing GPU. Measured on the 3-epoch probe: patience did not fire until
+                    # ~2,500 steps, i.e. ~1,000 steps past the horizon, all at lr 0.
+                    if step >= min_steps:
+                        print(f"  PLANNED RUN COMPLETE at step {step} "
+                              f"({step / steps_per_epoch:.2f} epochs); lr is annealed out. "
+                              f"best val {best_val} at step {best_step}", flush=True)
+                        stopped_early = True
+                        break
                     if since_improve >= cfg.patience and step >= min_steps:
                         print(f"  EARLY STOP: {cfg.patience} evaluations without "
                               f"improvement; best val {best_val} at step {best_step}",
@@ -784,7 +811,7 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                         sched.step()
                     opt.zero_grad(set_to_none=True)
                     step += 1
-                    if step % cfg.eval_every == 0:
+                    if step % cfg.eval_every == 0 or step == min_steps:
                         vl = _eval_offset(sub, base, val_records, cfg, device) \
                             if val_records else None
                         tl = round(run_loss / max(run_n, 1), 5)
@@ -811,6 +838,12 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                             print(f"  FULL-EPOCH CHECKPOINT at step {step} "
                                   f"({step / steps_per_epoch:.2f} epochs), val {vl}",
                                   flush=True)
+                        if step >= min_steps:
+                            print(f"  PLANNED RUN COMPLETE at step {step} "
+                                  f"({step / steps_per_epoch:.2f} epochs); lr annealed out",
+                                  flush=True)
+                            stopped = True
+                            break
                         if since >= cfg.patience and step >= min_steps:
                             print(f"  EARLY STOP: best val {best_val} at step {best_step}",
                                   flush=True)

@@ -60,7 +60,7 @@ def main() -> int:
                     help="THERE WAS NO SCHEDULE BEFORE 2026-09-14 -- lr was flat for the "
                          "whole run. 'constant' reproduces that.")
     ap.add_argument("--warmup-steps", type=int, default=50)
-    ap.add_argument("--train-epochs", type=float, default=3.0,
+    ap.add_argument("--train-epochs", type=float, default=TrainConfig.train_epochs,
                     help="the PLANNED run: both the early-stopping floor AND the LR decay "
                          "horizon, so the two cannot disagree. Default 3.0 matches the prior "
                          "implementation, whose loss fell monotonically across all three "

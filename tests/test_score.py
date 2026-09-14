@@ -1694,8 +1694,23 @@ def test_eval_cadence_is_proportionate_to_the_eval_set_size():
     # patience must still buy a comparable number of steps, not a 7.5x tighter window
     assert cfg.eval_every * cfg.patience >= 750, (
         "patience window is tighter than the prior's 750 steps")
-    # and the floor must still dominate: early stopping cannot pre-empt the planned run
-    assert cfg.train_epochs * 502 > cfg.eval_every * cfg.patience or cfg.train_epochs >= 3.0
+    # ⚠ THE PLANNED RUN ENDS AT THE FLOOR. train_epochs is both the early-stopping floor and
+    # the LR decay horizon, so past min_steps the learning rate is annealed out and further
+    # steps cost GPU without changing the model. Both loops must stop there. (The earlier
+    # version of this assertion encoded "the floor outlasts the patience window", which is a
+    # different and now-wrong idea: with train_epochs=1.0 the patience window is longer than
+    # one epoch, and that is fine precisely because the run stops at the floor regardless.)
+    import inspect
+    from bgcbench.model import train as _T
+    for fn in (_T.train_lora, _T._train_offset):
+        src = inspect.getsource(fn)
+        assert "PLANNED RUN COMPLETE" in src, (
+            f"{fn.__name__} does not stop when the planned run is done; it would keep "
+            f"training at lr 0 until patience happens to fire")
+        assert "or step == min_steps" in src, (
+            f"{fn.__name__} evaluates only on the eval grid, which does not divide the epoch: "
+            f"at eval_every=250 on a 502-step epoch the full-epoch checkpoint would land at "
+            f"step 750 = 1.49 epochs")
 
 
 def test_both_substrates_are_seeded_from_byte_identical_prefixes():
