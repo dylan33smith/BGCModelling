@@ -620,9 +620,16 @@ def test_min_new_tokens_is_frozen_and_below_every_class_median():
     score. The floor is one number, identical for every arm and class, injecting no class
     information — a decoding policy, not a conditioning channel."""
     from bgcbench.model.genconfig import FROZEN
-    assert FROZEN["min_new_tokens"] >= 500, "floor too low to clear the 2 nt collapse"
+    assert FROZEN["min_new_tokens"] >= 100, "floor too low to clear the 2 nt collapse"
     # must not dictate cluster length: it sits below every benchmark class's median core
-    assert FROZEN["min_new_tokens"] < 1154, "floor exceeds TERPENE's median core"
+    # ⚠ THE BINDING CONSTRAINT IS THE SHORTEST REAL CORE, NOT A MEDIAN. A floor above a real
+    # length forbids the model from producing a correctly-sized cluster for that record, and
+    # it does so class-asymmetrically — KNOWN_WRONG #5 in the generator instead of the scorer.
+    # Measured shortest core across all four held-out test splits: 210 nt (RIPP).
+    SHORTEST_REAL_CORE_NT = 210
+    assert FROZEN["min_new_tokens"] < SHORTEST_REAL_CORE_NT, (
+        f"floor {FROZEN['min_new_tokens']} exceeds the shortest real core "
+        f"({SHORTEST_REAL_CORE_NT} nt), so some real cluster lengths are unreachable")
 
 
 def test_evo2_generation_buckets_ragged_prompts_and_preserves_order():
@@ -1157,12 +1164,19 @@ def test_hf_generation_applies_the_min_token_floor_in_NUCLEOTIDES():
     assert "cfg.min_new_tokens / sub.approx_nt_per_token" in body, \
         "the floor is not converted from nucleotides to tokens per substrate"
 
-    # and the conversion itself
+    # and the conversion itself. ⚠ ASSERT THE INVARIANT, NOT THE VALUE. This previously
+    # hard-coded 1000 while claiming to test the conversion, so lowering the floor to 200
+    # failed it for the wrong reason. What must hold is that BOTH substrates are held to the
+    # SAME NUMBER OF NUCLEOTIDES — that is the task — whatever that number is.
     from bgcbench.model.genconfig import FROZEN
     nt = FROZEN["min_new_tokens"]
-    assert int(nt / 1.0) == 1000, "byte-level substrate should keep a 1,000-token floor"
-    assert 180 < int(nt / 4.8) < 230, \
-        f"BPE substrate floor {int(nt / 4.8)} tokens is not ~1,000 nt at 4.8 nt/token"
+    evo2_tokens = int(nt / 1.0)          # byte-level: 1 token == 1 nt
+    go_tokens = int(nt / 4.8)            # BPE: measured 4.8 nt/token
+    assert evo2_tokens == nt, "byte-level floor in tokens must equal the floor in nucleotides"
+    assert abs(go_tokens * 4.8 - nt) < 4.8, (
+        f"BPE floor {go_tokens} tokens is {go_tokens * 4.8:.0f} nt, not the frozen {nt} nt — "
+        f"the two substrates would be held to different amounts of sequence")
+    assert go_tokens >= 1, "BPE floor rounds to zero tokens; the floor would not exist"
 
 
 def test_attention_sites_finds_both_substrate_families():

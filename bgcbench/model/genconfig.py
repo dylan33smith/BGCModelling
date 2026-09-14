@@ -94,9 +94,28 @@ FROZEN = {
     # 91% of fine-tuned ones. Without a floor an unconditioned arm produces nothing to score.
     # One number, identical for every arm and class, injecting no class information: a
     # decoding policy, not a conditioning channel (SPEC 4.3 is not in tension).
-    # 1000 sits below every benchmark class's median core (1,154-3,593 nt), so it forbids the
-    # immediate collapse without dictating the length of a cluster.
-    "min_new_tokens": 1000,
+    #
+    # ⚠ LOWERED 1000 -> 200 (2026-09-14). The old value was justified as sitting "below every
+    # benchmark class's median core (1,154-3,593 nt)" -- but A FLOOR BINDS ON THE LEFT TAIL,
+    # NOT THE MEDIAN. Measured on the held-out test splits:
+    #
+    #   class            shortest core   cores BELOW the 1000 nt floor
+    #   TERPENE                  546            238/654 = 36.4%
+    #   RIPP                     210             85/654 = 13.0%
+    #   ARYLPOLYENE              243              7/651 =  1.1%
+    #   REDOX_COFACTOR         2,035              0/652 =  0.0%
+    #
+    # So it forbade a correctly-sized cluster for over a THIRD of real TERPENE, and it did so
+    # CLASS-ASYMMETRICALLY -- the exact shape of KNOWN_WRONG #5, where antiSMASH --minlength
+    # 1000 discarded 72% of TERPENE and 48% of RIPP while dropping nothing from the long
+    # classes and presented as "short classes are harder". That defect was fixed in the
+    # scoring instrument and then reintroduced here, in the generator.
+    #
+    # 200 sits just below the shortest real core anywhere in the corpus (210 nt), so it never
+    # binds on a legitimate output, while still being 100x the 2 nt collapse it exists to
+    # forbid. The floor's job is to prevent degenerate immediate termination, not to dictate
+    # how long a cluster may be.
+    "min_new_tokens": 200,
 
     # SPEC 6 S1. An unrecorded invocation-site default of 0 made `--seeded` without an
     # explicit length a SILENT DE NOVO ARM -- the prompt was the empty string and nothing
