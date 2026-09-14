@@ -1596,6 +1596,35 @@ size (KL ≈ 1.0). For Evo2 that is α ≈ 1.0, above its own measured health ce
 site sets were ranked in a regime its generation does not survive. **Probe each substrate inside
 its own working regime**, defined by its own G9 ceiling.
 
+
+### 14A.1 GATE-BY-GATE CLASSIFICATION — added 2026-09-14 after G3 was found misfiled
+
+Every gate is either a property of the **TASK** (shared; a per-substrate answer voids the
+cross-substrate comparison) or of the **TREATMENT** (per substrate; a shared answer imposes one
+model's configuration on the other). Getting this backwards fails SILENTLY in both directions:
+both arms run, both report, and only the comparison is wrong.
+
+| gate | what it sets | class | status |
+|---|---|---|---|
+| G1 | scoring config, `minlength` | **TASK** | shared ✅ |
+| G2 | substrate likelihood health | treatment (diagnostic) | per substrate ✅ |
+| **G3** | **seed length `L`** | **TASK** | ⚠ **WAS MISFILED** — §15.6 told GO to re-select L. Corrected 2026-09-14; both substrates use L=64 |
+| G4 | decoding policy | treatment | per substrate, superseded by G11 ✅ |
+| G5 | oracle on real cores | **TASK** | no model involved; shared ✅ |
+| G6 | adapter rank | treatment | per substrate ✅ |
+| G6b | adapter depth | treatment | per substrate ✅ |
+| G7 | scoring throughput | infrastructure | n/a |
+| **G8** | **data scaling — effective_n** | **TASK** | ⚠ **NOT YET RUN. It must NOT be answered per substrate.** §4.4.3 fixes equal effective_n at split time and there is exactly one dataset; a per-substrate `n` would mean the two models trained on different amounts of data. G8 may REPORT a saturation curve; it may not re-cut the corpus for one substrate |
+| G9 | steering site × magnitude | treatment | per substrate AND per class ✅ |
+| G10 | termination mechanism | treatment (diagnostic) | per substrate; the derived floor is shared in **nucleotides** ✅ |
+| G11 | decoding configuration | treatment | per substrate ✅ |
+
+⚠ **`budget_nt` = 8,192 is a TASK constant set by ONE substrate's limit.** It comes from
+`evo2-1b`'s `max_seqlen` and the measured NLL degradation past it. GenomeOcean's context is far
+larger (10,240 BPE tokens ≈ 50 kb), so GO is generating well inside its own capacity. That is the
+correct choice — an equal nucleotide budget IS the task — but it is a constraint imposed by Evo2
+and must be reported as such rather than presented as each model's natural operating point.
+
 ## 15. GenomeOcean Stage 1 — the mirror of Evo2, and where it cannot be one
 
 Stage 1 is repeated on `go-4b` to make the substrate comparison the paper's subject. The rule is
