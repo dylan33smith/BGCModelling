@@ -699,7 +699,17 @@ def test_manipulation_check_actually_compares_intervened_to_unintervened():
         "the two sides of the manipulation check are identical, which means both were "
         "measured on the same model -- the hooks were not attached for the intervened one")
     assert m["delta"] != 0.0, "delta is exactly zero; the check is measuring itself"
-    assert m["measured_at"] in ("best", "final")
+    # ⚠ The check must be measured at THE CHECKPOINT THE ARM GENERATES FROM, which is the
+    # full-epoch one where it exists (resolve_best prefers EPOCH over BEST). Certifying
+    # best.pt while the arm runs epoch.pt would validate a different conditioner than the
+    # one the endpoint is read from, and nothing downstream could tell.
+    assert m["measured_at"] in ("epoch", "best", "final")
+    from bgcbench.model.load import resolve_best
+    resolved = resolve_best(rep.get("out_dir") or "") if rep.get("out_dir") else None
+    if resolved and rep.get("epoch_checkpoint"):
+        assert m["measured_at"] == "epoch", (
+            f"an arm with a full-epoch checkpoint must have its manipulation check measured "
+            f"there, not at {m['measured_at']!r}")
 
 
 def test_class_key_is_the_assigned_split_not_the_first_antismash_product():

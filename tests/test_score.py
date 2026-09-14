@@ -1552,3 +1552,32 @@ def test_full_epoch_checkpoint_is_what_the_arms_resolve_to():
         bare = d / "nothing"
         bare.mkdir()
         assert resolve_best(str(bare)) == str(bare)
+
+
+def test_the_one_epoch_floor_is_in_BOTH_training_loops():
+    """⚠ It was in only one. `train_lora` got the floor; `train_offset` (the W3 conditioner
+    path) kept the old rule, so in a 14-arm re-train the two W3 arms were the only ones with
+    no full-epoch checkpoint — and that showed up as a null field in a report, not an error.
+
+    Any change to the training schedule has to land in both loops or the offset arms
+    silently keep the previous behaviour.
+    """
+    import inspect
+    from bgcbench.model import train as T
+
+    for fn in (T.train_lora, T._train_offset):
+        src = inspect.getsource(fn)
+        assert "min_steps = int(cfg.min_epochs * steps_per_epoch)" in src, (
+            f"{fn.__name__} has no one-epoch floor")
+        assert "steps_per_epoch = max(1, len(batches) // max(1, cfg.grad_accum))" in src, (
+            f"{fn.__name__} must measure an epoch in OPTIMIZER STEPS, not batches")
+        assert "and step >= min_steps" in src, (
+            f"{fn.__name__} can still early-stop before the floor")
+        assert "epoch_ckpt_step is None and step >= min_steps" in src, (
+            f"{fn.__name__} never writes a full-epoch checkpoint")
+
+    # and the offset path must CERTIFY the checkpoint the arm actually runs
+    src = inspect.getsource(T._train_offset)
+    assert 'out_dir / "epoch.pt") if (out_dir / "epoch.pt").exists()' in src, (
+        "the manipulation check must run on the full-epoch conditioner, not on best.pt — "
+        "otherwise it certifies a different model than the arm generates from")

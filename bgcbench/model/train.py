@@ -609,6 +609,17 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
     log, step = [], 0
     best_val, best_step, since = float("inf"), 0, 0
     run_loss, run_n, stopped = 0.0, 0, False
+    # ⚠ THE ONE-EPOCH FLOOR APPLIES HERE TOO, AND IT WAS MISSING. `train_lora` got the floor
+    # while this path kept the old rule, so the two W3 arms were the only ones in a 14-arm
+    # re-train with no `epoch` checkpoint -- visible only as a null in the report. Any
+    # training-schedule change has to be made in BOTH loops or the offset arms silently
+    # keep the old behaviour.
+    steps_per_epoch = max(1, len(batches) // max(1, cfg.grad_accum))
+    min_steps = int(cfg.min_epochs * steps_per_epoch)
+    epoch_ckpt_step: int | None = None
+    epoch_ckpt_val: float | None = None
+    print(f"  {steps_per_epoch} optimizer steps/epoch; early stopping disabled until "
+          f"step {min_steps} (min_epochs={cfg.min_epochs})", flush=True)
 
     with iv.attached():
         for ep in range(cfg.max_epochs):
@@ -660,11 +671,23 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                         print(f"  step {step} ep{ep} train={tl} val={vl}"
                               f"{'  *best*' if imp else f'  (no gain x{since})'}",
                               flush=True)
-                        if since >= cfg.patience:
+                        if epoch_ckpt_step is None and step >= min_steps:
+                            torch.save({"state_dict": iv.state_dict(),
+                                        "rank": cfg.offset_rank, "hidden": hidden,
+                                        "sites": sites}, out_dir / "epoch.pt")
+                            epoch_ckpt_step, epoch_ckpt_val = step, vl
+                            print(f"  FULL-EPOCH CHECKPOINT at step {step} "
+                                  f"({step / steps_per_epoch:.2f} epochs), val {vl}",
+                                  flush=True)
+                        if since >= cfg.patience and step >= min_steps:
                             print(f"  EARLY STOP: best val {best_val} at step {best_step}",
                                   flush=True)
                             stopped = True
                             break
+                        if since >= cfg.patience:
+                            since = 0
+
+    epoch_pt = (out_dir / "epoch.pt") if (out_dir / "epoch.pt").exists() else None
 
     # SPEC 6.4 MANIPULATION CHECK, two-sided, AT THE CHECKPOINT GENERATION WILL USE.
     #
@@ -681,11 +704,14 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
     # than the one the endpoint is read from.
     manip = None
     if val_records:
-        ckpt = out_dir / "best.pt"
+        # ⚠ THE CHECK RUNS ON THE CHECKPOINT THE ARM GENERATES FROM, which is now the
+        # FULL-EPOCH one (resolve_best prefers EPOCH). Checking best.pt while the arm ran
+        # epoch.pt would certify a different conditioner than the one being measured.
+        ckpt = (out_dir / "epoch.pt") if (out_dir / "epoch.pt").exists() else (out_dir / "best.pt")
         at = "final"
         if ckpt.exists():
             iv.load_state_dict(torch.load(ckpt, map_location=device)["state_dict"])
-            at = "best"
+            at = ckpt.stem
         with iv.attached():
             if not iv.is_attached():
                 raise RuntimeError("manipulation check: hooks are not attached for the "
@@ -720,6 +746,12 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
               # only claim a checkpoint that exists: a run ending before its first
               # evaluation wrote none, and naming one anyway sends generation at a
               # nonexistent file
+              "epoch_checkpoint": (str(epoch_pt) if epoch_pt else None),
+              "epoch_checkpoint_step": epoch_ckpt_step,
+              "epoch_checkpoint_val_loss": epoch_ckpt_val,
+              "steps_per_epoch": steps_per_epoch,
+              "min_epochs": cfg.min_epochs,
+              "reached_min_epochs": epoch_ckpt_step is not None,
               "best_checkpoint": (str(out_dir / "best.pt")
                                   if (out_dir / "best.pt").exists() else None),
               "manipulation_check": manip,
@@ -730,6 +762,17 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
               "balance": cfg.balance, "class_weights": cls_w}
     (out_dir / "train_report.json").write_text(json.dumps(report, indent=2))
     return report
+
+    (out_dir / "EPOCH").write_text(json.dumps(
+        {"step": epoch_ckpt_step, "val_loss": epoch_ckpt_val,
+         "path": str(epoch_pt) if epoch_pt else None,
+         "steps_per_epoch": steps_per_epoch,
+         "epochs_at_checkpoint": (epoch_ckpt_step / steps_per_epoch) if epoch_ckpt_step else None,
+         "min_epochs_requested": cfg.min_epochs,
+         "reached_min_epochs": epoch_ckpt_step is not None,
+         "best_step_for_comparison": best_step,
+         "best_val_loss_for_comparison": best_val if best_val < float("inf") else None,
+         "method": "offset"}, indent=2))
 
 
 @torch.no_grad()
