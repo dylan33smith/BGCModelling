@@ -1581,3 +1581,62 @@ def test_the_one_epoch_floor_is_in_BOTH_training_loops():
     assert 'out_dir / "epoch.pt") if (out_dir / "epoch.pt").exists()' in src, (
         "the manipulation check must run on the full-epoch conditioner, not on best.pt — "
         "otherwise it certifies a different model than the arm generates from")
+
+
+def test_learning_rate_is_actually_scheduled_in_both_loops():
+    """⚠ THERE WAS NO SCHEDULE AT ALL before 2026-09-14. `lr` was flat at 5e-5 for the whole
+    run, no warmup and no decay, in both training loops. The prior implementation used the
+    SAME peak lr but warmed up over 50 steps then decayed linearly to zero.
+
+    Symptom this explains: our held-out loss turns over at step 75-125 and gets WORSE with
+    more training (11 of 12 arms); theirs fell monotonically across 3 epochs. A constant LR
+    bounces around a minimum instead of settling into it.
+    """
+    import inspect
+    import torch
+    from bgcbench.model.train import TrainConfig, build_scheduler
+    from bgcbench.model import train as T
+
+    cfg = TrainConfig()
+    assert cfg.lr_schedule != "constant", "the default must actually schedule"
+    assert cfg.warmup_steps > 0, "no warmup"
+
+    w = torch.nn.Linear(2, 2)
+    opt = torch.optim.AdamW(w.parameters(), lr=cfg.lr)
+    spe = 502
+    sch = build_scheduler(opt, cfg, spe)
+    lrs = []
+    for _ in range(int(cfg.decay_epochs * spe)):
+        opt.step(); sch.step()
+        lrs.append(opt.param_groups[0]["lr"])
+
+    assert lrs[cfg.warmup_steps - 1] == max(lrs), "peak must land at the end of warmup"
+    assert lrs[0] < cfg.lr / 2, f"no warmup — first step is already at {lrs[0]}"
+    assert lrs[-1] < cfg.lr * 1e-3, f"no decay — final lr is {lrs[-1]}"
+    # monotone after warmup: a schedule that rises again is not annealing
+    tail = lrs[cfg.warmup_steps:]
+    assert all(a >= b for a, b in zip(tail, tail[1:])), "lr is not monotone after warmup"
+
+    # the horizon is in EPOCHS: arms differ 4x in epoch length, and a step-denominated
+    # horizon would anneal the pooled arms 4x faster than the per-class ones
+    opt2 = torch.optim.AdamW(torch.nn.Linear(2, 2).parameters(), lr=cfg.lr)
+    sch2 = build_scheduler(opt2, cfg, 2011)
+    for _ in range(int(cfg.decay_epochs * spe)):
+        opt2.step(); sch2.step()
+    assert opt2.param_groups[0]["lr"] > lrs[-1], (
+        "an arm with a 4x longer epoch annealed at the same STEP as the short one; the "
+        "horizon is denominated in steps, not epochs")
+
+    # "constant" must return None, so a caller that forgets to step it behaves EXACTLY
+    # like the old trainer rather than silently differing
+    assert build_scheduler(opt, TrainConfig(lr_schedule="constant"), spe) is None
+
+    # and, the lesson from the one-epoch floor: it has to be in BOTH loops
+    for fn in (T.train_lora, T._train_offset):
+        src = inspect.getsource(fn)
+        assert "sched = build_scheduler(opt, cfg, steps_per_epoch)" in src, (
+            f"{fn.__name__} builds no scheduler")
+        assert "sched.step()" in src, f"{fn.__name__} never steps the scheduler"
+        assert 'opt.param_groups[0]["lr"]' in src, (
+            f"{fn.__name__} does not record the LR in force; a schedule that silently "
+            f"failed to attach would look identical in every artifact")

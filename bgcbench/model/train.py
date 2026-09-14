@@ -121,6 +121,31 @@ def target_regex(blocks: tuple[int, ...] | list[int],
     return rf"blocks\.({b})\.({leaf})"
 
 
+def build_scheduler(opt, cfg, steps_per_epoch: int):
+    """Warmup then decay, or None for the constant schedule.
+
+    ⚠ Returns None for "constant" rather than a no-op LambdaLR, so a caller that forgets to
+    step it behaves identically to the pre-2026-09-14 trainer instead of silently differing.
+    """
+    import math
+
+    import torch
+    if cfg.lr_schedule == "constant":
+        return None
+    horizon = max(1, int(cfg.decay_epochs * steps_per_epoch))
+    warm = max(0, int(cfg.warmup_steps))
+
+    def factor(step: int) -> float:
+        if warm and step < warm:
+            return (step + 1) / warm
+        prog = min(1.0, (step - warm) / max(1, horizon - warm))
+        if cfg.lr_schedule == "cosine":
+            return 0.5 * (1.0 + math.cos(math.pi * prog))
+        return max(0.0, 1.0 - prog)          # linear, the prior implementation's default
+
+    return torch.optim.lr_scheduler.LambdaLR(opt, factor)
+
+
 def train_config_hash(cfg) -> str:
     """Training had NO frozen config and no hash: nine of twelve CLI flags appeared in no
     artifact. Arms must differ in DATA, never in optimisation, and nothing recorded whether
@@ -160,6 +185,24 @@ class TrainConfig:
     #: This floor makes "converged" mean something: the stop rule is still `patience`,
     #: but it cannot be consulted until one full pass is done.
     min_epochs: float = 1.0
+
+    #: ⚠ THERE WAS NO LEARNING-RATE SCHEDULE AT ALL. `lr` was applied flat for the whole
+    #: run, with no warmup and no decay, in BOTH training loops. The prior implementation
+    #: used the SAME peak lr (5e-5) but warmed up over 50 steps and then decayed linearly
+    #: to zero (HuggingFace TrainingArguments' default lr_scheduler_type).
+    #:
+    #: The measured symptom: our held-out loss turns over at step 75-125 and then gets
+    #: WORSE with more training (11 of 12 arms), landing at 5.13 nats/token on GO TERPENE.
+    #: Theirs fell MONOTONICALLY across 3 epochs to 4.28 and never turned over. A constant
+    #: LR bounces around a minimum instead of settling into it, so "training longer makes
+    #: it worse" is the expected behaviour rather than evidence about the data.
+    #:
+    #: `warmup_steps` then `decay_epochs` of decay. The horizon is in EPOCHS, not steps,
+    #: because the arms differ 4x in epoch length (502 vs 2011 steps) and a step-denominated
+    #: horizon would anneal the pooled arms four times faster than the per-class ones.
+    warmup_steps: int = 50
+    decay_epochs: float = 3.0
+    lr_schedule: str = "linear"      # "linear" | "cosine" | "constant"
     micro_batch: int = 1
     grad_accum: int = 16
     max_len_nt: int = 16000
@@ -387,8 +430,11 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
     min_steps = int(cfg.min_epochs * steps_per_epoch)
     epoch_ckpt_step: int | None = None
     epoch_ckpt_val: float | None = None
+    sched = build_scheduler(opt, cfg, steps_per_epoch)
     print(f"  {steps_per_epoch} optimizer steps/epoch; early stopping disabled until "
-          f"step {min_steps} (min_epochs={cfg.min_epochs})", flush=True)
+          f"step {min_steps} (min_epochs={cfg.min_epochs}); lr schedule "
+          f"{cfg.lr_schedule} warmup={cfg.warmup_steps} decay_epochs={cfg.decay_epochs}",
+          flush=True)
 
     for ep in range(cfg.max_epochs):
         if stopped_early:
@@ -426,7 +472,10 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
             if (bi + 1) % cfg.grad_accum == 0:
                 torch.nn.utils.clip_grad_norm_(
                     [p for p in model.parameters() if p.requires_grad], 1.0)
-                opt.step(); opt.zero_grad(set_to_none=True)
+                opt.step()
+                if sched is not None:
+                    sched.step()
+                opt.zero_grad(set_to_none=True)
                 step += 1
 
                 if step % cfg.eval_every == 0:
@@ -442,7 +491,11 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
                         since_improve += 1
                     log.append({"step": step, "epoch": ep, "train_loss": tl,
                                 "val_loss": vl, "improved": improved,
-                                "since_improve": since_improve})
+                                "since_improve": since_improve,
+                                # the LR IN FORCE, read off the optimizer rather than
+                                # recomputed -- a schedule that silently failed to attach
+                                # would otherwise look identical in every artifact
+                                "lr": opt.param_groups[0]["lr"]})
                     print(f"  step {step} ep{ep} train={tl} val={vl}"
                           f"{'  *best*' if improved else f'  (no gain x{since_improve})'}",
                           flush=True)
@@ -618,8 +671,11 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
     min_steps = int(cfg.min_epochs * steps_per_epoch)
     epoch_ckpt_step: int | None = None
     epoch_ckpt_val: float | None = None
+    sched = build_scheduler(opt, cfg, steps_per_epoch)
     print(f"  {steps_per_epoch} optimizer steps/epoch; early stopping disabled until "
-          f"step {min_steps} (min_epochs={cfg.min_epochs})", flush=True)
+          f"step {min_steps} (min_epochs={cfg.min_epochs}); lr schedule "
+          f"{cfg.lr_schedule} warmup={cfg.warmup_steps} decay_epochs={cfg.decay_epochs}",
+          flush=True)
 
     with iv.attached():
         for ep in range(cfg.max_epochs):
@@ -651,7 +707,10 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                 if (bi + 1) % cfg.grad_accum == 0:
                     torch.nn.utils.clip_grad_norm_(
                         [p for p in iv.parameters() if p.requires_grad], 1.0)
-                    opt.step(); opt.zero_grad(set_to_none=True)
+                    opt.step()
+                    if sched is not None:
+                        sched.step()
+                    opt.zero_grad(set_to_none=True)
                     step += 1
                     if step % cfg.eval_every == 0:
                         vl = _eval_offset(sub, base, val_records, cfg, device) \
@@ -667,7 +726,8 @@ def _train_offset(sub, records, out_dir, cfg, val_records, device):
                         else:
                             since += 1
                         log.append({"step": step, "epoch": ep, "train_loss": tl,
-                                    "val_loss": vl, "improved": imp})
+                                    "val_loss": vl, "improved": imp,
+                                    "lr": opt.param_groups[0]["lr"]})
                         print(f"  step {step} ep{ep} train={tl} val={vl}"
                               f"{'  *best*' if imp else f'  (no gain x{since})'}",
                               flush=True)

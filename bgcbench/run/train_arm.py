@@ -55,6 +55,14 @@ def main() -> int:
     ap.add_argument("--offset-rank", type=int, default=16,
                     help="capacity of the W3 conditioner. 0 = bare offset (7,680 params, "
                          "~1364x below LoRA, so a null would be capacity-limited).")
+    ap.add_argument("--lr-schedule", choices=["linear", "cosine", "constant"],
+                    default="linear",
+                    help="THERE WAS NO SCHEDULE BEFORE 2026-09-14 -- lr was flat for the "
+                         "whole run. 'constant' reproduces that.")
+    ap.add_argument("--warmup-steps", type=int, default=50)
+    ap.add_argument("--decay-epochs", type=float, default=3.0,
+                    help="decay horizon in EPOCHS, so arms with 4x different epoch lengths "
+                         "anneal at the same rate relative to the data.")
     ap.add_argument("--min-epochs", type=float, default=1.0,
                     help="early stopping cannot fire before this many epochs. Default 1.0: "
                          "15 of 17 adapters trained before 2026-09-13 shipped INSIDE their "
@@ -107,6 +115,8 @@ def main() -> int:
 
     cfg = TrainConfig(rank=args.rank, max_epochs=args.max_epochs,
                       min_epochs=args.min_epochs,
+                      lr_schedule=args.lr_schedule, warmup_steps=args.warmup_steps,
+                      decay_epochs=args.decay_epochs,
                       eval_every=args.eval_every, patience=args.patience,
                       grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
                       balance=args.balance, method=args.method,
