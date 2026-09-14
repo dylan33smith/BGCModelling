@@ -1640,3 +1640,29 @@ def test_learning_rate_is_actually_scheduled_in_both_loops():
         assert 'opt.param_groups[0]["lr"]' in src, (
             f"{fn.__name__} does not record the LR in force; a schedule that silently "
             f"failed to attach would look identical in every artifact")
+
+
+def test_eval_cadence_is_proportionate_to_the_eval_set_size():
+    """⚠ These two move TOGETHER. The held-out set went 32 -> 200 records (~6.25x per-eval
+    cost); leaving eval_every at 25 would have evaluated 10x more often than the prior
+    implementation on a same-sized set, and evaluation would dominate wall-clock on a
+    3-epoch run. This test exists so a future change to one is not made without the other.
+    """
+    import inspect
+    from bgcbench.model.train import TrainConfig
+    from bgcbench.model import train as T
+
+    cfg = TrainConfig()
+    limit = inspect.signature(T.evaluate).parameters["limit"].default
+    assert limit >= 200, f"held-out set shrank to {limit}; 32 records was 3.1% of the genomes"
+    assert inspect.signature(T._eval_offset).parameters["limit"].default == limit, (
+        "the two eval paths must score the same number of records, or the W3 arms are "
+        "early-stopped on a different estimator than every other arm")
+    assert cfg.eval_every >= 250, (
+        f"eval_every={cfg.eval_every} with limit={limit} evaluates far more often than the "
+        f"prior implementation did on the same-sized set")
+    # patience must still buy a comparable number of steps, not a 7.5x tighter window
+    assert cfg.eval_every * cfg.patience >= 750, (
+        "patience window is tighter than the prior's 750 steps")
+    # and the floor must still dominate: early stopping cannot pre-empt the planned run
+    assert cfg.train_epochs * 502 > cfg.eval_every * cfg.patience or cfg.train_epochs >= 3.0

@@ -210,7 +210,14 @@ class TrainConfig:
     #: trajectory-noise floor -- so one class was cut off mid-descent while the other six
     #: converged, confounding method with training budget.
     max_epochs: int = 40
-    eval_every: int = 25            # optimizer steps between held-out evaluations
+    #: ⚠ RAISED 25 -> 250, AND IT IS COUPLED TO THE EVAL SET SIZE. The held-out set went from
+    #: 32 records to 200 (~6.25x the cost per evaluation); at eval_every=25 we would have been
+    #: evaluating 10x more often than the prior implementation on a set of the same size, and
+    #: evaluation would have started to dominate wall-clock on a 3-epoch run. 250 is the prior's
+    #: value. Patience then buys 4 x 250 = 1,000 steps against their 3 x 250 = 750 -- comparable,
+    #: where 4 x 25 = 100 was ~7.5x tighter.
+    #: ⚠ If `evaluate`'s `limit` is ever changed again, revisit this in the same edit.
+    eval_every: int = 250           # optimizer steps between held-out evaluations
     patience: int = 4               # evaluations without improvement before stopping
     #: ⚠ RAISED 1e-4 -> 5e-3. The old value was ~151x BELOW the measured noise floor of this
     #: estimator, so "improved" and "did not improve" were partly adjudicating noise. Measured
