@@ -1942,7 +1942,27 @@ FROZEN. Next per SPEC §15.6 is step 5 — G3 seed sweep, then the seeded arms �
 comparison §24.3 says is missing. The §10 unblind-and-diff against the prior implementation is
 now unblocked for this component, the freeze having been taken first.
 
-## 25. G11 — GenomeOcean's decoding, and the defect that made §24 unreportable
+## 25. GenomeOcean's decoding — the defect that made §24 unreportable, and why we do not truncate
+
+⛔ **The gate that produced §25.2 (G11) is RETIRED and was never closed** — see SPEC §12.A8.
+It existed to SELECT a `top_k` and could not: its winner beat the runner-up by 0.59 sd of the
+statistic's own sampling noise. **§25.2's ranking is therefore not a result and must not be
+reported as one.** §25.1, §25.3 and §25.4 stand: they rest on measurements taken teacher-forced
+on BASE weights with no adapter, which nothing about the gate affects.
+
+**What we actually do:** GenomeOcean applies **no truncation** (`top_k=0`, the full 4,096-token
+vocabulary). Every one of its tokens is valid DNA, so the probability tail is the model's real
+uncertainty about the next k-mer rather than garbage to filter — the opposite of the
+natural-language case the top-k heuristic comes from. Reporting "no truncation was applied"
+needs no gate; "we truncated to 256" would need one we do not have. Evo2 keeps `top_k=4`, which
+over a 4-letter alphabet retains 0.9999 of its mass and so truncates nothing in practice.
+
+Measured mass retention, GenomeOcean base weights, teacher-forced on real held-out TERPENE:
+
+| `top_k` | 1 | 4 | 16 | 64 | 256 | 1024 | 4096 |
+|---|---|---|---|---|---|---|---|
+| mass kept | 0.0507 | **0.1280** | 0.2717 | 0.4931 | 0.7390 | 0.9298 | **1.0000** |
+
 
 Found by the SPEC §10 unblind-and-diff against the prior implementation, taken **after** GO
 Stage 1 was frozen (§24), so the diff is evidence rather than rationalisation.
@@ -1970,7 +1990,7 @@ of the distribution at every step**. The prior implementation had flagged exactl
 pre-registration — *"sensible over a 4-letter byte alphabet, meaningless over a 4,096-token BPE
 vocabulary"* — and used `top_k` off.
 
-### 25.2 G11, and what the defect actually cost
+### 25.2 The sweep ⛔ ITS RANKING IS VOID — retained only for the k=4 column
 
 QUESTION  Which decoding configuration makes GenomeOcean's output resemble real BGC sequence?
 MODEL     GenomeOcean-4B

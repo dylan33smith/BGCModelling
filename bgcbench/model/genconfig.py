@@ -50,16 +50,20 @@ FROZEN = {
     # over the rest. Eight GO Stage 1 arms were generated through that before it was found
     # (GO_STAGE1_FROZEN_1c2acf1b1ce67b8f; those rates are not reportable).
     #
-    # Values per family are selected by GATE G11 against the structural statistics of real
-    # held-out sequence, never against the endpoint (§2.4) and never copied from the other
-    # substrate or from the prior implementation's preset.
+    # ⚠ GATE G11 IS RETIRED (2026-09-14). It existed to SELECT a top_k per substrate, and it
+    # could not: its winner beat the runner-up by 0.59 standard deviations of the statistic's
+    # own sampling noise, so no rung among the healthy ones was distinguished. Neither
+    # substrate now needs a selection -- Evo2's top_k=4 is unrestrictive over a 4-letter
+    # alphabet (0.9999 of its mass) and GenomeOcean applies no truncation at all -- so there
+    # is nothing left for the gate to decide. The MEASUREMENTS it produced are retained in
+    # FINDINGS §25, because they are what rules top_k=4 out.
     "decoding": {
-        # Evo2: G11 is N/A. top_k=4 over a 4-letter alphabet is already unrestrictive.
+        # Evo2: top_k=4 over a 4-letter alphabet is already unrestrictive (0.9999 of mass).
         "evo2": {"temperature": 1.0, "top_k": 4, "top_p": 1.0},
         # GenomeOcean: NO TRUNCATION. Sampling from the model's full 4,096-token vocabulary.
         #
-        # ⚠ THIS IS A DELIBERATE NON-DECISION, AND THAT IS THE POINT. G11 previously selected
-        # top_k=256 here, and that selection is VOID: holding everything else fixed and merely
+        # ⚠ THIS IS A DELIBERATE NON-DECISION, AND THAT IS THE POINT. A retired gate once
+        # selected top_k=256 here, and that selection was VOID: holding all else fixed and merely
         # resampling which 50 sequences get scored moves the gate's own deviation statistic
         # over 0.0108-0.1117 (sd 0.0318), while the winner beat the runner-up by 0.0189 =
         # 0.59 sd. The entire healthy-rung range fit inside one configuration's noise band.
@@ -162,7 +166,7 @@ def decoding_for(family: str) -> dict:
     if family not in table:
         raise KeyError(
             f"no decoding configuration for substrate family {family!r}. Decoding is per "
-            f"substrate (SPEC 12.A7) and must be selected by G11 against real sequence -- "
+            f"substrate (SPEC 12.A7) by measurement, never inherited from another model -- "
             f"never inherited from another family. Known: {sorted(table)}")
     return dict(table[family])
 
