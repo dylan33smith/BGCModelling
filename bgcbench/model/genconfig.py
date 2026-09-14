@@ -56,16 +56,28 @@ FROZEN = {
     "decoding": {
         # Evo2: G11 is N/A. top_k=4 over a 4-letter alphabet is already unrestrictive.
         "evo2": {"temperature": 1.0, "top_k": 4, "top_p": 1.0},
-        # GenomeOcean: SET BY G11, 2026-09-13 (`g11/G11_go-4b.json`), n=50 per config on
-        # the pooled W1n arm, selected on distance to REAL held-out sequence and never on
-        # the endpoint. Deviation from real, mean |relative| over distinct-21mer / coding
-        # density / median ORF length:
-        #   t=1.0 k=4   0.3111  ⛔ distinct-21mer 0.3522 -- 65% of positions are REPEATS
-        #   t=1.0 k=64  0.0777      t=1.0 k=0    0.0962      t=1.0 k=0 p=.95  0.0524
-        #   t=0.9 k=0   0.0465      t=1.0 k=256  0.0276  ✅ selected
-        # ⚠ k=256 beat UNRESTRICTED sampling (0.0276 vs 0.0962), so "top_k off" -- the
-        # prior implementation's setting -- is not the answer either. It had to be measured.
-        "genomeocean": {"temperature": 1.0, "top_k": 256, "top_p": 1.0},
+        # GenomeOcean: NO TRUNCATION. Sampling from the model's full 4,096-token vocabulary.
+        #
+        # ⚠ THIS IS A DELIBERATE NON-DECISION, AND THAT IS THE POINT. G11 previously selected
+        # top_k=256 here, and that selection is VOID: holding everything else fixed and merely
+        # resampling which 50 sequences get scored moves the gate's own deviation statistic
+        # over 0.0108-0.1117 (sd 0.0318), while the winner beat the runner-up by 0.0189 =
+        # 0.59 sd. The entire healthy-rung range fit inside one configuration's noise band.
+        #
+        # What the evidence DOES support is only that top_k=4 is catastrophic here, on two
+        # legs that no defect touches: probability mass retained 0.1280 vs Evo2's 0.9999
+        # (teacher-forced, BASE weights, no adapter), and distinct-21mer 0.3522 vs 1.0000 --
+        # 65% of positions repeats. Measured mass retention across the vocabulary:
+        #     k=1 0.0507 · k=4 0.1280 · k=16 0.2717 · k=64 0.4931
+        #     k=256 0.7390 · k=1024 0.9298 · k=4096 1.0000
+        #
+        # Truncation's usual justification does not transfer to this substrate: every one of
+        # GenomeOcean's 4,096 tokens is VALID DNA, so the tail is the model's real uncertainty
+        # about the next k-mer, not garbage to be filtered. k=0 was also measured healthy
+        # (distinct-21mer 1.0000, coding density 0.9333). Reporting "no truncation was
+        # applied" needs no gate to defend it; "we truncated to 256" would need one we do
+        # not have.
+        "genomeocean": {"temperature": 1.0, "top_k": 0, "top_p": 1.0},
     },
     "rng_seed": 0,
 

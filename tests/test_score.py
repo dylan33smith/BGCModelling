@@ -1841,3 +1841,47 @@ def test_no_module_hard_codes_a_decoding_parameter():
     assert not offenders, (
         "decoding parameters hard-coded outside the two modules allowed to name them; each "
         "of these silently ignores the substrate's gated value:\n  " + "\n  ".join(offenders))
+
+
+def test_genomeocean_samples_from_its_whole_vocabulary():
+    """GenomeOcean is configured with NO truncation (top_k=0), so generation samples the
+    model's full 4,096-token distribution.
+
+    ⚠ THIS DEPENDS ON A LIBRARY CONVENTION, so it is asserted rather than assumed:
+    transformers only installs its top-k warper when `top_k is not None and top_k != 0`, and
+    `TopKLogitsWarper(top_k=0)` RAISES rather than silently truncating to nothing. If a future
+    version changed either, `top_k=0` could quietly become "keep zero tokens" and every
+    GenomeOcean generation would be garbage with nothing to signal it.
+
+    Why no truncation: every one of GenomeOcean's 4,096 tokens is valid DNA, so the
+    probability tail is the model's real uncertainty about the next k-mer rather than garbage
+    to be filtered. Measured mass retention — k=4 keeps 0.1280, k=256 keeps 0.7390, k=0 keeps
+    1.0000 — and k=0 was measured healthy (distinct-21mer 1.0000, coding density 0.9333).
+    The only firm result is that k=4 is catastrophic (distinct-21mer 0.3522).
+    """
+    import inspect
+    from bgcbench.model.genconfig import decoding_for
+
+    go = decoding_for("genomeocean")
+    assert go["top_k"] == 0, f"GenomeOcean should not truncate; got top_k={go['top_k']}"
+    assert go["top_p"] == 1.0, "top_p must also not truncate, or top_k=0 buys nothing"
+
+    # Evo2 keeps its own value — top_k=4 over a 4-letter alphabet is already unrestrictive
+    # (0.9999 of its mass). This is the per-substrate rule, not an inconsistency.
+    assert decoding_for("evo2")["top_k"] == 4
+
+    from transformers.generation.utils import GenerationMixin
+    src = inspect.getsource(GenerationMixin._get_logits_processor)
+    assert "generation_config.top_k != 0" in src, (
+        "transformers no longer treats top_k=0 as 'no truncation'; GenomeOcean generation "
+        "may now be silently filtered. Check the installed version before trusting any run.")
+
+    from transformers.generation.logits_process import TopKLogitsWarper
+    try:
+        TopKLogitsWarper(top_k=0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "TopKLogitsWarper(0) no longer raises, so a code path that DID install the warper "
+            "with top_k=0 would truncate to zero tokens instead of failing loudly")
