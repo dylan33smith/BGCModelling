@@ -39,7 +39,12 @@ def main() -> int:
     ap.add_argument("--adapter", default=None,
                     help="derive on top of a weight state. I1 composes with W, so the "
                          "direction must come from the model the arm actually runs.")
-    ap.add_argument("--prefix", choices=["none", "taxonomy"], default="taxonomy")
+    ap.add_argument("--prefix", choices=["none", "taxonomy"], default=None,
+                    help="omit to use the substrate's own setting (SPEC 14A): evo2 -> taxonomy, "
+                         "genomeocean -> none. ⚠ THIS DEFAULTED TO 'taxonomy' FOR BOTH, so a "
+                         "manual GenomeOcean invocation that forgot the flag silently fed it a "
+                         "GTDB lineage -- a format it was never pretrained on (SPEC 15.7) -- and "
+                         "nothing raised.")
     ap.add_argument("--limit", type=int, default=64,
                     help="records per side. The mean is over TOKENS, so 64 records at "
                          "~3,000 nt is ~200k positions per site -- ample for a mean.")
@@ -51,6 +56,14 @@ def main() -> int:
     args = ap.parse_args()
 
     sub = load(args.substrate)
+    # ⚠ PREFIX COMES FROM THE SUBSTRATE unless the caller overrides it. Defaulting to
+    # "taxonomy" for both substrates meant a forgotten flag fed GenomeOcean a lineage it has
+    # never seen, silently. A direction derived under a prefix the arm does not generate with
+    # is a direction for a different input distribution.
+    if args.prefix is None:
+        from bgcbench.model.substrate_config import for_substrate
+        args.prefix = for_substrate(sub.family)["prefix"]
+        print(f"prefix resolved from substrate ({sub.family}): {args.prefix}", flush=True)
     adapter = None
     if args.adapter:
         from bgcbench.model.load import attach_adapter, resolve_best

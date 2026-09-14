@@ -1885,3 +1885,44 @@ def test_genomeocean_samples_from_its_whole_vocabulary():
         raise AssertionError(
             "TopKLogitsWarper(0) no longer raises, so a code path that DID install the warper "
             "with top_k=0 would truncate to zero tokens instead of failing loudly")
+
+
+def test_no_entry_point_defaults_the_prefix_to_one_substrates_value():
+    """⚠ `derive_directions`, `g9_alpha` and `g9_sites` all defaulted `--prefix` to
+    "taxonomy" — Evo2's value — for BOTH substrates. A manual GenomeOcean invocation that
+    forgot the flag would silently prepend a GTDB lineage, a format GO was never pretrained
+    on (SPEC §15.7), and nothing would raise.
+
+    That matters most for directions: a direction derived under a prefix the arm does not
+    generate with is a direction for a different input distribution, and the resulting null
+    would look like a measurement.
+
+    The prefix must come from the substrate (SPEC §14A) or be passed explicitly. A literal
+    default belonging to one substrate is what this test forbids.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "bgcbench" / "run"
+    offenders = []
+    for f in sorted(root.glob("*.py")):
+        src = f.read_text()
+        m = re.search(r'add_argument\("--prefix"[^)]*?default=([^,)\s]+)', src, re.S)
+        if not m:
+            continue
+        default = m.group(1).strip()
+        if default == "None":
+            # must then resolve from the substrate rather than silently staying None
+            assert "for_substrate(" in src, (
+                f"{f.name} defaults --prefix to None but never resolves it from the substrate")
+            continue
+        if default.strip('"\'') == "taxonomy":
+            offenders.append(f"{f.name}: default={default}")
+    assert not offenders, (
+        "these entry points default --prefix to Evo2's value, so a GenomeOcean run that "
+        "omits the flag is silently given a lineage:\n  " + "\n  ".join(offenders))
+
+    # and the substrate table must still disagree between the two, or the whole thing is moot
+    from bgcbench.model.substrate_config import for_substrate
+    assert for_substrate("evo2")["prefix"] == "taxonomy"
+    assert for_substrate("genomeocean")["prefix"] == "none"

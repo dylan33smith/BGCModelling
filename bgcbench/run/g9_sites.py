@@ -101,7 +101,9 @@ def main() -> int:
     ap.add_argument("--direction", required=True)
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--target", required=True)
-    ap.add_argument("--prefix", default="taxonomy")
+    ap.add_argument("--prefix", choices=["none", "taxonomy"], default=None,
+                    help="omit to use the substrate's own setting (SPEC 14A): evo2 -> taxonomy, "
+                         "genomeocean -> none. ⚠ THIS DEFAULTED TO 'taxonomy' FOR BOTH.")
     ap.add_argument("--alpha", type=float, default=1.0,
                     help="FIXED probe magnitude for the site comparison. Not the generation "
                          "alpha -- that is swept afterwards, at the winning site set.")
@@ -117,6 +119,10 @@ def main() -> int:
     args = ap.parse_args()
 
     sub = load(args.substrate)
+    if args.prefix is None:
+        from bgcbench.model.substrate_config import for_substrate
+        args.prefix = for_substrate(sub.family)["prefix"]
+        print(f"prefix resolved from substrate ({sub.family}): {args.prefix}", flush=True)
     adapter = None
     if args.adapter:
         adapter = resolve_best(args.adapter)

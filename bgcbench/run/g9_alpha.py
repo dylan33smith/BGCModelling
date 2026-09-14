@@ -65,7 +65,12 @@ def main() -> int:
                     help="max ABSOLUTE DROP in hit_eos rate. One-sided: steering that stops "
                          "the model terminating has broken generation even if density holds, "
                          "but terminating more often is not damage.")
-    ap.add_argument("--prefix", default="taxonomy")
+    ap.add_argument("--prefix", choices=["none", "taxonomy"], default=None,
+                    help="omit to use the substrate's own setting (SPEC 14A): evo2 -> taxonomy, "
+                         "genomeocean -> none. ⚠ THIS DEFAULTED TO 'taxonomy' FOR BOTH, so a "
+                         "manual GenomeOcean invocation that forgot the flag silently fed it a "
+                         "GTDB lineage -- a format it was never pretrained on (SPEC 15.7) -- and "
+                         "nothing raised.")
     ap.add_argument("--random-direction", type=int, default=None, metavar="SEED",
                     help="sweep the SPEC 6.3 random control instead of the derived direction. "
                          "⚠ The control needs its OWN ceiling: at TERPENE's alpha the random "
@@ -74,6 +79,14 @@ def main() -> int:
                          "zero cannot be read.")
     ap.add_argument("--tag", default="G9")
     args = ap.parse_args()
+    # ⚠ see derive_directions: defaulting to "taxonomy" for both substrates silently fed
+    # GenomeOcean a lineage. This script shells out to run.arm before loading a model, so the
+    # family is resolved from the substrate id rather than a loaded Substrate.
+    if args.prefix is None:
+        from bgcbench.model.substrate_config import for_substrate
+        fam = "evo2" if args.substrate.startswith("evo2") else "genomeocean"
+        args.prefix = for_substrate(fam)["prefix"]
+        print(f"prefix resolved from substrate ({fam}): {args.prefix}", flush=True)
 
     OUT.mkdir(parents=True, exist_ok=True)
     rows = []
