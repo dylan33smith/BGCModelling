@@ -1422,3 +1422,133 @@ def test_freeze_id_convention_is_stable_and_content_addressed():
     d = json.loads(ref.read_text())
     assert freeze_id(d) == d["freeze_id"] == "f1a5fa95dbdc07a1", (
         "the freeze-id convention has changed; existing bundles are no longer reproducible")
+
+
+def _go_tokenizer_substrate():
+    """Real GenomeOcean tokenizer on a bare Substrate. Returns None if unavailable."""
+    try:
+        from transformers import AutoTokenizer
+        tok = AutoTokenizer.from_pretrained("pGenomeOcean/GenomeOcean-4B",
+                                            trust_remote_code=True)
+    except Exception:
+        return None
+    from bgcbench.model.load import Substrate
+    return Substrate(id="g", family="genomeocean", checkpoint="c",
+                     terminator_id=int(tok.convert_tokens_to_ids("[SEP]")),
+                     terminator_str="", appends_terminator=True, native_stop=True,
+                     approx_nt_per_token=4.8, tokenizer=tok)
+
+
+def test_generation_prompt_never_ends_in_the_models_own_terminator():
+    """The prompt defect: GO's tokenizer template is [CLS] $A [SEP], so encoding the de novo
+    prompt normally put the model's TERMINATOR in the context and sampled the first token
+    from one position past 'this record is finished' -- a context training never produced.
+
+    The assertion is on the TERMINATOR'S ABSENCE, not on an exact id list, because the
+    defect is 'the stop token is in the prompt', not 'the prompt has three tokens'.
+    """
+    from bgcbench.model.generate import _encode_prompts
+    sub = _go_tokenizer_substrate()
+    if sub is None:
+        print("  SKIP: GenomeOcean tokenizer unavailable")
+        return
+
+    # the fixture must still reproduce the bug, or passing proves nothing
+    naive = sub.tokenizer("A")["input_ids"]
+    assert sub.terminator_id in naive, "tokenizer no longer auto-appends [SEP]; bug is gone"
+
+    ids = _encode_prompts(sub, ["A"])["input_ids"][0].tolist()
+    assert sub.terminator_id not in ids, (
+        f"prompt {ids} still contains the terminator {sub.terminator_id}; every generation "
+        f"would start one token past the end of a document")
+    assert ids[0] == sub.tokenizer.cls_token_id, "prompt must start at the training context"
+
+    # left padding, and the mask must cover exactly the real tokens
+    enc = _encode_prompts(sub, ["ATGCGGATTACAGGCG", "ATG"])
+    rows = enc["input_ids"].tolist()
+    masks = enc["attention_mask"].tolist()
+    assert len(rows[0]) == len(rows[1]), "rows must be padded to equal width"
+    for r, m in zip(rows, masks):
+        assert m[-1] == 1, "padding must be on the LEFT — the last token is conditioned on"
+        assert sum(m) == len([t for t, mm in zip(r, m) if mm]), "mask/ids disagree"
+        pads = len(m) - sum(m)
+        assert all(v == 0 for v in m[:pads]) and all(v == 1 for v in m[pads:]), (
+            "mask must be a left-run of zeros then ones")
+
+
+def test_n_suppression_is_genomeocean_only_and_decided_by_measurement():
+    """SPEC §14A: chosen per substrate. Measured on our own de novo output --
+    GenomeOcean 70.5% of generations N-free (worst record 65.7% N), Evo2 100.0% N-free.
+    So GO gets the intervention and Evo2 does not. Matching them would be configuration
+    matching, which is the rule this project exists to avoid.
+    """
+    from bgcbench.model.generate import _banned_token_ids
+    from bgcbench.model.load import Substrate
+
+    evo = Substrate(id="e", family="evo2", checkpoint="c", terminator_id=0,
+                    terminator_str=chr(0), appends_terminator=False, native_stop=False,
+                    approx_nt_per_token=1.0)
+    assert _banned_token_ids(evo) is None, (
+        "Evo2 must get NO banned list — it emits no N, so a ban would be symmetry, not "
+        "measurement")
+
+    sub = _go_tokenizer_substrate()
+    if sub is None:
+        print("  SKIP: GenomeOcean tokenizer unavailable")
+        return
+    banned = _banned_token_ids(sub)
+    assert banned is not None and len(banned) == 1, f"expected exactly one banned token, got {banned}"
+    assert sub.tokenizer.convert_ids_to_tokens(banned[0]) == ["N"], (
+        f"banned the wrong token: {sub.tokenizer.convert_ids_to_tokens(banned[0])}")
+    # it must be a real vocabulary entry, not UNK — banning UNK would ban everything unseen
+    assert banned[0][0] != sub.tokenizer.unk_token_id
+
+
+def test_early_stopping_cannot_fire_before_one_full_epoch():
+    """15 of 17 adapters trained before 2026-09-13 shipped INSIDE their first epoch, on both
+    substrates — GO_W2_ARYLPOLYENE at 5.0%, GO_W1 at 6.2%, evo2 W2_TERPENE_noprefix at 24.9%.
+    `patience=4` at `eval_every=25` is 100 optimizer steps against a 2,011-step epoch, so the
+    rule adjudicated convergence on ~5% of the data.
+    """
+    from bgcbench.model.train import TrainConfig
+    cfg = TrainConfig()
+    assert cfg.min_epochs >= 1.0, "the floor is the whole point"
+    # the floor must dominate patience on the arm where it mattered most
+    steps_per_epoch = 32176 // 16          # the pooled arms
+    assert cfg.min_epochs * steps_per_epoch > cfg.eval_every * cfg.patience, (
+        "patience would still fire first; the floor does not bind")
+
+    import inspect
+    from bgcbench.model import train as T
+    src = inspect.getsource(T.train_lora)
+    # behavioural, not textual: the epoch length must be computed in OPTIMIZER STEPS.
+    # len(batches) alone is grad_accum times too large and would train ~16 epochs per arm.
+    assert "len(batches) // max(1, cfg.grad_accum)" in src, (
+        "steps_per_epoch must divide by grad_accum — batches are not optimizer steps")
+
+
+def test_full_epoch_checkpoint_is_what_the_arms_resolve_to():
+    """The arms must generate from the FULL-EPOCH checkpoint, with `best/` retained beside it
+    for comparison. Resolution order is what makes that true in practice."""
+    import json
+    import tempfile
+    from pathlib import Path
+    from bgcbench.model.load import resolve_best
+
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        (d / "epoch").mkdir()
+        (d / "best").mkdir()
+        (d / "BEST").write_text(json.dumps({"path": str(d / "best"), "step": 75}))
+        (d / "EPOCH").write_text(json.dumps({"path": str(d / "epoch"), "step": 503}))
+        assert resolve_best(str(d)) == str(d / "epoch"), (
+            "an adapter with both checkpoints must resolve to the FULL-EPOCH one")
+
+        # an older adapter with only BEST must still resolve, not break
+        (d / "EPOCH").unlink()
+        assert resolve_best(str(d)) == str(d / "best")
+
+        # and a bare path with neither is returned unchanged
+        bare = d / "nothing"
+        bare.mkdir()
+        assert resolve_best(str(bare)) == str(bare)

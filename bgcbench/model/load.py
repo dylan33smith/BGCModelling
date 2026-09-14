@@ -284,14 +284,23 @@ def resolve_best(adapter_path: str) -> str:
     `run.derive_directions` did not, so a direction derived from a directory came from the
     FINAL checkpoint while the arm generated from BEST -- two different models, and the
     mismatch would have been invisible in both reports.
+
+    ⚠ PREFERENCE ORDER CHANGED 2026-09-13: `epoch/` BEFORE `best/`. Early stopping was
+    shipping adapters that had seen 5-40% of ONE epoch (15 of 17 arms, both substrates), so
+    "best held-out checkpoint" meant "best of a handful of checkpoints taken before the
+    model had read the data once". The arms now generate from the FULL-EPOCH checkpoint.
+    `best/` is still written and still resolvable, so the two remain comparable.
     """
     import json as _json
     from pathlib import Path as _Path
     p = _Path(adapter_path)
-    if p.is_dir() and (p / "BEST").exists():
-        meta = _json.loads((p / "BEST").read_text())
-        if meta.get("path"):
-            return meta["path"]
+    if p.is_dir():
+        for marker in ("EPOCH", "BEST"):
+            if not (p / marker).exists():
+                continue
+            meta = _json.loads((p / marker).read_text())
+            if meta.get("path"):
+                return meta["path"]
     return str(adapter_path)
 
 

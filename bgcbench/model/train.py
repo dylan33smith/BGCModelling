@@ -149,6 +149,17 @@ class TrainConfig:
     eval_every: int = 25            # optimizer steps between held-out evaluations
     patience: int = 4               # evaluations without improvement before stopping
     min_delta: float = 1e-4         # smaller than this is not an improvement
+
+    #: ⚠ EARLY STOPPING MUST NOT FIRE BEFORE THE MODEL HAS SEEN THE DATA ONCE.
+    #: Measured across every adapter trained before 2026-09-13: 15 of 17 shipped INSIDE
+    #: their first epoch, on BOTH substrates -- GO_W2_ARYLPOLYENE at 5.0% of one epoch,
+    #: GO_W1 at 6.2%, evo2 W2_TERPENE_noprefix at 24.9%. `patience=4` at `eval_every=25`
+    #: is 100 optimizer steps of patience against a 2,011-step epoch on the pooled arms,
+    #: so the rule was adjudicating convergence on ~5% of the data. The prior
+    #: implementation trained 3 FULL epochs (2,112 steps where ours stopped at 75).
+    #: This floor makes "converged" mean something: the stop rule is still `patience`,
+    #: but it cannot be consulted until one full pass is done.
+    min_epochs: float = 1.0
     micro_batch: int = 1
     grad_accum: int = 16
     max_len_nt: int = 16000
@@ -368,6 +379,16 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
     best_val, best_step, since_improve = float("inf"), 0, 0
     run_loss, run_n = 0.0, 0
     stopped_early = False
+    # ⚠ ONE EPOCH IN OPTIMIZER STEPS, not in batches. `batches` is the per-epoch batch list
+    # and an optimizer step consumes `grad_accum` of them, so the epoch boundary in the unit
+    # this loop counts is len(batches)/grad_accum. Using len(batches) here would set the
+    # floor grad_accum times too high and train ~16 epochs per arm.
+    steps_per_epoch = max(1, len(batches) // max(1, cfg.grad_accum))
+    min_steps = int(cfg.min_epochs * steps_per_epoch)
+    epoch_ckpt_step: int | None = None
+    epoch_ckpt_val: float | None = None
+    print(f"  {steps_per_epoch} optimizer steps/epoch; early stopping disabled until "
+          f"step {min_steps} (min_epochs={cfg.min_epochs})", flush=True)
 
     for ep in range(cfg.max_epochs):
         if stopped_early:
@@ -425,12 +446,27 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
                     print(f"  step {step} ep{ep} train={tl} val={vl}"
                           f"{'  *best*' if improved else f'  (no gain x{since_improve})'}",
                           flush=True)
-                    if since_improve >= cfg.patience:
+                    # THE FULL-EPOCH CHECKPOINT. Written at the FIRST evaluation at or
+                    # past `min_epochs`, and never overwritten afterwards, so it is a fixed
+                    # point ("the model after one pass over the data") rather than a moving
+                    # best. This is the checkpoint the arms generate from; `best/` is kept
+                    # alongside it so the two can be compared.
+                    if epoch_ckpt_step is None and step >= min_steps:
+                        model.save_pretrained(str(out_dir / "epoch"))
+                        epoch_ckpt_step, epoch_ckpt_val = step, vl
+                        print(f"  FULL-EPOCH CHECKPOINT at step {step} "
+                              f"({step / steps_per_epoch:.2f} epochs), val {vl}", flush=True)
+
+                    if since_improve >= cfg.patience and step >= min_steps:
                         print(f"  EARLY STOP: {cfg.patience} evaluations without "
                               f"improvement; best val {best_val} at step {best_step}",
                               flush=True)
                         stopped_early = True
                         break
+                    if since_improve >= cfg.patience:
+                        # keep training, but do not let the counter latch the stop the
+                        # instant the floor is crossed
+                        since_improve = 0
 
     model.save_pretrained(str(out_dir / "final"))
 
@@ -447,6 +483,22 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
          "epochs_run": (log[-1]["epoch"] + 1) if log else 0,
          "max_epochs": cfg.max_epochs}, indent=2))
 
+    # THE FULL-EPOCH CHECKPOINT MARKER. This is the checkpoint the ARMS USE (resolve_best
+    # prefers `epoch/`); `best/` is retained beside it for comparison. Both are recorded so
+    # a reader can see which one a run generated from and what the other would have been.
+    epoch_dir = (out_dir / "epoch") if (out_dir / "epoch").exists() else None
+    (out_dir / "EPOCH").write_text(json.dumps(
+        {"step": epoch_ckpt_step, "val_loss": epoch_ckpt_val,
+         "path": str(epoch_dir) if epoch_dir else None,
+         "steps_per_epoch": steps_per_epoch,
+         "epochs_at_checkpoint": (epoch_ckpt_step / steps_per_epoch) if epoch_ckpt_step else None,
+         "min_epochs_requested": cfg.min_epochs,
+         # ⚠ If this is False the floor did not hold and the arm is NOT a full-epoch arm.
+         "reached_min_epochs": epoch_ckpt_step is not None,
+         "best_step_for_comparison": best_step,
+         "best_val_loss_for_comparison": best_val if best_val < float("inf") else None},
+        indent=2))
+
     report = {"train_config": {k: v for k, v in __import__("dataclasses").asdict(cfg).items()},
               "train_config_hash": train_config_hash(cfg),
               # WHICH CODE read that config: two arms meant to differ only in data can
@@ -456,6 +508,12 @@ def train_lora(sub, records: list[dict], out_dir: Path, cfg: TrainConfig,
               "trainable_params": trainable, "total_params": total,
               "best_checkpoint": (str(best_dir) if best_dir else None),
               "best_val_loss": (best_val if best_val < float("inf") else None),
+              "epoch_checkpoint": (str(epoch_dir) if epoch_dir else None),
+              "epoch_checkpoint_step": epoch_ckpt_step,
+              "epoch_checkpoint_val_loss": epoch_ckpt_val,
+              "steps_per_epoch": steps_per_epoch,
+              "min_epochs": cfg.min_epochs,
+              "reached_min_epochs": epoch_ckpt_step is not None,
               "final_is_best": bool(log) and log[-1]["step"] == best_step,
               "trainable_frac": round(trainable / max(total, 1), 6),
               "rank": cfg.rank, "targets": cfg.targets,

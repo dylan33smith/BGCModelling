@@ -320,6 +320,58 @@ def _require_decoding(arm) -> None:
             f"(SPEC 12.A7) and there is deliberately no shared default.")
 
 
+def _encode_prompts(sub, chunk: list[str]):
+    """Encode generation prompts as START + prompt, with NO auto-appended terminator.
+
+    Left padding is preserved: a decoder-only model conditions on the token immediately
+    before the first generated position, so the pad must go on the left.
+    """
+    import torch
+    tok = sub.tokenizer
+    start = tok.cls_token_id
+    if start is None:
+        start = tok.bos_token_id
+    rows = []
+    for p in chunk:
+        ids = tok(p, add_special_tokens=False)["input_ids"]
+        rows.append(([start] if start is not None else []) + ids)
+    width = max(len(r) for r in rows)
+    pad = tok.pad_token_id if tok.pad_token_id is not None else 0
+    input_ids, attn = [], []
+    for r in rows:
+        n = width - len(r)
+        input_ids.append([pad] * n + r)
+        attn.append([0] * n + [1] * len(r))
+    return {"input_ids": torch.tensor(input_ids),
+            "attention_mask": torch.tensor(attn)}
+
+
+def _banned_token_ids(sub) -> list[list[int]] | None:
+    """Token ids generation must never emit, chosen PER SUBSTRATE by measurement (SPEC 14A).
+
+    Only `N` is banned, and only where it is actually a problem. `clean()` masks anything
+    non-ACGTN to N, and an N inside a generation destroys every ORF that spans it, so an
+    emitted N is not a neutral character on this endpoint.
+
+    MEASURED before enabling, on our own de novo output:
+      GenomeOcean  70.5% of generations N-free; worst single record 65.7% N
+      Evo2         100.0% of generations N-free, mean N fraction 0.00000
+    So this is a GenomeOcean-only intervention. Evo2 gets no banned list because Evo2 has
+    no N problem to fix -- matching the two substrates here would be configuration matching,
+    which SPEC 14A forbids.
+
+    ⚠ NOT a conditioning channel: it is one token, identical for every arm and every class,
+    and it carries no class information (SPEC 4.3 is not in tension).
+    """
+    if sub.family == EVO2:
+        return None
+    tid = sub.tokenizer.convert_tokens_to_ids("N")
+    unk = sub.tokenizer.unk_token_id
+    if tid is None or tid == unk:
+        return None
+    return [[int(tid)]]
+
+
 def _run_hf(sub, arm, prompts, cfg):
     import torch
     texts, hits = [], []
@@ -332,7 +384,23 @@ def _run_hf(sub, arm, prompts, cfg):
         # rows is drawn from a corrupted context. The corruption is invisible in the output.
         prev_side = getattr(sub.tokenizer, "padding_side", "right")
         sub.tokenizer.padding_side = "left"
-        enc = sub.tokenizer(chunk, return_tensors="pt", padding=True)
+        # ⚠ add_special_tokens=False, THEN prepend the start token by hand.
+        #
+        # GenomeOcean's tokenizer applies TemplateProcessing `[CLS] $A [SEP]`, so calling it
+        # normally turns the de novo prompt "A" into `[CLS] A [SEP]` -- and [SEP] is the
+        # model's OWN TERMINATOR. Every generation then began one token past "this record is
+        # finished", a context training never produced: training encodes `[CLS] seq [SEP]`
+        # and supervises only the `seq` span, so the distribution the fine-tune actually
+        # optimises is p(seq | [CLS]).
+        #
+        # Measured, GO_W1n weights, first sampled position:
+        #   [CLS] A [SEP]  (what this used to feed)  entropy 6.888 nats
+        #   [CLS]          (what training optimised) entropy 5.910 nats
+        # KL between the two is 2.05 nats at position 0, decaying to 0.03 by position 32.
+        #
+        # This ADDS NO INFORMATION -- [CLS] is the stock BOS marker (id 1), shared by every
+        # sequence of every class. It is not a class token; SPEC 4.3 is not in tension.
+        enc = _encode_prompts(sub, chunk)
         sub.tokenizer.padding_side = prev_side
         enc = {k: v.to(sub.model.device) for k, v in enc.items()
                if k in ("input_ids", "attention_mask")}
@@ -357,6 +425,7 @@ def _run_hf(sub, arm, prompts, cfg):
                                      temperature=arm.temperature, top_k=arm.top_k,
                                      top_p=arm.top_p,
                                      eos_token_id=sub.terminator_id,
+                                     bad_words_ids=_banned_token_ids(sub),
                                      pad_token_id=sub.tokenizer.pad_token_id)
         for row in gen:
             ids = row.tolist()[plen:]          # STRIP THE PROMPT — never score the seed
