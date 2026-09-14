@@ -18,6 +18,7 @@ import argparse
 import json
 from pathlib import Path
 
+from bgcbench.model.genconfig import decoding_for
 from bgcbench.model.load import load
 
 ROOT = Path("/data2/ds85/bgcbench")
@@ -91,8 +92,15 @@ def check(sub, n_probe: int, budget_nt: int) -> dict:
     # T4 -- what the BASE model actually does at the budget
     if sub.family == "evo2":
         n_tok = budget_nt
+        # ⚠ DECODING COMES FROM THE SUBSTRATE (SPEC §12.A7), NOT A LITERAL. These two calls
+        # hard-coded `top_k=4, temperature=1.0`, bypassing `decoding_for()` entirely -- so
+        # G10's GenomeOcean half was measured at the setting that keeps 19% of GO's
+        # probability mass, while every other generation path had already moved to its own
+        # gated value. Nothing raised, because a literal is always valid Python.
+        _dec = decoding_for(sub.family)
         out = sub.model.generate(prompt_seqs=["ACGTACGTACGTACGTACGT"] * n_probe,
-                                 n_tokens=n_tok, temperature=1.0, top_k=4, verbose=0)
+                                 n_tokens=n_tok, temperature=_dec["temperature"],
+                                 top_k=_dec["top_k"], verbose=0)
         seqs = list(out[0]) if isinstance(out, tuple) else list(out.sequences)
         lens, hits = [], 0
         for t in seqs:
@@ -108,7 +116,9 @@ def check(sub, n_probe: int, budget_nt: int) -> dict:
         with torch.no_grad():
             gen = sub.model.generate(**enc,
                                      max_new_tokens=int(budget_nt / sub.approx_nt_per_token),
-                                     do_sample=True, top_k=4, temperature=1.0,
+                                     do_sample=True, top_k=decoding_for(sub.family)["top_k"],
+                                     temperature=decoding_for(sub.family)["temperature"],
+                                     top_p=decoding_for(sub.family)["top_p"],
                                      eos_token_id=sub.terminator_id,
                                      pad_token_id=sub.tokenizer.pad_token_id)
         lens, hits = [], 0

@@ -1783,3 +1783,32 @@ def test_task_is_shared_and_treatment_is_per_substrate():
     assert "lora_scaling" in SC.unmeasured("evo2")
     assert "rank" in SC.unmeasured("genomeocean"), (
         "GenomeOcean's rank 16 was inherited, not measured on GO; that must stay visible")
+
+
+def test_no_module_hard_codes_a_decoding_parameter():
+    """⚠ `g10_termination.py` hard-coded `top_k=4, temperature=1.0` at two call sites, so
+    G10's GenomeOcean half was measured at the setting that keeps 19% of GO's probability
+    mass — while every other generation path had already moved to its own gated value.
+    Nothing raised, because a literal is always valid Python and a substrate never gets
+    consulted.
+
+    Decoding may be named in exactly two places: `genconfig` (which defines the per-family
+    table) and `generate.ArmSpec.with_decoding` (which resolves it). Everywhere else must go
+    through `decoding_for()` or an already-resolved ArmSpec.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "bgcbench"
+    allowed = {"genconfig.py", "generate.py", "g11_decoding.py"}   # define / resolve / sweep
+    offenders = []
+    for f in root.rglob("*.py"):
+        if f.name in allowed:
+            continue
+        for i, line in enumerate(f.read_text().splitlines(), 1):
+            code = line.split("#")[0]
+            if re.search(r"\b(top_k|top_p|temperature)\s*=\s*[0-9]", code):
+                offenders.append(f"{f.relative_to(root)}:{i}: {line.strip()[:90]}")
+    assert not offenders, (
+        "decoding parameters hard-coded outside the two modules allowed to name them; each "
+        "of these silently ignores the substrate's gated value:\n  " + "\n  ".join(offenders))
