@@ -1550,6 +1550,22 @@ all.
 
 ---
 
+### 14A.2 DEFERRED 2026-09-14 — `W1` and `W3` are not trained in the `_fx` generation
+
+Both substrates train `W0` (base, no adapter), `W1n` (pooled, **nucleotide**-balanced) and
+`W2`×4 (per class). Two arms are deferred for time, and this records them so a later reader
+cannot mistake their absence for an oversight (§14's whole purpose):
+
+| arm | what it was | why deferred | cost to add later |
+|---|---|---|---|
+| `W1` | pooled adapter, **record**-balanced | `W1n` is the pooled arm the benchmark reports, and the two differ only in how the four classes are weighted within one pooled corpus. `W1` was the weaker of the pair for the question being asked. | one training run per substrate (~4.3 h on Evo2), then one generation arm |
+| `W3` | learned per-attention-site offset conditioner | It is a *different intervention*, not a weight state on the same ladder, and nothing else depends on it. FINDINGS §24 recorded it at 0/200 on GenomeOcean under the pre-fix defects, so it has no positive result to preserve. | one training run per substrate, then one generation arm. It reads the same corpus and produces an independent checkpoint, so nothing else needs redoing. |
+
+⚠ **What this costs the write-up.** Without `W1`, the record-vs-nucleotide balancing contrast
+is unavailable and must not be claimed. Without `W3`, the benchmark has **no trained
+inference-time-style conditioner arm**, so the only intervention axis reported is `I1`
+(derived-direction steering). Neither absence is a null; both are simply unmeasured.
+
 ## 14A. STANDING RULE — nothing is matched across substrates except the TASK
 
 **The two models are treated differently and given the same task. What is compared is the task
