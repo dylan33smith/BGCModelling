@@ -88,7 +88,16 @@ def main() -> int:
     ap.add_argument("--adapter", default=None)
     ap.add_argument("--row-class", required=True)
     ap.add_argument("--alphas", nargs="+", type=float,
-                    default=[0.0, 0.5, 1.0, 2.0, 4.0, 8.0])
+                    default=[0.0, 0.1, 0.2, 0.3, 0.4],
+                    help="GRID LOWERED 2026-09-15 from [0, 0.5, 1, 2, 4, 8]. The old grid "
+                         "bottomed out ABOVE the usable range on every class that produced a "
+                         "readable sweep: against a healthy alpha=0 baseline (coding density "
+                         "0.9967 on ARYLPOLYENE, matching real cores) the SMALLEST rung, 0.5, "
+                         "already dropped coding to 0.1678 and killed termination outright "
+                         "(hit_eos 0.68 -> 0.00). REDOX agreed on a clean 6/6 sweep. So the "
+                         "sweep could only ever report no-alpha, whether or not steering works "
+                         "at all here. 0.0 stays as the mandatory baseline: without it the gate "
+                         "cannot judge degradation and returns None.")
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--tol-coding", type=float, default=0.10)
     ap.add_argument("--tol-nll", type=float, default=0.10)
@@ -102,10 +111,14 @@ def main() -> int:
                          "manual GenomeOcean invocation that forgot the flag silently fed it a "
                          "GTDB lineage -- a format it was never pretrained on (SPEC 15.7) -- and "
                          "nothing raised.")
-    ap.add_argument("--need-mib", type=int, default=26000,
+    ap.add_argument("--need-mib", type=int, default=34000,
                     help="free GPU memory required before EACH alpha arm is launched. "
                          "Checked per arm because every alpha reloads the model in a new "
-                         "process; a once-per-phase check let all 24 arms OOM on 2026-09-15.")
+                         "process; a once-per-phase check let all 24 arms OOM on 2026-09-15. "
+                         "RAISED 26000 -> 34000: the guard must reserve for the arm's PEAK, not "
+                         "its entry footprint. At 26000 it admitted RIPP's sweep, which then grew "
+                         "to 24.15 GiB and OOMed with 3.45 free, losing all 6 arms. Measured peak "
+                         "for an Evo2 generation arm: 29,690 MiB.")
     ap.add_argument("--sites", nargs="+", type=int, default=None,
                     help="⚠ INJECTION SITES, forwarded to run.arm. G9 is site AND magnitude "
                          "swept together (SPEC 6); an alpha measured at the default "
