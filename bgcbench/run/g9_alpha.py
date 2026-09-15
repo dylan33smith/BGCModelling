@@ -30,6 +30,31 @@ ROOT = Path("/data2/ds85/bgcbench")
 OUT = ROOT / "g9"
 
 
+def _wait_for_gpu(need_mib: int, tag: str, poll_s: int = 300) -> None:
+    """Block until `need_mib` is free on the card.
+
+    ⚠ PER ARM, NOT PER PHASE. The pipeline checked free memory once before the sweep, but
+    every alpha spawns a FRESH subprocess that reloads the model, so the memory checked for
+    was long gone by the third arm. Measured consequence on 2026-09-15: all 24 Evo2 alpha
+    arms died with `OutOfMemoryError: tried to allocate 4.26 GiB, 1.72 GiB free` while two
+    other processes held 60.7 GB. The sweep then had no alpha=0 baseline and correctly
+    refused to choose an alpha -- a whole phase lost to a guard at the wrong granularity.
+    """
+    import subprocess as _sp
+    import time as _t
+    while True:
+        try:
+            free = int(_sp.run(["nvidia-smi", "--query-gpu=memory.free",
+                                "--format=csv,noheader,nounits"],
+                               capture_output=True, text=True, check=True).stdout.split()[0])
+        except Exception:
+            return                      # no nvidia-smi: do not block a CPU-only environment
+        if free >= need_mib:
+            return
+        print(f"  waiting for GPU: need {need_mib} MiB, {free} free ({tag})", flush=True)
+        _t.sleep(poll_s)
+
+
 def _self_nll(sub, seqs: list[str], device: str = "cuda:0") -> list[float]:
     """Per-token NLL of the model's OWN output -- 'is it confident in what it wrote'."""
     import torch.nn.functional as F
@@ -77,6 +102,10 @@ def main() -> int:
                          "manual GenomeOcean invocation that forgot the flag silently fed it a "
                          "GTDB lineage -- a format it was never pretrained on (SPEC 15.7) -- and "
                          "nothing raised.")
+    ap.add_argument("--need-mib", type=int, default=26000,
+                    help="free GPU memory required before EACH alpha arm is launched. "
+                         "Checked per arm because every alpha reloads the model in a new "
+                         "process; a once-per-phase check let all 24 arms OOM on 2026-09-15.")
     ap.add_argument("--sites", nargs="+", type=int, default=None,
                     help="⚠ INJECTION SITES, forwarded to run.arm. G9 is site AND magnitude "
                          "swept together (SPEC 6); an alpha measured at the default "
@@ -103,6 +132,7 @@ def main() -> int:
     rows = []
     for a in args.alphas:
         arm = f"{args.tag}_a{a}_{args.row_class}"
+        _wait_for_gpu(args.need_mib, f"{args.tag} alpha={a}")
         # ⚠ --substrate MUST BE FORWARDED. run.arm defaults it to "evo2-1b", so without this
         # every GenomeOcean alpha sweep launched EVO2 carrying a GenomeOcean adapter. It
         # fails loudly at peft attach rather than producing a wrong number, but phase C could

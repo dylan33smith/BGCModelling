@@ -2006,3 +2006,35 @@ def test_a_direction_cannot_be_attached_under_a_different_prefix():
     assert src.index("want_p = ck.get") < src.index("DirectionInjection("), (
         "the prefix check runs after the injection is built; it is a metadata comparison "
         "and should cost milliseconds, not a model construction")
+
+
+def test_g9_alpha_checks_gpu_memory_before_every_arm_not_once():
+    """⚠ A GUARD AT THE WRONG GRANULARITY IS A GUARD THAT DOES NOT HOLD.
+
+    The pipeline checked free GPU memory once before the alpha sweep, but every alpha spawns
+    a FRESH subprocess that reloads the model, so the memory it checked for was gone by the
+    third arm. Measured 2026-09-15: all 24 Evo2 alpha arms died with
+    `OutOfMemoryError: tried to allocate 4.26 GiB, 1.72 GiB free` while two other processes
+    held 60.7 GB. The sweep was then left with no alpha=0 baseline and correctly refused to
+    choose an alpha — an entire phase lost, and phase D correctly skipped behind it.
+
+    The check must sit INSIDE the per-alpha loop, before each launch.
+    """
+    import inspect
+    from bgcbench.run import g9_alpha as G
+
+    src = inspect.getsource(G)
+    assert "_wait_for_gpu" in src, "no GPU guard at all"
+
+    # it must be called inside the alpha loop, before the subprocess is built
+    loop = src[src.index("for a in args.alphas:"):]
+    assert "_wait_for_gpu(" in loop, (
+        "the GPU guard is not inside the per-alpha loop; a once-per-sweep check is exactly "
+        "what let all 24 arms OOM")
+    assert loop.index("_wait_for_gpu(") < loop.index("subprocess.run"), (
+        "the guard runs after the arm is launched, which is too late")
+
+    # and it must not hard-block a machine with no GPU at all
+    fn = inspect.getsource(G._wait_for_gpu)
+    assert "return" in fn.split("except Exception:")[1][:60], (
+        "a missing nvidia-smi must return, not loop forever — that would hang CI")
