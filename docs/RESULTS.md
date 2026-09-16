@@ -67,25 +67,33 @@ QUESTION  unaided, how often does each weight state produce its own BGC class?
 MODEL     rows labelled per substrate
 ARM       de novo: no seed, no steering. W0 = base weights; W1n = pooled class-balanced
           adapter; W2_<CLASS> = per-class adapter
-METRIC    on-target = antiSMASH called the row's own class. Higher better. p = Fisher exact,
-          two-sided, Evo2 vs GenomeOcean on the same class
+METRIC    TWO endpoints, both reported. DETECTED = antiSMASH called ANY BGC ("is it a
+          cluster at all?"). ON-TARGET = it called the row's OWN class ("is it the right
+          cluster?"). on-target <= detected always; the gap is off-class production.
+          p = Fisher exact, two-sided, Evo2 vs GenomeOcean on the same class
 UNIT      counts out of n=200
 ```
 
-| class | Evo2 | GenomeOcean | p |
-|---|---|---|---|
-| ARYLPOLYENE | 16 | 21 | 0.49 |
-| TERPENE | 6 | 4 | 0.75 |
-| REDOX_COFACTOR | 3 | 1 | 0.62 |
-| RIPP | 0 | 1 | 1.00 |
-| W1n pooled | 3 | 1 | 0.62 |
-| W0 base | 0 | 0 | — |
+| class | Evo2 detected | Evo2 on-target | GO detected | GO on-target | p (det) | p (on-tgt) |
+|---|---|---|---|---|---|---|
+| ARYLPOLYENE | 16 | 16 | 21 | 21 | 0.49 | 0.49 |
+| TERPENE | 6 | 6 | 4 | 4 | 0.75 | 0.75 |
+| REDOX_COFACTOR | **6** | 3 | **3** | 1 | 0.50 | 0.62 |
+| RIPP | **1** | 0 | 1 | 1 | 1.00 | 1.00 |
+| W1n pooled | 3 | 3 | 1 | 1 | 0.62 | 0.62 |
+| W0 base | 0 | 0 | 0 | 0 | — | — |
 
 **Class distribution of the W1n de novo positives.** The pooled arm has no class channel, so
 "on-target in row C" simply means antiSMASH called that generation class C:
 
-* **Evo2, 3 on-target of 200** — RIPP 2 · ARYLPOLYENE 1 · TERPENE 0 · REDOX_COFACTOR 0
-* **GenomeOcean, 1 on-target of 200** — ARYLPOLYENE 1 · TERPENE 0 · RIPP 0 · REDOX_COFACTOR 0
+* **Evo2 — 3 detected of 200, all 3 on-target for some class** — RIPP 2 · ARYLPOLYENE 1 ·
+  TERPENE 0 · REDOX_COFACTOR 0
+* **GenomeOcean — 1 detected of 200, on-target** — ARYLPOLYENE 1 · TERPENE 0 · RIPP 0 ·
+  REDOX_COFACTOR 0
+
+Here detected and on-target agree: the pooled arm has no class channel, so every detection is
+"on-target" for whichever class antiSMASH assigned it. The two columns only diverge for a
+CLASS-BEARING arm, which can be conditioned on one class and produce another.
 
 ⚠ Both arms produced **12 and 4 raw detections** respectively (Evo2 3 generations × 4 rows,
 GO 1 × 4): the same handful of sequences counted once per class row. Only the on-target column
@@ -106,10 +114,12 @@ a cluster. Same zero, opposite causes.
 QUESTION  how much does continuing a real 64 nt core prefix add, and does it differ by model?
 MODEL     rows labelled per substrate
 ARM       seeded (_S1) vs de novo, same weight state. seed_len_nt = 64 is shared TASK
-METRIC    on-target /200. p(within) = seeded vs de novo, same model.
+METRIC    on-target and DETECTED, both. p(within) = seeded vs de novo, same model.
           p(across) = Evo2 vs GenomeOcean, both seeded
-UNIT      counts
+UNIT      counts out of 200, except the pooled rows (n as marked)
 ```
+
+**On-target** — the right class:
 
 | class | Evo2 de novo → seeded | p (within) | GO de novo → seeded | p (within) | **p (across, seeded)** |
 |---|---|---|---|---|---|
@@ -119,11 +129,30 @@ UNIT      counts
 | REDOX_COFACTOR | 3 → 3 | — | 1 → 1 | — | 0.62 |
 | W1n pooled | 3/200 → **94/800** | — | 1/200 → **60/800** | — | **0.0050** |
 
+**Detected** — any BGC at all. Same conclusions, so they do not depend on which endpoint you read:
+
+| class | Evo2 de novo → seeded | p (within) | GO de novo → seeded | p (within) | **p (across, seeded)** |
+|---|---|---|---|---|---|
+| ARYLPOLYENE | 16 → **73** | 4.0e-12 | 21 → **50** | 2.1e-04 | **0.017** |
+| TERPENE | 6 → **41** | 3.2e-08 | 4 → **19** | 2.0e-03 | **0.0030** |
+| RIPP | 1 → 5 | 0.22 | 1 → 2 | 1.00 | 0.45 |
+| REDOX_COFACTOR | **6 → 11** | 0.32 | **3 → 6** | 0.50 | 0.32 |
+| W1n pooled | 3/200 → **101/800** | — | 1/200 → **66/800** | — | **0.0053** |
+| W0 base | 0/200 → 0/800 | — | 0/200 → **9/800** | — | — |
+
 **Class distribution of the W1n seeded positives.** Each class contributes its own 200 seeded
 generations here, so these are four independent 200-draw cells, not one pooled 800:
 
-* **Evo2, 94 on-target of 800** — ARYLPOLYENE **62**/200 · TERPENE **27**/200 · REDOX_COFACTOR 3/200 · RIPP 2/200
-* **GenomeOcean, 60 on-target of 800** — ARYLPOLYENE **50**/200 · TERPENE **8**/200 · RIPP 2/200 · REDOX_COFACTOR 0/200
+* **Evo2 — 94 on-target of 800 (101 detected)**
+  * ARYLPOLYENE **62** on-target of 200 · 62 detected
+  * TERPENE **27** of 200 · 27 detected
+  * REDOX_COFACTOR **3** of 200 · **10 detected** — 7 off-class
+  * RIPP **2** of 200 · 2 detected
+* **GenomeOcean — 60 on-target of 800 (66 detected)**
+  * ARYLPOLYENE **50** on-target of 200 · 51 detected
+  * TERPENE **8** of 200 · 8 detected
+  * RIPP **2** of 200 · **4 detected** — 2 off-class
+  * REDOX_COFACTOR **0** of 200 · **3 detected** — all 3 off-class
 
 ⚠ **The pooled totals are dominated by one class.** ARYLPOLYENE alone is 62 of Evo2's 94 (66%)
 and 50 of GenomeOcean's 60 (83%); with TERPENE it is 95% and 97%. RIPP and REDOX_COFACTOR
@@ -161,20 +190,26 @@ MODEL     rows labelled per substrate
 ARM       I1 = derived direction at that class's own chosen α and site set;
           I1rand = random unit vectors, SAME norm, SAME sites, SAME α (SPEC §6.3);
           I1xS1 = steering composed with seeding
-METRIC    on-target /200; p = Fisher exact, two-sided
-UNIT      counts
+METRIC    on-target, with DETECTED in parentheses where the two differ; p = Fisher exact,
+          two-sided, on the on-target endpoint
+UNIT      counts out of 200
 ```
 
 | model | class | α / sites | unsteered | I1 | p | I1rand | p (I1 vs rand) | seeded | I1xS1 | p |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Evo2 | ARYLPOLYENE | 0.1 / 4 of 4 | 16 | 23 | 0.31 | 16 | 0.31 | 73 | 70 | 0.84 |
+| Evo2 | ARYLPOLYENE | 0.1 / 4 of 4 | 16 | 23 (det 24) | 0.31 | 16 | 0.31 | 73 | 70 | 0.84 |
 | Evo2 | TERPENE | 0.4 / 1 of 4 | 6 | 2 | 0.28 | 0 | 0.50 | 41 | **3** | **<0.001** |
-| Evo2 | RIPP | 0.4 / 4 of 4 | 0 | 0 | 1.00 | 0 | 1.00 | 5 | 0 | 0.061 |
-| Evo2 | REDOX_COFACTOR | 0.075 / 4 of 4 | 3 | 0 | 0.25 | 0 | 1.00 | 3 | 3 | 1.00 |
+| Evo2 | RIPP | 0.4 / 4 of 4 | 0 (det 1) | 0 | 1.00 | 0 | 1.00 | 5 | 0 | 0.061 |
+| Evo2 | REDOX_COFACTOR | 0.075 / 4 of 4 | 3 (det 6) | 0 (**det 4**) | 0.25 | 0 (det 1) | 1.00 | 3 (det 11) | 3 (**det 12**) | 1.00 |
 | GO | ARYLPOLYENE | 0.4 / 1 of 24 | 21 | 25 | 0.64 | 16 | 0.19 | 50 | 65 | 0.12 |
 | GO | TERPENE | 0.05 / 8 of 24 | 4 | 1 | 0.37 | 4 | 0.37 | 19 | 26 | 0.34 |
-| GO | RIPP | 0.1 / 1 of 24 | 0 | 0 | 1.00 | 0 | 1.00 | 2 | 3 | 1.00 |
-| GO | REDOX_COFACTOR | 0.3 / 24 of 24 | 1 | 0 | 1.00 | 0 | 1.00 | 1 | 0 | 1.00 |
+| GO | RIPP | 0.1 / 1 of 24 | 1 | 0 | 1.00 | 0 | 1.00 | 2 | 3 | 1.00 |
+| GO | REDOX_COFACTOR | 0.3 / 24 of 24 | 1 (det 3) | 0 | 1.00 | 0 | 1.00 | 1 (det 6) | 0 | 1.00 |
+
+⚠ **Evo2 REDOX_COFACTOR is the one cell where steering moves the DETECTION endpoint while
+leaving on-target at zero.** I1 produces 4 BGCs where the random control produces 1, and
+I1xS1 produces 12 where seeding alone produces 11 — and *none of them* is a REDOX_COFACTOR.
+Whatever the direction is doing there, it is not making the target class.
 
 **Of 24 steering contrasts, exactly one reaches significance, and it is negative:** steering
 Evo2 TERPENE at α=0.4 collapses the seeded arm from 41/200 to 3/200. Every I1-vs-unsteered and
@@ -200,6 +235,46 @@ results are already null** — all three are 0-or-2-of-200 for the real arm too 
 cells carrying any signal (both ARYLPOLYENE) have healthy controls. So it is a disclosable
 limitation, not a reason to re-run.
 
+## 4b. Off-class production — where detected and on-target diverge
+
+In most cells the two endpoints are identical: the model either makes the right cluster or makes
+nothing. **The exception is REDOX_COFACTOR, in every arm of both models**, and it changes what a
+zero there means.
+
+```
+QUESTION  when a model produces a recognisable BGC, is it the class it was conditioned on?
+MODEL     rows labelled per substrate
+ARM       every cell where detected > on-target
+METRIC    detected / on-target, and precision = on-target / detected
+UNIT      counts out of 200 (W1n seeded out of 800)
+```
+
+| model | arm | detected | on-target | precision |
+|---|---|---|---|---|
+| Evo2 | W2 REDOX de novo | 6 | 3 | 0.50 |
+| Evo2 | W2 REDOX seeded | 11 | 3 | 0.27 |
+| Evo2 | I1 REDOX | 4 | **0** | **0.00** |
+| Evo2 | I1xS1 REDOX | 12 | 3 | 0.25 |
+| Evo2 | W2 RIPP de novo | 1 | **0** | **0.00** |
+| Evo2 | I1 ARYLPOLYENE | 24 | 23 | 0.96 |
+| Evo2 | W1n seeded | 101 | 94 | 0.93 |
+| GO | W2 REDOX de novo | 3 | 1 | 0.33 |
+| GO | W2 REDOX seeded | 6 | 1 | 0.17 |
+| GO | W1n seeded | 66 | 60 | 0.91 |
+
+Every other cell in the benchmark is at precision 1.00.
+
+⚠ **This means REDOX_COFACTOR is not "unreachable" — it is MIS-HIT.** Evo2's seeded REDOX arm
+produces 11 recognisable clusters per 200 and 8 of them are some other class. The model is
+building BGC-like sequence and antiSMASH is confidently calling it something else. That is a
+different failure from RIPP, where almost nothing is produced at all (1-5 detections per 200),
+and a different failure again from a model that produces nothing (base W0, 0/200).
+
+⚠ **It also means the on-target rate alone understates BGC production.** Reading only the
+on-target column, Evo2's REDOX arms look like a flat 3/200 across de novo, seeded and steered.
+Reading detection, seeding takes it 6 → 11 and steering-plus-seeding 11 → 12. Neither movement
+is significant (p=0.32, p=1.00), but the arm is not inert the way the on-target column suggests.
+
 ## 5. What this benchmark says
 
 1. **Unaided, neither model generates BGCs at a useful rate**, and they are statistically
@@ -210,10 +285,16 @@ limitation, not a reason to re-run.
    signal — the benchmark's clearest cross-model claim.
 4. **Activation steering does not move the endpoint** on either architecture, at magnitudes
    chosen per class against generation health, with or without seeding.
-5. **Two classes are unreachable for both models.** RIPP and REDOX_COFACTOR never exceed 5/200
-   in any of the 48 arms, so "no effect" there is uninformative rather than negative: at 0/200
-   the rule of three puts the 95% upper bound at 0.015, and no arm has the power to resolve
-   differences that small.
+5. **Two classes are out of reach, but for DIFFERENT reasons** — a distinction visible only
+   once detection is read alongside on-target (§4b).
+   * **RIPP is not produced.** It never exceeds 5 detections per 200 in any of the 48 arms, on
+     either model. "No effect" there is uninformative rather than negative: at 0/200 the rule of
+     three puts the 95% upper bound at 0.015, and no arm has the power to resolve that.
+   * **REDOX_COFACTOR is produced and MIS-CLASSED.** Evo2's seeded arm detects 11 per 200 and is
+     on-target for 3 (precision 0.27); its steered arm detects 4 and is on-target for **none**.
+     The model is building BGC-like sequence that antiSMASH assigns to another class. Calling
+     this "unreachable" would misdescribe it, and calling the on-target zero a generation
+     failure would too.
 
 ## Reporting status
 
