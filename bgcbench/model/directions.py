@@ -35,6 +35,66 @@ from bgcbench.model.interventions import attention_sites, site_report
 #: magnitude for the direction there to be signal rather than rounding.
 MIN_RELATIVE_NORM = 1e-3
 
+#: Seed for the val A/B partition. Fixed so the two halves are reproducible from the
+#: splits alone, without persisting an index list.
+VAL_SPLIT_SEED = 20260915
+
+
+def val_halves(records: list[dict], seed: int = VAL_SPLIT_SEED) -> tuple[list, list]:
+    """Partition a val split into two DISJOINT halves: A for selection, B for the check.
+
+    ⚠ WHY THIS EXISTS -- THE CHECK WAS SELECTING ON ITSELF. `g9_sites` picks an injection
+    site set by reading the per-site train/val cosines out of the direction artifact, and
+    those cosines were computed on val. Re-reading the SPEC 6.4 manipulation check at the
+    chosen sites then returns, by construction, the quantity the selection just maximised
+    subject to admissibility: the arm is selected for passing and the pass is reported as
+    evidence. Measured on GenomeOcean, TERPENE's `all` set reads mean cosine 0.544 with a
+    site at -0.083 (inadmissible) while the selected `early_third` reads 0.655 / +0.420 --
+    the selection moved the number that decides the gate.
+
+    ⚠ IT DOES NOT BITE EVO2 EQUALLY, which is why it survived. With 4 attention sites the
+    candidate sets are few and `all` was admissible without selection for ARYLPOLYENE; with
+    24 sites the subset that passes is always findable, so on GenomeOcean the rule degenerates
+    into "search until the check passes".
+
+    Selection reads half A, the check reads half B, and nothing reads both. The direction
+    itself is still derived on TRAIN, so the cosine remains a train-vs-held-out comparison
+    either way -- what changes is that the half deciding the gate was never optimised over.
+    """
+    import random
+    idx = list(range(len(records)))
+    random.Random(seed).shuffle(idx)
+    mid = len(idx) // 2
+    a = [records[i] for i in sorted(idx[:mid])]
+    b = [records[i] for i in sorted(idx[mid:])]
+    return a, b
+
+
+def restrict(directions: "torch.Tensor", sites: list[int] | None) -> "torch.Tensor":
+    """Zero every site outside `sites`, keeping the tensor's shape.
+
+    Shape is preserved rather than sliced so the row index stays the model's site index
+    everywhere downstream -- SPEC 6.5 requires the realised site set be reportable, and a
+    re-indexed tensor makes "site 3" ambiguous between the model's and the subset's.
+    Mirrors `load.attach_direction`, so the configuration a check is read at and the one an
+    arm generates with are produced by the same operation.
+    """
+    if sites is None:
+        return directions
+    keep = {int(i) for i in sites}
+    bad = [i for i in keep if i < 0 or i >= directions.shape[0]]
+    if bad:
+        raise ValueError(f"site indices {sorted(bad)} out of range for "
+                         f"{directions.shape[0]} sites")
+    d = directions.clone()
+    for i in range(d.shape[0]):
+        if i not in keep:
+            d[i] = 0.0
+    if not float(d.norm()):
+        raise ValueError(f"site subset {sorted(keep)} leaves no live direction; every "
+                         f"selected site is degenerate")
+    return d
+
 
 class _MeanCollector:
     """Accumulates a mean of each attention site's output, weighted PER RECORD.
@@ -223,7 +283,7 @@ def projection(sub, records: list[dict], directions: torch.Tensor, prefix_kind: 
 def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
                        train_directions: torch.Tensor, prefix_kind: str, max_len_nt: int,
                        device: str = "cuda:0", limit: int | None = None,
-                       alpha: float = 1.0) -> dict:
+                       alpha: float = 1.0, sites: list[int] | None = None) -> dict:
     """SPEC 6.4 for I1: does the injected direction move an INDEPENDENT readout of class?
 
     ⚠ THE OBVIOUS CHECK IS CIRCULAR AND THIS DELIBERATELY IS NOT IT. Injecting `alpha * d`
@@ -250,7 +310,12 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
         raise RuntimeError("a validation readout has zero norm; the check cannot be read")
     d_val = raw / norms.unsqueeze(-1)
 
-    d_tr = train_directions.to(d_val.device, d_val.dtype)
+    # ⚠ THE CHECK IS READ AT THE SITE SET THE ARM ACTUALLY STEERS. Restricting here rather
+    # than at the call site means `active` below is derived from the restricted tensor, so
+    # the cosine mean, the anti-alignment test and the injection all describe one
+    # configuration. Reading the check at "all sites" and then generating at a subset is how
+    # GenomeOcean's four directions were refused for a configuration no arm used.
+    d_tr = restrict(train_directions, sites).to(d_val.device, d_val.dtype)
     cos = (d_tr * d_val).sum(dim=-1)
 
     before = projection(sub, val_target, d_val, prefix_kind, max_len_nt, device, limit)
@@ -266,8 +331,22 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
     # decimals (-0.4697 vs -0.4697) while site 2 came out -0.456 against a predicted +0.611.
     # An earlier version compared all sites to alpha*cos and would have read propagation as
     # a defect.
-    expected_first = alpha * float(cos[0])
     cosl = [float(c) for c in cos]
+    # ⚠ "FIRST" MEANS FIRST **STEERED**, NOT MODEL SITE 0, and this line had it wrong in the
+    # same revision that fixed it in `projection_vs_alpha`. `restrict` zeroes every row
+    # outside the chosen set, so for a subset that excludes site 0 the hook there adds
+    # alpha*0; site 0 being the shallowest attention site there is nothing upstream to
+    # perturb it, so `after[0] == before[0]` BITWISE and `shift[0]` is exactly 0.0. The
+    # `shift[0] != 0.0` conjunct below then forced passes=False for any such subset however
+    # good the direction was -- while `first_site_agrees` simultaneously recorded True
+    # (|0-0| < 1e-2), so the artifact claimed a confirmed first-site prediction at a site it
+    # never steered. Replayed on the recorded candidate rows, that is Evo2 ARYLPOLYENE ([1])
+    # and GenomeOcean TERPENE ([4]), ARYLPOLYENE ([12]) and RIPP ([8..15]) -- reinstating the
+    # exact refusal this revision exists to remove, and disguising it as a quality failure.
+    active = [i for i in range(len(cosl)) if float(d_tr[i].norm()) > 0]
+    active = active or list(range(len(cosl)))
+    first = active[0]
+    expected_first = alpha * float(cos[first])
 
     # ⚠ AVERAGE OVER THE SITES THE ARM ACTUALLY STEERS. A degenerate site's direction is
     # zeroed by `derive()`, so its cosine is identically 0 -- that is an EXCLUSION, not a
@@ -275,8 +354,6 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
     # not touch. Measured: ARYLPOLYENE at 192 records per side reads 0.230 over all four
     # sites and 0.307 over the three active ones, which is the difference between FAIL and
     # PASS on the same data.
-    active = [i for i in range(len(cosl)) if float(d_tr[i].norm()) > 0]
-    active = active or list(range(len(cosl)))
     mean_cos = sum(cosl[i] for i in active) / len(active)
     return {
         "alpha": float(alpha),
@@ -288,9 +365,11 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
         "readout_before": before,
         "readout_after": after,
         "shift": shift,
-        "first_site_shift": shift[0],
+        "first_steered_site": first,
+        "first_site_shift": shift[first],
         "first_site_shift_expected": expected_first,
-        "first_site_agrees": bool(abs(shift[0] - expected_first) < 1e-2 * max(1.0, abs(expected_first))),
+        "first_site_agrees": bool(abs(shift[first] - expected_first)
+                                  < 1e-2 * max(1.0, abs(expected_first))),
         # The PRIMARY evidence is the cosine: a train direction that is real class content
         # aligns with one derived independently on held-out records. A noise direction does
         # not, and no amount of injection makes it.
@@ -298,22 +377,26 @@ def manipulation_check(sub, val_target: list[dict], val_other: list[dict],
         # another is ANTI-aligned, which is not a direction that landed. ARYLPOLYENE at 64
         # records per side has sites [-0.18, 0.038, 0.616]: a mean of 0.156 and a site
         # pointing the wrong way. Both conditions are required.
+        "site_subset": (sorted(int(i) for i in sites) if sites is not None else None),
         "passes": bool(mean_cos > 0.3
                        and min(cosl[i] for i in active) > 0.0
-                       and shift[0] != 0.0),
+                       and shift[first] != 0.0),
         "criterion": ("over the sites the arm actually steers (degenerate sites excluded, "
                       "not counted as zero): mean train/val direction cosine > 0.3 AND no "
-                      "active site anti-aligned (min cosine > 0) AND the first site's "
-                      "readout moves. The first site is the only one whose shift is "
+                      "active site anti-aligned (min cosine > 0) AND the FIRST STEERED "
+                      "site's readout moves. That site is the only one whose shift is "
                       "predictable in closed form, because injection propagates through "
-                      "the later sites."),
+                      "the later sites. It is the lowest STEERED index, not model site 0: "
+                      "an unsteered site 0 shifts by exactly zero and would fail every "
+                      "subset that excludes it."),
     }
 
 
 @torch.no_grad()
 def projection_vs_alpha(sub, records: list[dict], directions: torch.Tensor,
                         prefix_kind: str, max_len_nt: int, alphas: list[float],
-                        device: str = "cuda:0", limit: int | None = None) -> dict:
+                        device: str = "cuda:0", limit: int | None = None,
+                        sites: list[int] | None = None) -> dict:
     """SPEC 6 I1 check (a): projection onto `d` rises monotonically with α.
 
     ⚠ CIRCULAR BY DESIGN, and kept anyway. Injecting `α·d` raises the projection onto `d` by
@@ -326,7 +409,7 @@ def projection_vs_alpha(sub, records: list[dict], directions: torch.Tensor,
     from bgcbench.model.interventions import DirectionInjection
 
     base = sub.model.model if sub.family == "evo2" else sub.model
-    d = directions
+    d = restrict(directions, sites)
     proj = []
     for a in alphas:
         if a == 0:
@@ -341,16 +424,50 @@ def projection_vs_alpha(sub, records: list[dict], directions: torch.Tensor,
     active = [i for i in range(n_sites) if float(d[i].norm()) > 0]
     mono = {i: all(per_site[i][k + 1] >= per_site[i][k] - 1e-6
                    for k in range(len(alphas) - 1)) for i in active}
+    # ⚠ THE GATE IS THE FIRST STEERED SITE, AND THE REST IS EVIDENCE. This function used to
+    # require monotonicity at EVERY steered site, which contradicts what its own sibling
+    # `manipulation_check` documents three functions up: the sites are IN SERIES, injection
+    # at site 0 perturbs the input to every later site, and only the first site's response
+    # is predictable in closed form. `manipulation_check` records that an earlier version
+    # "would have read propagation as a defect" and fixed it there; this check kept the bug.
+    #
+    # ⚠ AND IT IS AN ORDER STATISTIC, SO IT SCALES WITH SITE COUNT. all-of-them over 4 sites
+    # and all-of-them over 24 are not the same requirement. Measured on GenomeOcean at the
+    # retired alpha grid, RIPP and REDOX_COFACTOR failed this check and NOTHING else --
+    # RIPP on site 23 alone, REDOX on sites 2/8/12/23, all of them downstream of up to 23
+    # upstream injections -- while both passed the substantive train/val cosine check
+    # outright (0.566 and 0.818 mean, no anti-aligned site). Evo2, with 3 live sites, never
+    # tripped it. That is the check's geometry talking, not the substrate's.
+    #
+    # What the check EXISTS to catch is named in the docstring above: a hook that did not
+    # attach, a site set that does not match the directions, a magnitude that is not what
+    # alpha says. The first steered site detects every one of those, in the only place the
+    # response is uncontaminated by propagation.
+    first = active[0] if active else None
+    n_mono = sum(1 for v in mono.values() if v)
     return {"alphas": list(alphas), "projection_per_site": per_site,
             "active_sites": active, "monotone_per_site": mono,
-            "passes": bool(active) and all(mono.values()),
-            "criterion": "projection onto d non-decreasing in alpha at every steered site"}
+            "site_subset": (sorted(int(i) for i in sites) if sites is not None else None),
+            "first_steered_site": first,
+            "first_site_monotone": bool(first is not None and mono[first]),
+            "n_sites_monotone": n_mono, "n_sites_steered": len(active),
+            "frac_sites_monotone": (n_mono / len(active)) if active else None,
+            "passes": bool(first is not None and mono[first]),
+            "criterion": ("projection onto d non-decreasing in alpha at the FIRST steered "
+                          "site -- the only site whose response to injection is not "
+                          "confounded by propagation from the sites upstream of it. "
+                          "Monotonicity at the remaining steered sites is reported as "
+                          "evidence (n_sites_monotone) but does not gate: requiring it at "
+                          "every site is an order statistic over site count, which makes "
+                          "the same direction quality fail on a 24-layer stack and pass on "
+                          "a 4-site one.")}
 
 
 @torch.no_grad()
 def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_kind: str,
                     max_len_nt: int, alpha: float, device: str = "cuda:0",
-                    limit: int | None = None, min_kl: float = 1e-3) -> dict:
+                    limit: int | None = None, min_kl: float = 1e-3,
+                    sites: list[int] | None = None) -> dict:
     """SPEC 6 I1 check (b): the steered next-token distribution differs from the unsteered one.
 
     ⚠ THIS IS THE PART THAT LICENSES READING A NULL. (a) shows the hook fired and (c) shows
@@ -368,7 +485,8 @@ def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_k
     from bgcbench.model.train import _unwrap
 
     base = sub.model.model if sub.family == "evo2" else sub.model
-    iv = DirectionInjection(base, int(directions.shape[-1]), directions, float(alpha))
+    d = restrict(directions, sites)
+    iv = DirectionInjection(base, int(d.shape[-1]), d, float(alpha))
     iv = iv.to(next(base.parameters()).device)
 
     kls, tops = [], []
@@ -391,13 +509,28 @@ def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_k
     if not kls:
         raise RuntimeError("no records produced logits; the KL check measured nothing")
     mean_kl = sum(kls) / len(kls)
+    # ⚠ nats/TOKEN IS NOT COMPARABLE ACROSS SUBSTRATES and this number is read across them.
+    # Evo2's token is 1 nt; GenomeOcean's is ~4.8 nt, so the same disruption per nucleotide
+    # reads ~4.8x larger on GO. The project has already been bitten once by putting Evo2's
+    # nats/NUCLEOTIDE beside GO's nats/TOKEN in adjacent rows (CLAUDE.md), and this module's
+    # own `alpha_for_target_kl` docstring still asserts GO is "far outside any usable range"
+    # on the strength of the unconverted figure. Measured at alpha=1 on the all-sites
+    # configuration, per NUCLEOTIDE: GO 0.86-1.86 against Evo2 0.83-1.74 -- the same regime.
+    # The real asymmetry is `frac_argmax_changed` (GO 98-99%, Evo2 64-72%), which is a rate
+    # and needs no conversion. Both are reported so neither has to be recomputed by a reader.
+    nt_per_token = float(getattr(sub, "approx_nt_per_token", 1.0) or 1.0)
     return {"alpha": float(alpha), "mean_kl_nats": mean_kl,
+            "mean_kl_nats_per_nt": mean_kl / nt_per_token,
+            "nt_per_token": nt_per_token,
             "per_record_kl": kls, "n_records": len(kls),
             "frac_argmax_changed": sum(tops) / len(tops),
             "min_kl": min_kl,
+            "site_subset": (sorted(int(i) for i in sites) if sites is not None else None),
             "passes": bool(mean_kl > min_kl),
             "criterion": (f"mean KL(steered || unsteered) over next-token distributions "
-                          f"> {min_kl} nats/position -- the intervention reached the output")}
+                          f"> {min_kl} nats/TOKEN -- the intervention reached the output. "
+                          f"mean_kl_nats_per_nt is the cross-substrate-comparable form; "
+                          f"nats/token is not (this substrate: {nt_per_token} nt/token)")}
 
 
 @torch.no_grad()
@@ -407,15 +540,25 @@ def alpha_for_target_kl(sub, records, directions, prefix_kind, max_len_nt,
                         iters: int = 8) -> dict:
     """Find the α at which injection produces a TARGET effect size, not a target magnitude.
 
-    ⚠ WHY THIS EXISTS. A probe α is a knob, and the same knob setting means wildly different
-    things on different models: at α = 1 Evo2-1B sits at KL 0.197 nats/position while
-    GenomeOcean-4B sits at 3.44-7.81 with ~98% of next-token choices flipped — far outside
-    any usable range. Probing both at α = 1 measures one model in its working regime and the
-    other in its wreckage, and then reads the wreckage as a failed monotonicity check.
+    ⚠ THIS FUNCTION IS NOT ON THE GATE PATH, AND ITS ORIGINAL JUSTIFICATION WAS A UNIT ERROR.
+    It was written on the claim that "at α = 1 Evo2-1B sits at KL 0.197 nats/position while
+    GenomeOcean-4B sits at 3.44-7.81 ... far outside any usable range", i.e. that one model
+    was being probed in its working regime and the other in wreckage. Those two figures are
+    in DIFFERENT UNITS: nats per Evo2 token is nats per NUCLEOTIDE, nats per GenomeOcean
+    token is nats per ~4.8 nucleotides. Measured on the trained per-class adapters at α = 1,
+    converted to nats/NUCLEOTIDE, GO reads 0.86-1.86 against Evo2's 0.83-1.74 — the same
+    regime, not a 5x gap. `kl_vs_unsteered` now returns `mean_kl_nats_per_nt` so the
+    comparable quantity is the one to hand.
 
-    This is the same lesson §20.1 records for the random-direction control: matching on the
-    nominal magnitude is the wrong invariant, and matching on the realised EFFECT is the
-    right one. Bisects α so mean KL against unsteered lands near `target_kl`.
+    ⚠ AND MATCHING ON REALISED EFFECT IS ITSELF A CROSS-SUBSTRATE MATCH, which SPEC §14A
+    forbids: "probe magnitude" is named there as a TREATMENT parameter, chosen per substrate
+    by measurement, not equalised. Checks (a) and (b) are therefore read at the substrate's
+    OWN generation α grid — the magnitudes the arm actually runs at — which is per-substrate
+    by construction and needs no calibration.
+
+    Kept because bisecting α to a target effect is still the right tool if a future gate
+    needs a magnitude it cannot read off the generation grid. Bisects α so mean KL against
+    unsteered lands near `target_kl`, in nats/TOKEN.
     """
     def kl_at(a):
         return kl_vs_unsteered(sub, records, directions, prefix_kind, max_len_nt,

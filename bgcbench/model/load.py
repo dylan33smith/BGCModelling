@@ -402,6 +402,38 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     # of "every attention site". `sites` restricts injection to chosen indices by zeroing
     # every other row, which keeps the direction tensor the same shape as the site list the
     # model exposes -- so the realised coverage is still recorded honestly (§6.5).
+    # ⚠ THE SITE SET DEFAULTS TO THE ONE THE CHECK WAS READ AT, NOT TO "all of them".
+    # `g9_sites --finalize` writes `chosen_sites` into the artifact alongside a
+    # `manipulation_check` read at exactly those sites. A caller that passed nothing used to
+    # get every site -- a configuration the check does not describe and no gate ever saw.
+    chosen = ck.get("chosen_sites")
+    if sites is None and chosen is not None:
+        sites = [int(i) for i in chosen]
+        print(f"site set resolved from the direction artifact: {sites} "
+              f"({ck.get('chosen_site_set')})", flush=True)
+    elif (sites is not None and chosen is not None
+          and sorted(int(i) for i in sites) != sorted(int(i) for i in chosen)):
+        # Not a warning. The artifact's check_all_pass describes `chosen`; running `sites`
+        # means the gate that licensed this arm was read on a different arm.
+        raise ValueError(
+            f"--sites {sorted(int(i) for i in sites)} does not match the site set this "
+            f"direction's SPEC 6.4 check was read at ({sorted(int(i) for i in chosen)}). "
+            f"The check would be describing a different configuration than the one "
+            f"generating. Re-run g9_sites --finalize at the site set you want, or drop "
+            f"--sites to use the checked one.")
+    elif sites is not None and chosen is None:
+        # ⚠ THE GUARD ABOVE WAS ONE-SIDED. An artifact with no `chosen_sites` predates
+        # `g9_sites --finalize`, so its check was read at ALL sites; running a SUBSET against
+        # it is the same mismatch, just in the direction the elif above does not cover. This
+        # is not hypothetical -- every Evo2 direction currently on disk is in exactly this
+        # state, and phaseC/phaseD pass --sites from the g9sites JSON, so REDOX_COFACTOR and
+        # RIPP were already generating at 1 of 4 sites against a 4-site check.
+        raise ValueError(
+            f"--sites {sorted(int(i) for i in sites)} was given, but {path} carries no "
+            f"`chosen_sites`: its SPEC 6.4 check was read at ALL sites, not at this subset. "
+            f"A check read on a different configuration cannot license this arm. Re-run "
+            f"run.derive_directions then g9_sites --finalize for this direction, or drop "
+            f"--sites to generate at the configuration the check actually describes.")
     if sites is not None:
         keep = set(int(i) for i in sites)
         d0 = ck["directions"]
@@ -420,14 +452,27 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
         # ⚠ THE CONTROL MUST STEER THE SAME SITES. A site the real arm leaves alone because
         # it carries no class signal must be left alone here too, or the control pushes on
         # an axis the arm never touches and stops being magnitude-matched.
-        deg = ck.get("degenerate_sites") or []
-        if deg:
+        #
+        # ⚠ THAT USED TO MEAN DEGENERATE SITES ONLY, WHICH WAS COMPLETE ONLY WHILE EVERY ARM
+        # STEERED EVERY SITE. Once a direction carries `chosen_sites`, the real arm steers a
+        # SUBSET and this control still pushed on all of them -- on GenomeOcean's TERPENE
+        # that is 8 sites against 24, so I1-vs-random would have compared a subset-steered
+        # arm with a control pushing 3x as many sites at the same alpha. The comparison SPEC
+        # 6.3 exists to make is "same magnitude, same sites, different content".
+        deg = list(ck.get("degenerate_sites") or [])
+        subset = ck.get("site_subset")
+        silent = set(deg)
+        if subset is not None:
+            silent |= {i for i in range(iv.directions.shape[0]) if i not in set(subset)}
+        if silent:
             with torch.no_grad():
-                for i in deg:
+                for i in sorted(silent):
                     iv.directions[i] = 0.0
         sub.meta["intervention_kind"] = "i1_random"
         sub.meta["intervention_random_seed"] = int(randomise)
         sub.meta["intervention_degenerate_sites"] = list(deg)
+        sub.meta["intervention_active_sites"] = sorted(
+            i for i in range(iv.directions.shape[0]) if i not in silent)
     else:
         d = ck["directions"]
         if d.shape[-1] != hidden:
@@ -435,7 +480,12 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
         iv = DirectionInjection(base, hidden, d, alpha)
         sub.meta["intervention_kind"] = "i1"
         sub.meta["intervention_degenerate_sites"] = list(ck.get("degenerate_sites") or [])
-        sub.meta["intervention_active_sites"] = list(ck.get("active_sites") or [])
+        # ⚠ READ OFF THE TENSOR, NOT OFF `active_sites`. The derivation's `active_sites` is
+        # every non-degenerate site; a subset-steered arm touches fewer. Reporting the
+        # derivation's list would overstate the realised coverage that SPEC 6.5 requires,
+        # and by exactly the amount the site sweep narrowed it (24 -> 8 on GO TERPENE).
+        sub.meta["intervention_active_sites"] = [i for i in range(d.shape[0])
+                                                 if float(d[i].norm()) > 0]
     iv = iv.to(dev)
     # ⚠ THE DIRECTION MUST MATCH THE WEIGHT STATE IT STEERS. A direction derived on a LoRA
     # describes that model's activation geometry; injected into the base model, or into a

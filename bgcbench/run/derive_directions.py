@@ -49,9 +49,12 @@ def main() -> int:
                     help="records per side. The mean is over TOKENS, so 64 records at "
                          "~3,000 nt is ~200k positions per site -- ample for a mean.")
     ap.add_argument("--max-len-nt", type=int, default=corpus_max_len())
-    ap.add_argument("--check-alpha", type=float, default=1.0,
-                    help="alpha used ONLY for the SPEC 6.4 manipulation check, to show the "
-                         "direction lands. Not the swept generation alpha (G9).")
+    ap.add_argument("--check-alpha", type=float, default=None,
+                    help="alpha for the SPEC 6.4 checks. ⚠ DEFAULTED TO 1.0 FOR BOTH "
+                         "SUBSTRATES, which SPEC §14A forbids -- probe magnitude is a "
+                         "TREATMENT parameter, chosen per substrate. Omit to use the top "
+                         "rung of this substrate's own generation grid, so the check is "
+                         "read at a magnitude the arm actually runs at.")
     ap.add_argument("--name", default=None)
     args = ap.parse_args()
 
@@ -74,20 +77,40 @@ def main() -> int:
         sub = attach_adapter(sub, adapter)
         print(f"derived on adapter {adapter}", flush=True)
 
+    from bgcbench.model.substrate_config import alpha_grid, max_alpha
+    grid = alpha_grid(sub.family)
+    if args.check_alpha is None:
+        args.check_alpha = max_alpha(sub.family)
+        print(f"check alpha resolved from substrate ({sub.family}) generation grid: "
+              f"{args.check_alpha} (grid {grid})", flush=True)
+
     others = [c for c in BENCHMARK_CLASSES if c != args.target]
     tr_t = _load(SPLITS / args.target / "train.jsonl", args.target)
     tr_o: list[dict] = []
     per = max(1, args.limit // len(others))
     for c in others:
         tr_o += _load(SPLITS / c / "train.jsonl", c)[:per]
-    va_t = _load(SPLITS / args.target / "val.jsonl", args.target)
+
+    # ⚠ VAL IS PARTITIONED, AND WHICH HALF READS WHAT IS THE WHOLE POINT. Half A is what
+    # `g9_sites` selects the injection site set on; half B is what the SPEC 6.4 check is
+    # read on. Nothing reads both. Before this split, site selection maximised the per-site
+    # cosines out of the manipulation check and the check was then re-read on the same
+    # records -- the arm was selected for passing and the pass was reported as the evidence.
+    # See `directions.val_halves` for the measurement that exposed it.
+    va_t_a, va_t_b = D.val_halves(_load(SPLITS / args.target / "val.jsonl", args.target))
+    va_o_a: list[dict] = []
+    va_o_b: list[dict] = []
+    for c in others:
+        a, b = D.val_halves(_load(SPLITS / c / "val.jsonl", c))
+        va_o_a += a[:per]
+        va_o_b += b[:per]
 
     tbl = None
     taxonomy = None
     if args.prefix == "taxonomy":
         from bgcbench.data import taxonomy
         tbl = taxonomy.load_table()
-        for grp in (tr_t, tr_o, va_t):
+        for grp in (tr_t, tr_o, va_t_a, va_t_b, va_o_a, va_o_b):
             taxonomy.attach(grp, tbl)
 
     print(f"deriving {args.target} from {min(len(tr_t), args.limit)} target / "
@@ -99,17 +122,39 @@ def main() -> int:
     art["adapter_requested"] = args.adapter
     art["code_version"] = code_version()
 
-    # SPEC 6.4 manipulation check, against a readout derived INDEPENDENTLY on the val split
-    # and measured WITH the injection attached. Projecting onto the injected vector itself
-    # would rise by exactly alpha for any vector, noise included, and could not fail.
-    va_o: list[dict] = []
-    for c in others:
-        va_o += _load(SPLITS / c / "val.jsonl", c)[:per]
-    if args.prefix == "taxonomy":
-        taxonomy.attach(va_o, tbl)
-    chk = D.manipulation_check(sub, va_t, va_o, art["directions"], args.prefix,
+    art["val_split_seed"] = D.VAL_SPLIT_SEED
+    art["check_alpha"] = float(args.check_alpha)
+    art["alpha_grid"] = grid
+
+    # ⚠ THE SELECTION READOUT, ON HALF A, AND IT IS NOT THE CHECK. `g9_sites` compares
+    # candidate site sets by their per-site train/val cosines; it must read them from a fold
+    # that the reported check does not touch, or choosing the site set and passing the check
+    # become the same operation. This is written to the artifact under a DIFFERENT key from
+    # `manipulation_check` so nothing downstream can confuse the two.
+    sel = D.manipulation_check(sub, va_t_a, va_o_a, art["directions"], args.prefix,
                                args.max_len_nt, limit=args.limit, alpha=args.check_alpha)
+    art["selection_readout"] = {
+        "fold": "val_A",
+        "cosine_train_val": sel["cosine_train_val"],
+        "mean_cosine": sel["mean_cosine"],
+        "min_active_cosine": sel["min_active_cosine"],
+        "active_sites_checked": sel["active_sites_checked"],
+        "purpose": ("site-set selection ONLY (g9_sites). NOT the SPEC 6.4 check and never "
+                    "reportable as one -- the site set is chosen to maximise these numbers "
+                    "subject to admissibility, so they cannot also be the evidence."),
+    }
+
+    # SPEC 6.4 manipulation check, on half B -- a fold neither the direction (train) nor the
+    # site selection (val_A) has seen. The readout is derived INDEPENDENTLY by the same
+    # difference-of-means recipe and measured WITH the injection attached. Projecting onto
+    # the injected vector itself would rise by exactly alpha for any vector, noise included,
+    # and could not fail.
+    chk = D.manipulation_check(sub, va_t_b, va_o_b, art["directions"], args.prefix,
+                               args.max_len_nt, limit=args.limit, alpha=args.check_alpha)
+    chk["fold"] = "val_B"
     art["manipulation_check"] = chk
+    print(f"selection readout  : mean cos {sel['mean_cosine']:.3f} "
+          f"min {sel['min_active_cosine']:+.3f}  [val_A, selection only]")
     print(f"raw norms per site : {[round(x, 3) for x in art['raw_norms']]}")
     print(f"relative norms     : {[round(x, 5) for x in art['relative_norms']]}")
     print(f"train/val cosine   : {[round(c, 3) for c in chk['cosine_train_val']]} "
@@ -118,10 +163,17 @@ def main() -> int:
     print(f"first-site shift   : {chk['first_site_shift']:.4f} vs predicted "
           f"{chk['first_site_shift_expected']:.4f} -> "
           f"{'agrees' if chk['first_site_agrees'] else 'DISAGREES'}")
-    # SPEC 6 parts (a) and (b). (c) is `chk` above. All three are required (12.A4).
-    mono = D.projection_vs_alpha(sub, va_t, art["directions"], args.prefix, args.max_len_nt,
-                                 alphas=[0.0, 0.5, 1.0, 2.0, 4.0], limit=min(args.limit, 16))
-    kl = D.kl_vs_unsteered(sub, va_t, art["directions"], args.prefix, args.max_len_nt,
+    # SPEC 6 parts (a) and (b), both on half B. (c) is `chk` above. All three are required
+    # (12.A4).
+    #
+    # ⚠ THE GRID IS THE SUBSTRATE'S OWN GENERATION GRID, NOT A HARD-CODED ONE. This swept
+    # [0.0, 0.5, 1.0, 2.0, 4.0] with the gate at alpha=1.0 -- a grid retired on 2026-09-15,
+    # three rungs of which are magnitudes no arm will ever generate at. A monotonicity
+    # failure at alpha=4 says nothing about an arm that runs at 0.4, and a reach measured at
+    # alpha=1 says nothing about whether the arm at 0.4 touches the output.
+    mono = D.projection_vs_alpha(sub, va_t_b, art["directions"], args.prefix, args.max_len_nt,
+                                 alphas=grid, limit=min(args.limit, 16))
+    kl = D.kl_vs_unsteered(sub, va_t_b, art["directions"], args.prefix, args.max_len_nt,
                            alpha=args.check_alpha, limit=min(args.limit, 16))
     art["check_a_monotone"] = mono
     art["check_b_kl"] = kl
@@ -129,7 +181,8 @@ def main() -> int:
     print(f"(a) monotone proj  : {'PASS' if mono['passes'] else 'FAIL'}  "
           f"{ {i: [round(v,3) for v in mono['projection_per_site'][i]] for i in mono['active_sites']} }")
     print(f"(b) KL vs unsteered: {'PASS' if kl['passes'] else 'FAIL'}  "
-          f"mean {kl['mean_kl_nats']:.5f} nats/pos at alpha={args.check_alpha}, "
+          f"mean {kl['mean_kl_nats']:.5f} nats/token = "
+          f"{kl['mean_kl_nats_per_nt']:.5f} nats/NT at alpha={args.check_alpha}, "
           f"argmax changed {kl['frac_argmax_changed']:.3f}")
     print(f"(c) reproduces     : {'PASS' if chk['passes'] else 'FAIL'} -- {chk['criterion']}")
     print(f"MANIPULATION CHECK : {'PASS' if art['check_all_pass'] else 'FAIL'} (all three required)")

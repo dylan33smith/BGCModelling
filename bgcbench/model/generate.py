@@ -102,6 +102,45 @@ def usable_seed_pool(records: list[dict], n_nt: int) -> list[dict]:
                   key=lambda r: r["accession"])
 
 
+def _enforce_budget_nt(texts: list[str], hits: list[bool],
+                       budget_nt: int) -> tuple[list[str], list[bool], int]:
+    """Hold every generation to the NUCLEOTIDE budget, whatever its tokenizer.
+
+    ⚠ THE BUDGET WAS ENFORCED IN TOKENS, AND THAT IS NOT THE SAME THING ON A BPE MODEL.
+    `_run` caps generation at `int(budget_nt / approx_nt_per_token)` tokens. On Evo2 that
+    ratio is exactly 1.0, so the cap is exactly 8,192 nt -- measured, 0 of 2,400 generations
+    over budget, max length 8192 on the nose. On GenomeOcean the 4.8 nt/token figure is an
+    AVERAGE over the corpus, and any particular sample can draw longer tokens: 1,706 tokens
+    decoded to as much as 11,327 nt. Measured across the banked GenomeOcean arms, 189 of
+    3,600 generations (5.2%) exceeded the budget, and 16 of 182 detections (8.8%) sat among
+    them -- on ARYLPOLYENE de novo that is 21/200 against 17/200.
+
+    ⚠ WHY IT IS NOT A COSMETIC DIFFERENCE. SPEC §4 holds the **nucleotide** budget as part of
+    the shared TASK -- one of the few things deliberately identical across substrates, because
+    antiSMASH detection rises with the length of sequence it is given. A substrate allowed up
+    to 38% more sequence is being asked an easier question, and the extra length flows
+    straight into the endpoint being compared. Everything else may differ per substrate
+    (§14A); this may not.
+
+    Truncation, not regeneration: the first `budget_nt` bases are exactly the bases the model
+    would have produced had it stopped there, so the prefix is the same measurement.
+
+    ⚠ A TRUNCATED GENERATION DID NOT TERMINATE. `hit_eos` becomes False for it: the model
+    emitted its terminator at 9,000 nt, which is outside the budget, and Evo2 running into
+    the same cap records False. Leaving it True would report a substrate as terminating on
+    sequence the benchmark does not score.
+    """
+    out_t, out_h, n_trunc = [], [], 0
+    for t, h in zip(texts, hits):
+        if len(t) > budget_nt:
+            t = t[:budget_nt]
+            h = False
+            n_trunc += 1
+        out_t.append(t)
+        out_h.append(h)
+    return out_t, out_h, n_trunc
+
+
 def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
              cfg: GenConfig, seed_pool: list[dict] | None = None,
              stage: str = "stage1") -> list[dict]:
@@ -159,6 +198,10 @@ def generate(sub: Substrate, arm: ArmSpec, target_class: str, n: int,
             seeds.append(None)
 
     texts, hits = _run(sub, arm, prompts, cfg)
+    texts, hits, n_trunc = _enforce_budget_nt(texts, hits, cfg.budget_nt)
+    if n_trunc:
+        print(f"budget: truncated {n_trunc}/{len(texts)} generations to "
+              f"{cfg.budget_nt} nt", flush=True)
 
     out: list[dict] = []
     for i, (txt, hit) in enumerate(zip(texts, hits)):

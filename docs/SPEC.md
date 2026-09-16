@@ -1417,6 +1417,170 @@ substrate. The measurements that rule out `top_k=4` on GenomeOcean — probabili
 weights, teacher-forced, with no adapter, and are unaffected by everything that voided the
 selection. See FINDINGS §25.
 
+### 12.A9 AMENDMENT 2026-09-15 — THE §6.4 MANIPULATION CHECK WAS GEOMETRY-DEPENDENT, AND WAS SELECTING ON ITSELF
+
+All four GenomeOcean I1 directions failed their §6.4 check and every I1 arm on that substrate
+was refused at generation time. The directions were not the problem. Measured mean train/val
+cosine per class, on the all-sites configuration:
+
+| substrate | TERPENE | ARYLPOLYENE | RIPP | REDOX_COFACTOR |
+|---|---|---|---|---|
+| GenomeOcean-4B | 0.544 | 0.594 | 0.566 | 0.818 |
+| Evo2-1B | 0.806 | 0.518 | 0.792 | 0.943 |
+
+Not one GenomeOcean class failed the substantive criterion (mean cosine > 0.3). Four defects
+were found, all of which make the check harder on a 24-layer decoder than on a 4-attention-site
+hybrid at identical direction quality.
+
+**(1) Two of the three pass criteria are ORDER STATISTICS OVER SITE COUNT.** Check (c) requires
+`min cosine > 0` across every steered site; check (a) required monotone projection at every
+steered site. Evo2 clears a min-of-3; GenomeOcean had to clear a min-of-24. TERPENE died on one
+site out of 24 reading −0.083 against a mean of 0.544.
+
+**(2) Check (a) required what its own sibling documents as impossible.** `manipulation_check`
+explains that the sites are in series, that only the first site's response is predictable in
+closed form, and that an earlier version "would have read propagation as a defect".
+`projection_vs_alpha` then required monotonicity at every site. **RIPP and REDOX_COFACTOR
+failed check (a) and nothing else** — RIPP on site 23 alone, REDOX on sites 2/8/12/23, all
+downstream of up to 23 upstream injections. Both passed check (c) outright.
+→ **Check (a) now gates on the FIRST STEERED SITE.** Per-site monotonicity is reported as
+evidence (`n_sites_monotone`), not as a gate.
+
+**(3) The probe magnitude was a constant shared across substrates**, which §14A forbids —
+"probe magnitude" is named there as a treatment parameter. `--check-alpha` defaulted to 1.0 on
+both, and check (a) swept a hard-coded `[0.0, 0.5, 1.0, 2.0, 4.0]`, a grid retired the same day.
+→ **Checks (a) and (b) are now read at the substrate's OWN generation α grid**
+(`substrate_config.I1_ALPHA_GRID`), so the check describes the magnitudes the arm actually runs
+at, and no cross-substrate constant is involved.
+
+⚠ **A unit error justified the original design and is corrected here.**
+`directions.alpha_for_target_kl` argued GenomeOcean was "far outside any usable range" at α=1
+(KL 3.44–7.81) against Evo2 at 0.197. Those figures are in different units: Evo2's token is
+1 nt, GenomeOcean's is ~4.8 nt. Converted to **nats/NUCLEOTIDE** at α=1 on the trained
+adapters, GenomeOcean reads 0.86–1.86 against Evo2's 0.83–1.74 — the same regime. The real
+asymmetry is the argmax-flip rate (98–99% vs 64–72%), which is a rate and needs no conversion.
+`kl_vs_unsteered` now returns `mean_kl_nats_per_nt` so the comparable quantity is to hand.
+
+**(4) THE CHECK WAS SELECTING ON ITSELF.** `g9_sites` chose the injection site set by reading
+the per-site cosines out of the direction artifact's `manipulation_check` — computed on val —
+and the check was then re-read on the same records. The arm was selected for passing and the
+pass was reported as the evidence. It did not bite Evo2 equally: with 4 sites `all` was
+admissible without selection, while with 24 sites a passing subset is always findable, so the
+rule degenerated into "search until the check passes".
+→ **`val` is now partitioned into two disjoint halves by a fixed seed.** Half A is what
+`g9_sites` selects on (`selection_readout`, a separate artifact key); half B is what the §6.4
+check is read on. Nothing reads both. The direction is still derived on `train`, so the cosine
+remains train-vs-held-out either way — what changed is that the fold deciding the gate was
+never optimised over. A direction artifact without `selection_readout` is **refused** by
+`g9_sites` rather than falling back, because a silent fallback restores the circularity.
+
+**(5) The site-selection rule selected DEPTH, not class content.** Among admissible sets it took
+the highest reach (mean KL against unsteered). Perturbing an early site changes the input to
+every site downstream, so reach falls monotonically with depth for mechanical reasons. Measured
+on GenomeOcean at α=1, in nats/token, every one of the four classes reads
+`early_third` > `middle_third` > `late_third`:
+
+| class | early_third | middle_third | late_third |
+|---|---|---|---|
+| ARYLPOLYENE | 5.900 | 3.500 | 0.226 |
+| REDOX_COFACTOR | 8.176 | 1.719 | 0.146 |
+| RIPP | 3.697 | 0.525 | 0.034 |
+| TERPENE | 4.022 | 1.604 | 0.063 |
+
+The class signal does not follow that ordering. The SMALLEST relative class-difference norm
+sits in the early band for all four classes — 0.051 (ARYLPOLYENE), 0.140 (REDOX_COFACTOR),
+0.092 (RIPP), 0.052 (TERPENE) — so the rule was maximising a quantity that peaks exactly where
+the class content is thinnest. (The *peak* relative norm is at site 7 for three classes and
+site 23 for REDOX_COFACTOR, so "the signal lives in the middle" is NOT a claim these artifacts
+support; only the early-band minimum is.)
+→ **Reach now GATES and fidelity CHOOSES**: eligible = admissible AND reach ≥ 10% of the best
+admissible set's reach; among eligible, the highest mean cosine. The bar is relative so it is
+invariant to probe magnitude and carries no unit across substrates — an absolute nats/token
+floor would mean different things on a 1 nt token and a 4.8 nt one.
+
+**(6) The chosen site set never reached the gate.** `attach_direction` gates on
+`check_all_pass` in the direction artifact, written once for the all-sites configuration before
+the site sweep ran; `chosen_sites` lived in a separate JSON nothing read back. TERPENE was
+refused at generation time on the strength of a configuration it does not use, while an
+admissible 8-site configuration sat in a file beside it.
+→ **`g9_sites --finalize`** re-reads all three parts at the chosen sites on val_B and writes
+them into the direction artifact. `attach_direction` now **defaults** its site set to the
+artifact's `chosen_sites`, and **refuses** an explicit `--sites` that disagrees with the set the
+check was read at.
+
+⚠ **Two consequential side-effects of (6), both fixed here.** The §6.3 random-direction control
+zeroed only *degenerate* sites, so against a subset-steered arm it would have pushed on every
+site — 24 against TERPENE's 8 at the same α, which is not the magnitude-matched control §6.3
+requires. And `intervention_active_sites` was reported from the derivation's `active_sites`
+rather than the realised tensor, overstating §6.5 coverage by exactly the amount the site sweep
+narrowed it.
+
+**Endpoint hygiene (§2.4) holds throughout.** GenomeOcean's α-sweep run directories exist only
+at α = 0.0 for all four classes: no endpoint has been read at any nonzero α on that substrate,
+so the site set and α cannot be endpoint-contaminated. `endpoint_fields_read` remains `[]`.
+
+⚠ **This changes the adjudication rule, so it changes Evo2 too.** The rule is part of the
+protocol, not a treatment parameter, and a protocol that differs between substrates is a §10
+discrepancy by construction. Evo2's phase B/B2/C/D results were taken under the superseded
+rule and are listed in §14.4.
+
+
+### 12.A10 AMENDMENT 2026-09-15 — THE NUCLEOTIDE BUDGET WAS ENFORCED IN TOKENS, SO ONLY ONE SUBSTRATE WAS HELD TO IT
+
+`generate.py` capped generation at `int(budget_nt / approx_nt_per_token)` TOKENS. §4 holds the
+**nucleotide** budget as part of the shared TASK — one of the few quantities deliberately
+identical across substrates, because antiSMASH detection rises with the length of sequence it
+is given. Enforcing it in tokens makes it identical only when the ratio is exact.
+
+| substrate | nt/token | token cap | realised max length | generations over budget |
+|---|---|---|---|---|
+| Evo2-1B | 1.0 (byte-level) | 8,192 | **8,192** | **0 of 2,400** |
+| GenomeOcean-4B | ~4.8 (BPE, a corpus AVERAGE) | 1,706 | **11,327** | **189 of 3,600 (5.2%)** |
+
+4.8 nt/token is a mean over the corpus, not a property of any particular sample, so a draw of
+longer BPE tokens overshoots. GenomeOcean was receiving up to **38% more sequence** than Evo2
+in which to land a cluster, on the one metric the two are compared by.
+
+**Did it reach the endpoint? Measured: NO.** 16 of GenomeOcean's 182 detections sat ON
+over-budget generations, which looked alarming and was first reported here as a
+"budget-conformant lower bound" of 17/200 for ARYLPOLYENE de novo against a measured 21/200.
+⚠ **That framing was wrong and is retracted.** Sitting on a long generation is not the same as
+depending on its length. Generation is seeded, so re-running an arm reproduces the same draws
+and the only difference is the truncation — which makes the question directly testable:
+
+| arm | max len before → after | over budget | detected before → after | on-target |
+|---|---|---|---|---|
+| GO W0 de novo | 8,423 → 8,192 | 1 → 0 | 0 → 0 | 0 → 0 |
+| GO W1n de novo | 9,018 → 8,192 | 5 → 0 | 4 → 4 | 1 → 1 |
+| GO W2 ARYLPOLYENE de novo | 9,270 → 8,192 | 26 → 0 | **21 → 21** | 21 → 21 |
+| GO W2 TERPENE de novo | 8,992 → 8,192 | 11 → 0 | 4 → 4 | 4 → 4 |
+
+Every detected cluster lay within the first 8,192 nt, so **no endpoint number moves**. The
+defect was real, the fix is still required — an unbounded budget is not defensible whatever it
+happens to produce on one corpus — but it did not bias the comparison. GenomeOcean's
+ARYLPOLYENE de novo rate is 21/200 against Evo2's 16/200 both before and after.
+
+**The fix.** `_enforce_budget_nt` truncates every generation to `budget_nt` after decoding, on
+both substrates and every code path. The first `budget_nt` bases are exactly the bases the
+model would have produced had it stopped there, so the prefix is the same measurement. A
+truncated generation records **`hit_eos = False`**: its terminator landed outside the budget,
+which is the same accounting Evo2 already got when it ran into the cap.
+
+**What is re-run.** GenomeOcean's 12 endpoint arms (phase A0 de novo and phase A seeded) are
+regenerated under the enforced budget; the superseded run directories are moved to
+`runs_superseded_budget/` rather than deleted, so the before/after stays auditable. **Evo2 is
+not re-run** — the fix is a no-op at 1 nt/token and its arms are already conformant.
+
+⚠ **Not re-run, and recorded as a known limitation: GenomeOcean's phase C α selection.**
+Those sweeps chose α from coding density, self-NLL and hit-EOS measured on un-truncated
+generations. α is a per-arm TREATMENT parameter (§14A), and the phase D arms that use it
+generate under the enforced budget, so the ENDPOINT is clean; what is imperfect is the choice
+of magnitude, not the measurement of it. The clearest instance is REDOX_COFACTOR, which chose
+α = 0.3 on a rung where 13 of 50 generations were over budget — under truncation its hit-EOS
+would fall from 0.82 toward 0.56 and the rung would likely have failed the 0.15 termination
+tolerance. Its phase D arm is still an honest measurement of "I1 REDOX_COFACTOR at α = 0.3".
+
+
 ### 14.1 Experiments
 
 | id | what | why parked | cost |
@@ -1468,6 +1632,53 @@ Both were measured before the terminator fix, i.e. on ~8,190 nt of post-terminat
 
 * **FINDINGS 4a.7** — training non-determinism moving the endpoint by ±1/200.
 * **The §12.A3 data-volume null** — 12.3× more data with no endpoint movement.
+
+⚠ **Added 2026-09-15 (§12.A9): every Evo2 I1 result on the `_tax_fx` weights.** Phases B, B2,
+C and D were run under the superseded §6.4 adjudication — check (a) gating on all steered
+sites, a probe α of 1.0 with the retired `[0, 0.5, 1, 2, 4]` grid, site selection reading the
+same val fold the check was read on, and site choice by maximum reach. The *directions* are
+unaffected (they are derived on `train` and nothing about the derivation changed), but the
+chosen **site sets** and therefore the chosen **α** per class were produced by the old rule.
+Replayed against the corrected selection rule on the recorded rows, three of four Evo2 classes
+would choose a different site set: TERPENE `pair_01` → `single_0`, ARYLPOLYENE `all` →
+`single_1`, REDOX_COFACTOR `single_0` → `all`; RIPP is unchanged at `single_0`. The α sweeps
+in `/data2/ds85/bgcbench/g9/evo2-1b_*_W2_tax_fx_*.json` are therefore α values for site sets
+that are no longer the chosen ones, and must not be cited until phases B2–D are re-run.
+
+⚠ **QUARANTINED 2026-09-15 — two defects introduced BY THE FIX ITSELF, caught before they
+reached a reported number.** Both are recorded here because a quarantined run directory that
+is not explained looks identical to one that was simply lost.
+
+1. **`runs_superseded_budget/`** — GenomeOcean's 12 endpoint arms measured before §12.A10's
+   nucleotide-budget enforcement. Superseded, not wrong-by-accident; kept for the before/after.
+2. **`superseded_reuse_bug/`** — Evo2's four phase C α artifacts and two phase D run
+   directories. `g9_alpha` gained a "reuse an existing measurement instead of dying on the
+   overwrite guard" path, whose glob `runs/stage1_<substrate>_<arm>_*` ends in a wildcard that
+   swallows the realised-config HASH. It therefore matched on the arm NAME alone, and reused
+   measurements taken at the site sets §12.A9 replaced — Evo2 phase C "completed" in 2.5
+   minutes, reporting an α for RIPP read off a directory recording
+   `intervention_site_subset=[0]` when the corrected protocol had chosen `all`=[0,1,2,3].
+   Phase D then ran on those α. Reuse now compares injection sites, magnitude and weight
+   state before accepting a directory (`_same_config`).
+
+⚠ **ALSO 2026-09-15: phase D lost 10 of 12 arms to CUDA OOM.** `phaseD_steer.sh` checked free
+GPU once at phase entry and then ran 12 arms; the shared card's other user returned to 38.9 GB
+mid-phase. `g9_alpha` had already learned this and guards per α rung — phase D now guards per
+arm, for the same reason. The lesson is recorded in `_lib.sh`: on a shared card a
+once-per-phase check is not a guard, it is a snapshot.
+
+✅ **RESOLVED 2026-09-16: the Evo2 re-run was completed.** Phases B, B2, C and D were re-run
+under §12.A9, so BOTH substrates are now adjudicated by the same §6.4 protocol and the
+cross-substrate steering comparison IS reportable. The paragraph below records the state while
+it was deferred, and is kept because the deferral was real for ~8 hours.
+
+⚠ **DEFERRED 2026-09-15 (user decision), SINCE LIFTED: the Evo2 re-run was not queued yet.** GenomeOcean's
+steering chain is re-run under §12.A9 first; Evo2 keeps its superseded phase B/B2/C/D results
+for now. **Cost of the deferral:** until Evo2 is re-run, the two substrates are adjudicated by
+different §6.4 rules, and *no cross-substrate steering comparison is reportable* — that is a §10
+discrepancy by construction, not a finding. The GenomeOcean result stands on its own (its gate
+is internally consistent); the Evo2-vs-GenomeOcean steering contrast does not. Re-running Evo2
+phases B→D closes it, at roughly 4–5 h on the shared card.
 
 ### 14.5 Methodology parked
 
