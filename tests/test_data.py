@@ -439,12 +439,19 @@ def test_cli_defaults_come_from_the_frozen_config_not_literals():
 
 
 def test_intervention_hooks_are_identity_at_init_and_fully_removable():
-    """Zero-init means the UNTRAINED W3 arm is bit-identical to the base model, so any
-    difference at step 0 is a bug. And a leaked hook would silently contaminate every
-    later arm run in the same process."""
+    """⚠ A LEAKED HOOK CONTAMINATES EVERY LATER ARM IN THE SAME PROCESS, silently. That is
+    the guarantee this protects, and it is live: `g9_alpha` and the phase drivers run many
+    arms per process, and `attach_direction` returns a hook rather than merged weights.
+
+    ⚠ ORIGINALLY WRITTEN AGAINST `LearnedOffset` (W3), which was zero-initialised so an
+    untrained conditioner was bit-identical to the base model. W3 was deleted 2026-09-16, so
+    this now exercises the same `Intervention` base-class mechanics through
+    `DirectionInjection` — the surviving subclass and the one all 24 steering arms use — at
+    alpha=0, which is the identity case the 8 alpha-sweep baselines actually ran.
+    """
     import torch
     import torch.nn as nn
-    from bgcbench.model.interventions import LearnedOffset, attention_sites
+    from bgcbench.model.interventions import DirectionInjection, attention_sites
 
     class Blk(nn.Module):
         def __init__(s): super().__init__(); s.lin = nn.Linear(8, 8)
@@ -463,34 +470,27 @@ def test_intervention_hooks_are_identity_at_init_and_fully_removable():
     assert len(attention_sites(m)) == 2
     x = torch.randn(1, 4, 8)
     base = m(x).clone()
-    for rank in (0, 4):
-        iv = LearnedOffset(m, 8, rank=rank)
-        with iv.attached():
-            assert torch.allclose(base, m(x), atol=1e-5), f"rank {rank} not identity at init"
-            with torch.no_grad():
-                for p in iv.offsets: p.add_(1.0)
-            assert not torch.allclose(base, m(x), atol=1e-3), "offset had no effect"
-        assert torch.allclose(base, m(x), atol=1e-5), "hooks not removed"
-        assert not iv.is_attached()
+    d = torch.randn(2, 8)
+    d = d / d.norm(dim=-1, keepdim=True)
+    # alpha = 0 must be EXACTLY the base model: this is what every a0.0 sweep rung ran as.
+    iv0 = DirectionInjection(m, 8, d, alpha=0.0)
+    with iv0.attached():
+        assert torch.allclose(base, m(x), atol=1e-6), "alpha=0 is not identity"
+    assert torch.allclose(base, m(x), atol=1e-6), "hooks not removed after alpha=0"
+    assert not iv0.is_attached()
+    # a nonzero alpha must actually reach the output, or the arm silently generates from base
+    iv = DirectionInjection(m, 8, d, alpha=1.0)
+    with iv.attached():
+        assert not torch.allclose(base, m(x), atol=1e-3), "injection had no effect"
+    assert torch.allclose(base, m(x), atol=1e-6), "hooks not removed"
+    assert not iv.is_attached()
+    # a site-count mismatch must raise rather than steer some layers and not others
+    try:
+        DirectionInjection(m, 8, torch.randn(3, 8), alpha=1.0)
+        raise AssertionError("3 directions accepted for 2 sites")
+    except ValueError:
+        pass
 
-
-def test_w3_capacity_is_swept_not_fixed():
-    """The bare offset is 1364x below LoRA on the same model; a null there would say
-    'too few parameters', not 'activation conditioning does not work'."""
-    import torch.nn as nn
-    from bgcbench.model.interventions import LearnedOffset
-
-    class Blk(nn.Module):
-        def __init__(s): super().__init__(); s.lin = nn.Linear(8, 8)
-        def forward(s, x): return s.lin(x)
-
-    class Toy(nn.Module):
-        def __init__(s):
-            super().__init__(); s.blocks = nn.ModuleList([nn.Module() for _ in range(2)])
-            for b in s.blocks: b.inner_mha_cls = Blk()
-
-    m = Toy()
-    assert LearnedOffset(m, 8, rank=0).n_trainable() < LearnedOffset(m, 8, rank=4).n_trainable()
 
 
 def _toy_model(n_sites=3, hidden=8):
@@ -525,41 +525,6 @@ def test_intervention_arm_records_that_the_hooks_actually_fired():
     assert i_ctx < i_call, "provenance recorded outside the attached context"
 
 
-def test_learned_offset_gradient_reaches_the_parameters():
-    """The offset path trains a conditioner on a FROZEN base. If gradient does not reach
-    it, training is a no-op that still reports a loss curve."""
-    import torch
-    from bgcbench.model.interventions import LearnedOffset
-    m = _toy_model()
-    for p in m.parameters():
-        p.requires_grad_(False)
-    iv = LearnedOffset(m, 8, rank=4)
-    before = [p.detach().clone() for p in iv.parameters()]
-    opt = torch.optim.SGD(iv.parameters(), lr=0.5)
-    with iv.attached():
-        loss = m(torch.randn(2, 3, 8)).pow(2).mean()
-        loss.backward()
-    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in iv.parameters()), \
-        "no gradient reached the conditioner"
-    opt.step()
-    assert any(not torch.equal(a, b) for a, b in zip(before, iv.parameters())), \
-        "an optimiser step did not change the conditioner"
-
-
-def test_learned_offset_is_reproducible_under_its_recorded_seed():
-    """The low-rank A was built from the UNSEEDED global RNG before manual_seed ran, so the
-    default rank>0 run was not reproducible under the seed its own report recorded."""
-    import torch
-    from bgcbench.model.interventions import LearnedOffset
-    m = _toy_model()
-    torch.manual_seed(123); a = LearnedOffset(m, 8, rank=4)
-    torch.manual_seed(123); b = LearnedOffset(m, 8, rank=4)
-    assert all(torch.equal(x, y) for x, y in zip(a.parameters(), b.parameters()))
-    from bgcbench.model import train as tr
-    src = Path(tr.__file__).read_text()
-    body = src[src.index("def _train_offset"):]
-    assert body.index("torch.manual_seed") < body.index("LearnedOffset(base"), \
-        "the conditioner is constructed before the seed is set"
 
 
 def test_direction_injection_and_its_control_actually_steer():
@@ -602,98 +567,6 @@ def test_w3_capacity_and_sites_reach_the_run_provenance():
     assert gc.realised_hash(a) != gc.realised_hash(b), "two ranks share one run hash"
 
 
-def test_offset_training_refuses_resume_rather_than_ignoring_it():
-    from bgcbench.model.train import TrainConfig, train_lora
-    cfg = TrainConfig(method="offset")
-    try:
-        train_lora(None, [], Path("/tmp/x_never_written"), cfg, resume_from="somewhere")
-    except ValueError as e:
-        assert "resume" in str(e).lower()
-        return
-    except Exception:
-        raise AssertionError("resume was not refused before any work began")
-    raise AssertionError("--resume-from was silently discarded")
-
-
-def test_manipulation_check_actually_compares_intervened_to_unintervened():
-    """SPEC 6.4. The first version of this check sat OUTSIDE `with iv.attached()` and
-    measured the unintervened base model TWICE, so `delta` was 0.0 by construction and
-    `landed` was false for every conditioner that could ever be trained. A check that
-    cannot pass its subject is worse than no check: it reported the W3 arm as not landing
-    when the arm's own training curve had moved 0.017 nats.
-
-    This runs `_train_offset` end to end on a toy substrate, so it exercises the control
-    flow rather than the docstring.
-    """
-    import tempfile
-
-    import torch
-    import torch.nn as nn
-    from bgcbench.model.train import TrainConfig, train_lora
-
-    V, H = 16, 8
-
-    class Blk(nn.Module):
-        def __init__(s): super().__init__(); s.lin = nn.Linear(H, H)
-        def forward(s, x): return s.lin(x)
-
-    class Toy(nn.Module):
-        def __init__(s):
-            super().__init__()
-            s.config = type("C", (), {"hidden_size": H})()
-            s.emb = nn.Embedding(V, H)
-            s.blocks = nn.ModuleList([nn.Module() for _ in range(2)])
-            for b in s.blocks:
-                b.inner_mha_cls = Blk()
-            s.head = nn.Linear(H, V)
-        def forward(s, x):
-            h = s.emb(x)
-            for b in s.blocks:
-                h = b.inner_mha_cls(h)
-            return s.head(h)
-
-    class Tok:
-        pad_token_id = 0
-        def __call__(s, text):
-            return {"input_ids": [(ord(c) % (V - 1)) + 1 for c in text]}
-
-    class Sub:
-        family = "toy"
-        model = Toy()
-        tokenizer = Tok()
-        def training_text(s, seq, prefix=""): return prefix + seq
-
-    sub = Sub()
-    rng = __import__("random").Random(0)
-    def rec(i):
-        seq = "".join(rng.choice("ACGT") for _ in range(24))
-        return {"sequence": seq, "seq_len": len(seq),
-                "classes": ["TERPENE" if i % 2 else "RIPP"]}
-    train = [rec(i) for i in range(16)]
-    val = [rec(100 + i) for i in range(4)]
-
-    cfg = TrainConfig(method="offset", offset_rank=2, micro_batch=1, grad_accum=1,
-                      eval_every=1, patience=100, max_epochs=3, lr=0.05)
-    with tempfile.TemporaryDirectory() as td:
-        rep = train_lora(sub, train, Path(td), cfg, val_records=val, device="cpu")
-
-    m = rep["manipulation_check"]
-    assert m is not None, "no manipulation check was produced"
-    assert m["val_loss_with_intervention"] != m["val_loss_without_intervention"], (
-        "the two sides of the manipulation check are identical, which means both were "
-        "measured on the same model -- the hooks were not attached for the intervened one")
-    assert m["delta"] != 0.0, "delta is exactly zero; the check is measuring itself"
-    # ⚠ The check must be measured at THE CHECKPOINT THE ARM GENERATES FROM, which is the
-    # full-epoch one where it exists (resolve_best prefers EPOCH over BEST). Certifying
-    # best.pt while the arm runs epoch.pt would validate a different conditioner than the
-    # one the endpoint is read from, and nothing downstream could tell.
-    assert m["measured_at"] in ("epoch", "best", "final")
-    from bgcbench.model.load import resolve_best
-    resolved = resolve_best(rep.get("out_dir") or "") if rep.get("out_dir") else None
-    if resolved and rep.get("epoch_checkpoint"):
-        assert m["measured_at"] == "epoch", (
-            f"an arm with a full-epoch checkpoint must have its manipulation check measured "
-            f"there, not at {m['measured_at']!r}")
 
 
 def test_class_key_is_the_assigned_split_not_the_first_antismash_product():
@@ -736,8 +609,11 @@ def test_artifacts_record_which_code_version_produced_them():
 
     from bgcbench.model import train as trainmod
     src = Path(trainmod.__file__).read_text()
-    # both report sites -- LoRA and offset -- or one arm family is unprovenanced
-    assert src.count('"code_version": code_version()') == 2, \
+    # ⚠ WAS 2 (LoRA and the W3 offset loop); W3 was deleted 2026-09-16 so there is one
+    # report site left. The defect this pins is LIVE in the published artifacts: the ten
+    # _fx adapters the 48 arms generate from do NOT share one commit, and only this field
+    # records that.
+    assert src.count('"code_version": code_version()') == 1, \
         "a training report is written without recording the code that produced it"
 
 
@@ -866,6 +742,7 @@ def test_split_uses_every_member_of_an_assigned_cluster_without_leaking():
 
 
 def test_taxonomy_prefix_is_excluded_from_held_out_loss():
+    import re
     """The prefix is masked in TRAINING but `evaluate()` scored every position, so held-out
     loss measured the model's ability to predict arbitrary GTDB text rather than BGC
     sequence -- and early stopping AND best-checkpoint selection both read that number.
@@ -874,11 +751,15 @@ def test_taxonomy_prefix_is_excluded_from_held_out_loss():
     unprefixed, and the 'best' checkpoint was chosen at step 50 on that basis."""
     from bgcbench.model import train as trainmod
     src = Path(trainmod.__file__).read_text()
-    body = src[src.index("def evaluate("):src.index("def _train_offset")]
+    # ⚠ SLICE TO THE NEXT TOP-LEVEL def, NOT TO A NAMED ONE. This used `def _train_offset`
+    # as the end delimiter, so deleting W3 made it raise ValueError("substring not found")
+    # even though the behaviour it guards -- prefix masking in the LIVE evaluate() -- was
+    # untouched. A structural delimiter cannot rot that way.
+    start = src.index("def evaluate(")
+    nxt = re.search(r"\ndef [a-zA-Z_]", src[start + 1:])
+    body = src[start: start + 1 + nxt.start()] if nxt else src[start:]
     assert "_encode2" in body, "evaluate() does not obtain the prefix length"
     assert "nll[:, plen:]" in body, "evaluate() scores the prefix as if it were a target"
-    off = src[src.index("def _eval_offset"):]
-    assert "nll[:, plen:]" in off, "_eval_offset() scores the prefix as if it were a target"
 
 
 def test_lineage_prompts_are_one_uniform_width():

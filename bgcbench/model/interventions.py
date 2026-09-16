@@ -136,61 +136,6 @@ class Intervention(nn.Module):
         return bool(self._handles)
 
 
-class LearnedOffset(Intervention):
-    """W3. A trainable per-site conditioner, initialised so it is exactly the base model.
-
-    Zero init means the UNTRAINED arm is bit-identical to the base model -- so any
-    difference at step 0 is a bug, not an intervention, and the manipulation check has a
-    clean baseline.
-
-    ⚠ CAPACITY IS A SWEPT PARAMETER, NOT A HANDICAP. The bare offset is one vector per
-    site: 4 x 1920 = 7,680 parameters, against LoRA's 10,475,520 on the same model -- a
-    1,364x gap, and roughly what ONE virtual token of prefix tuning per layer would buy.
-    A null from an arm that far below every other arm's capacity would say "too few
-    parameters", not "activation-space conditioning does not work". `rank > 0` adds a
-    per-site low-rank transform of the block output, so capacity can be matched to the
-    other arms and swept by the same gate that sets LoRA's rank (G6).
-    """
-
-    def __init__(self, model, hidden_size: int, rank: int = 0, dtype=None):
-        super().__init__(model, hidden_size, dtype)
-        dt = dtype or torch.float32
-        self.rank = int(rank)
-        self.offsets = nn.ParameterList([
-            nn.Parameter(torch.zeros(hidden_size, dtype=dt)) for _ in self.sites
-        ])
-        if self.rank > 0:
-            # B initialised at zero so the whole term starts as the identity, preserving
-            # the "untrained == base model" property above.
-            self.A = nn.ParameterList([
-                nn.Parameter(torch.randn(hidden_size, self.rank, dtype=dt) * 0.02)
-                for _ in self.sites])
-            self.B = nn.ParameterList([
-                nn.Parameter(torch.zeros(self.rank, hidden_size, dtype=dt))
-                for _ in self.sites])
-        else:
-            self.A = self.B = None
-
-    def vector(self, i: int) -> torch.Tensor:
-        return self.offsets[i]
-
-    def _make_hook(self, i: int):
-        base_hook = super()._make_hook(i)
-
-        def hook(mod, args, output):
-            out = base_hook(mod, args, output)
-            if self.rank <= 0:
-                return out
-            head = out[0] if isinstance(out, tuple) else out
-            delta = (head.to(self.A[i].dtype) @ self.A[i]) @ self.B[i]
-            head = head + delta.to(head.dtype)
-            return (head,) + out[1:] if isinstance(out, tuple) else head
-        return hook
-
-    def n_trainable(self) -> int:
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-
 class DirectionInjection(Intervention):
     """I1. A FIXED direction per site, scaled by alpha. Not trained.
 

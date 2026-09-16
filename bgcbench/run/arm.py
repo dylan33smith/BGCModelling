@@ -37,7 +37,7 @@ from bgcbench.model import genconfig as gc
 from bgcbench.model.genconfig import FROZEN as GEN_FROZEN
 from bgcbench.model.generate import ArmSpec, GenConfig, generate
 from bgcbench.model.load import (attach_adapter, attach_direction,
-                                 attach_intervention, load, resolve_best)
+                                 load, resolve_best)
 from bgcbench.score import antismash
 from bgcbench.score.endpoints import confusion, gene_count_profile, lift, rates, subclass_profile
 from bgcbench.score.novelty import Reference, corpus_novelty, write_corpus_fasta
@@ -247,8 +247,13 @@ def run_arm(sub, arm: ArmSpec, n: int, cfg: GenConfig, stage: str,
         # SPEC 6.5: an arm attached at 4 of 25 sites is not the same arm as one at 32 of
         # 32, and a W3 run at rank 16 is not the one at rank 64. Without these in the
         # REALISED hash both collide on one run directory and the loser is destroyed.
-        # ⚠ NOT hardcoded "offset": W3 and I1 share this path, and an I1 arm recorded as
-        # an offset arm would be indistinguishable from W3 in the frozen record.
+        # ⚠ THE "offset" DEFAULT IS UNREACHABLE AND IS LEFT IN PLACE DELIBERATELY. W3 shared
+        # this path until 2026-09-16; with it gone, `intervention` is set only by
+        # attach_direction, which always writes intervention_kind ("i1" or "i1_random").
+        # Measured across the 48 frozen arms: None 32, i1 65, i1_random 8 -- never "offset".
+        # This expression is an input to the REALISED HASH that names every run directory, so
+        # it is not edited during cleanup: a default that cannot fire costs nothing, and being
+        # wrong about "cannot fire" would rename run dirs and orphan the results.
         intervention_method=((sub.meta or {}).get("intervention_kind", "offset")
                              if intervention is not None else None),
         # ⚠ ALPHA IS PART OF THE REALISED IDENTITY. I1 at alpha 1 and alpha 4 are different
@@ -469,28 +474,23 @@ def main() -> int:
     # first would hold hooks on the pre-merge module objects; and I1 is defined as steering
     # the model the arm actually runs, not the base model.
     #
-    # ⚠ THIS WAS AN if/elif CHAIN. --direction and --adapter were therefore mutually
-    # exclusive while the help text advertised that they compose: every I1 arm run on a
-    # trained weight state would have silently steered the BASE model and reported a null
-    # as though steering had been tested on that arm.
-    if adapter and str(adapter).endswith(".pt"):
-        sub, intervention = attach_intervention(sub, adapter)
-        print(f"attached intervention {adapter} "
-              f"({sub.meta.get('intervention_sites', {}).get('n_attention_sites')} sites)",
-              flush=True)
-    elif adapter:
+    # ⚠ THESE ARE TWO SEPARATE `if`s, NOT AN if/elif CHAIN. As a chain, --direction and
+    # --adapter were mutually exclusive while the help text advertised that they compose:
+    # every I1 arm run on a trained weight state silently steered the BASE model and would
+    # have reported a null as though steering had been tested on that arm. All 24 steering
+    # arms depend on both firing.
+    #
+    # ⚠ A third branch here loaded a W3 conditioner from a `.pt` adapter, and a guard below
+    # refused --direction alongside it because run_arm holds exactly ONE
+    # intervention.attached() context. Both went with W3 on 2026-09-16; `intervention` is now
+    # set only by attach_direction.
+    if adapter:
         sub = attach_adapter(sub, adapter)
         print(f"attached adapter {adapter}", flush=True)
     if args.direction:
         if args.alpha is None:
             raise SystemExit("--direction needs --alpha; there is no default magnitude, "
                              "and an unstated one would be an undeclared free parameter")
-        if intervention is not None:
-            raise SystemExit(
-                "--direction with a W3 conditioner: run_arm holds exactly ONE "
-                "intervention.attached() context, so the second set of hooks would be "
-                "silently dropped and the arm would report both while running one. "
-                "Compose I1 with a LoRA weight state, or extend run_arm to hold both.")
         # ⚠ TELL attach_direction WHAT PREFIX THIS ARM GENERATES WITH, so it can refuse a
         # direction derived under a different one. Without this the cross-check reads None
         # and silently passes -- a guard that exists and does nothing.

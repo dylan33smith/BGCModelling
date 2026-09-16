@@ -1116,6 +1116,37 @@ def test_manipulation_check_averages_only_the_sites_it_steers():
         "the zeroed site still drags the mean below threshold; the verdict flip is back"
 
 
+def test_manipulation_check_reads_the_FIRST_STEERED_site_not_model_site_0():
+    """⚠ THE DEFECT THIS PINS WAS INTRODUCED TWICE, BY THE FIX FOR ITSELF, and it fails
+    CLOSED — which is why it read as a direction-quality problem rather than a plumbing one.
+
+    `manipulation_check`'s third pass condition is "the first site's readout moves". It was
+    indexed at MODEL site 0 (`shift[0]`) rather than at the first STEERED site. When the
+    chosen site set excludes site 0, `restrict()` zeroes that row, the hook there adds
+    alpha*0, and — site 0 being the shallowest attention site, with nothing upstream to
+    perturb it — the readout is bit-identical, so `shift[0]` is EXACTLY 0.0. The conjunct
+    then forced passes=False however good the direction was, while `first_site_agrees`
+    simultaneously recorded True (|0 - 0| < 1e-2), claiming a confirmed prediction at a site
+    that was never steered.
+
+    Replayed on the real selections it would have refused Evo2 ARYLPOLYENE (sites [1]) and
+    GenomeOcean TERPENE ([4]), ARYLPOLYENE ([12]) and RIPP ([8..15]) — reinstating exactly
+    the refusal that motivated the fix. `projection_vs_alpha` got the analogous fix in the
+    same revision; this one did not.
+    """
+    # site 0 not steered; sites 1 and 2 carry real class content
+    r = _stub_check([0.0, 0.80, 0.90], zero_sites=(0,))
+    assert r["active_sites_checked"] == [1, 2], r["active_sites_checked"]
+    assert r["first_steered_site"] == 1, (
+        f"first steered site read as {r['first_steered_site']}, not the lowest STEERED index")
+    assert r["shift"][0] == 0.0, "fixture wrong: an unsteered site 0 must not move"
+    assert r["passes"], (
+        "a direction with mean cosine 0.85 and no anti-aligned site was refused because "
+        "MODEL site 0 happens not to be in the chosen site set")
+    # and the reported agreement must describe the site actually read
+    assert r["first_site_shift"] == r["shift"][1]
+
+
 def test_manipulation_check_requires_no_anti_aligned_site():
     """A mean alone can be carried by one strongly reproducing site while another points the
     WRONG way. ARYLPOLYENE at 64 records per side has steered cosines
@@ -1568,18 +1599,20 @@ def test_full_epoch_checkpoint_is_what_the_arms_resolve_to():
         assert resolve_best(str(bare)) == str(bare)
 
 
-def test_the_one_epoch_floor_is_in_BOTH_training_loops():
-    """⚠ It was in only one. `train_lora` got the floor; `train_offset` (the W3 conditioner
-    path) kept the old rule, so in a 14-arm re-train the two W3 arms were the only ones with
-    no full-epoch checkpoint — and that showed up as a null field in a report, not an error.
+def test_the_one_epoch_floor_is_in_the_training_loop():
+    """⚠ THIS USED TO CHECK BOTH LOOPS, AND THAT WAS THE POINT. The floor was added to
+    `train_lora` only; `_train_offset` (the W3 conditioner path) kept the old rule, so in a
+    14-arm re-train the two W3 arms were the only ones without a full-epoch checkpoint — and
+    it surfaced as a null field in a report, not an error.
 
-    Any change to the training schedule has to land in both loops or the offset arms
-    silently keep the previous behaviour.
+    W3 was deleted 2026-09-16, so there is one loop left. The assertions below are unchanged;
+    only the loop over two functions is gone. All ten `_fx` adapters the 48 arms generate
+    from ran a full epoch, which is what this protects.
     """
     import inspect
     from bgcbench.model import train as T
 
-    for fn in (T.train_lora, T._train_offset):
+    for fn in (T.train_lora,):
         src = inspect.getsource(fn)
         assert "min_steps = int(cfg.min_epochs * steps_per_epoch)" in src, (
             f"{fn.__name__} has no one-epoch floor")
@@ -1590,14 +1623,9 @@ def test_the_one_epoch_floor_is_in_BOTH_training_loops():
         assert "epoch_ckpt_step is None and step >= min_steps" in src, (
             f"{fn.__name__} never writes a full-epoch checkpoint")
 
-    # and the offset path must CERTIFY the checkpoint the arm actually runs
-    src = inspect.getsource(T._train_offset)
-    assert 'out_dir / "epoch.pt") if (out_dir / "epoch.pt").exists()' in src, (
-        "the manipulation check must run on the full-epoch conditioner, not on best.pt — "
-        "otherwise it certifies a different model than the arm generates from")
 
 
-def test_learning_rate_is_actually_scheduled_in_both_loops():
+def test_learning_rate_is_actually_scheduled():
     """⚠ THERE WAS NO SCHEDULE AT ALL before 2026-09-14. `lr` was flat at 5e-5 for the whole
     run, no warmup and no decay, in both training loops. The prior implementation used the
     SAME peak lr but warmed up over 50 steps then decayed linearly to zero.
@@ -1645,8 +1673,10 @@ def test_learning_rate_is_actually_scheduled_in_both_loops():
     # like the old trainer rather than silently differing
     assert build_scheduler(opt, TrainConfig(lr_schedule="constant"), spe) is None
 
-    # and, the lesson from the one-epoch floor: it has to be in BOTH loops
-    for fn in (T.train_lora, T._train_offset):
+    # ⚠ WAS "it has to be in BOTH loops" — the lesson carried over from the one-epoch floor,
+    # which had landed in train_lora only. W3's _train_offset was deleted 2026-09-16, so one
+    # loop remains; the assertions are unchanged.
+    for fn in (T.train_lora,):
         src = inspect.getsource(fn)
         assert "sched = build_scheduler(opt, cfg, steps_per_epoch)" in src, (
             f"{fn.__name__} builds no scheduler")
@@ -1670,9 +1700,10 @@ def test_eval_cadence_is_proportionate_to_the_eval_set_size():
     cfg = TrainConfig()
     limit = inspect.signature(T.evaluate).parameters["limit"].default
     assert limit >= 200, f"held-out set shrank to {limit}; 32 records was 3.1% of the genomes"
-    assert inspect.signature(T._eval_offset).parameters["limit"].default == limit, (
-        "the two eval paths must score the same number of records, or the W3 arms are "
-        "early-stopped on a different estimator than every other arm")
+    # ⚠ THERE WAS A SECOND EVAL PATH (_eval_offset, the W3 loop) and this asserted the two
+    # scored the same number of records, because early-stopping two arm families on
+    # different estimators makes their checkpoints incomparable. W3 was deleted 2026-09-16,
+    # so there is one estimator and the parity check has nothing to compare.
     # ⚠ CHECK THE ENTRY POINT, NOT JUST THE DATACLASS. run/train_arm.py passes its own CLI
     # defaults into TrainConfig, so a CLI default SHADOWS the dataclass. Raising
     # TrainConfig.eval_every to 250 on 2026-09-14 changed nothing for any real run because
@@ -1696,13 +1727,13 @@ def test_eval_cadence_is_proportionate_to_the_eval_set_size():
         "patience window is tighter than the prior's 750 steps")
     # ⚠ THE PLANNED RUN ENDS AT THE FLOOR. train_epochs is both the early-stopping floor and
     # the LR decay horizon, so past min_steps the learning rate is annealed out and further
-    # steps cost GPU without changing the model. Both loops must stop there. (The earlier
+    # steps cost GPU without changing the model. The loop must stop there. (The earlier
     # version of this assertion encoded "the floor outlasts the patience window", which is a
     # different and now-wrong idea: with train_epochs=1.0 the patience window is longer than
     # one epoch, and that is fine precisely because the run stops at the floor regardless.)
     import inspect
     from bgcbench.model import train as _T
-    for fn in (_T.train_lora, _T._train_offset):
+    for fn in (_T.train_lora,):   # _train_offset (W3) deleted 2026-09-16
         src = inspect.getsource(fn)
         assert "PLANNED RUN COMPLETE" in src, (
             f"{fn.__name__} does not stop when the planned run is done; it would keep "

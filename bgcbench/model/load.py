@@ -336,31 +336,6 @@ def attach_adapter(sub: Substrate, adapter_path: str) -> Substrate:
     return sub
 
 
-def attach_intervention(sub: Substrate, path: str) -> tuple[Substrate, object]:
-    """Attach a trained W3 conditioner for generation.
-
-    ⚠ W3 ONLY -- `attach_direction` below is the I1 path. This one builds a LearnedOffset
-    and loads a strict state_dict.
-
-    Returns the substrate and the LIVE intervention object -- the caller must keep it in
-    scope and hold its `attached()` context for the duration of generation. Unlike a LoRA
-    adapter, which is merged into the weights, this is a hook: if it is not attached during
-    generation the arm silently generates from the BASE MODEL and reads as a null.
-    """
-    import torch
-
-    from bgcbench.model.interventions import LearnedOffset
-    base = sub.model.model if sub.family == EVO2 else sub.model
-    ck = torch.load(path, map_location="cpu", weights_only=False)
-    iv = LearnedOffset(base, ck["hidden"], rank=ck.get("rank", 0))
-    iv.load_state_dict(ck["state_dict"])
-    dev = next(base.parameters()).device
-    iv = iv.to(dev)
-    sub.meta["intervention"] = path
-    sub.meta["intervention_sites"] = ck.get("sites")
-    return sub, iv
-
-
 def attach_direction(sub: Substrate, path: str, alpha: float,
                      randomise: int | None = None,
                      sites: list[int] | None = None) -> tuple[Substrate, object]:
@@ -370,7 +345,7 @@ def attach_direction(sub: Substrate, path: str, alpha: float,
     alpha and the same unit norm, so the only difference from the real arm is whether the
     direction carries class content.
 
-    Returns the substrate and the LIVE intervention -- like `attach_intervention`, this is
+    Returns the substrate and the LIVE intervention. This is
     a hook, not merged weights. If the caller does not hold `attached()` for the duration
     of generation the arm silently generates from the BASE MODEL and reads as a null.
     """

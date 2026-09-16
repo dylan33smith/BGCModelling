@@ -48,13 +48,6 @@ def main() -> int:
                     help="G6b: which blocks carry adapters. One of the DEPTH_SETS names "
                          "(all/early/middle/late/attention_only/every_other). Omit for "
                          "every block, which is what every arm before G6b used.")
-    ap.add_argument("--method", choices=["lora", "offset"], default="lora",
-                    help="'offset' is W3: a learned per-attention-site conditioner. It is "
-                         "not KV-prefix tuning -- see interventions.py for why that is not "
-                         "implementable on this architecture.")
-    ap.add_argument("--offset-rank", type=int, default=16,
-                    help="capacity of the W3 conditioner. 0 = bare offset (7,680 params, "
-                         "~1364x below LoRA, so a null would be capacity-limited).")
     ap.add_argument("--lr-schedule", choices=["linear", "cosine", "constant"],
                     default="linear",
                     help="THERE WAS NO SCHEDULE BEFORE 2026-09-14 -- lr was flat for the "
@@ -118,8 +111,7 @@ def main() -> int:
                       lr_schedule=args.lr_schedule, warmup_steps=args.warmup_steps,
                       eval_every=args.eval_every, patience=args.patience,
                       grad_accum=args.grad_accum, max_len_nt=args.max_len_nt,
-                      balance=args.balance, method=args.method,
-                      offset_rank=args.offset_rank, prefix=args.prefix,
+                      balance=args.balance, prefix=args.prefix,
                       depth=args.depth)
     out = ADAPTERS / f"{args.substrate}_{args.name}"
     print(f"training {args.name} on {sorted(args.classes)}: "
