@@ -13,6 +13,48 @@ Tags: `[instrument]` `[design]` `[data]` `[stats]` `[limitation]`
 
 ---
 
+## ⚠ STATUS, added 2026-09-16 — read this before citing any rate below
+
+**Every rate in this file predates the retrain.** The three FROZEN stamps below are
+2026-09-08, 09-09 and 09-10; the benchmark's final arms were generated on 2026-09-15/16 and
+this file contains **no mention of `_fx`**. The final numbers are in
+[`RESULTS.md`](RESULTS.md); the defects that invalidated these are in
+[`DEFECTS.md`](DEFECTS.md).
+
+What invalidated them, in short: LoRA adapters left in bf16 so a fraction of `lora_A` could
+not move at lr 5e-5; early stopping that shipped 15 of 17 adapters inside their first epoch;
+one `top_k` applied to both substrates (retaining 0.9999 of Evo2's probability mass and 0.1280
+of GenomeOcean's); GenomeOcean detokenisation inserting a space between every BPE token; a
+nucleotide budget enforced in tokens; and a §6.4 site-selection rule that was selecting on the
+check it then reported.
+
+**Sections that TRANSFER** — they are about the instrument, the design or the limitations, not
+about arm rates, and nothing in the retrain touches them:
+
+| § | why it still holds |
+|---|---|
+| 1 | how antiSMASH behaves as a measurement device |
+| 2 | confounds that shape what can be claimed |
+| 3 | statistical findings |
+| 4, 4a | defects that corrupt results silently; how a benchmark loses "every arm measured identically" |
+| 5 | standing limitations to disclose (⚠ but see §5.1's own retraction) |
+| 12 | why the classes differ — heterogeneity and held-out loss |
+| 21 | reporting status: EXPLORATORY, and what that costs |
+| 25.1 | `top_k=4` retains 19% of GenomeOcean's mass — the measurement, not the §24 rates it voided |
+
+**Sections SUPERSEDED by `RESULTS.md`** — their rates describe arms that no longer exist:
+§6, §8, §11 (Stage 1 and the seeded diagonal), §15 (G9 α=0.3), §16, §17, §19, §20 (all I1
+steering on pre-retrain weights), §24 (GenomeOcean Stage 1 de novo).
+
+⚠ **Two superseded sections still carry live methodology** and should be read for the argument
+rather than the number: §20.1 (match the random control on generation HEALTH, not on norm —
+still true, and still NOT fixed in the final grid; see `RESULTS.md` §4) and §24.2 (the length
+confound — but its claim that "the confound cannot arise on Evo2, where every de novo arm ran
+to the full 8,192 nt" is false in the final grid, where Evo2's de novo arms terminate at
+0.48-0.93).
+
+---
+
 ## 1. Instrument findings — how antiSMASH behaves as a measurement device
 
 ### 1.0 antiSMASH silently sanitises record ids `[instrument]`

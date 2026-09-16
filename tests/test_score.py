@@ -2027,3 +2027,31 @@ def test_g9_alpha_checks_gpu_memory_before_every_arm_not_once():
     fn = inspect.getsource(G._wait_for_gpu)
     assert "return" in fn.split("except Exception:")[1][:60], (
         "a missing nvidia-smi must return, not loop forever — that would hang CI")
+
+def test_known_wrong_test_names_all_exist():
+    """⚠ FIVE OF NINE WERE WRONG. KNOWN_WRONG.md exists to assert that every prior defect has
+    a red test in this repo, and its test column had drifted as the suite was renamed:
+    test_seq_len_is_sequence, test_novelty_gate_fails_closed, test_split_nonempty,
+    test_every_sequence_gets_a_verdict and test_no_scoring_window were all absent. The table
+    was therefore claiming coverage it could not demonstrate, which is worse than an empty
+    column because it reads as verified.
+
+    This parses the table and requires every backticked test_* name to be a real function in
+    this suite, so the reference cannot rot again without going red.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    doc = (root / "reference" / "frozen" / "KNOWN_WRONG.md").read_text()
+    named = set(re.findall(r"`(test_\w+)`", doc))
+    assert named, "no test names found in KNOWN_WRONG.md — did the table format change?"
+
+    have = set()
+    for f in ("test_score.py", "test_data.py"):
+        have |= set(re.findall(r"\ndef (test_\w+)\(", (root / "tests" / f).read_text()))
+
+    missing = sorted(named - have)
+    assert not missing, (
+        f"KNOWN_WRONG.md names {len(missing)} test(s) that do not exist: {missing}. "
+        f"Either the test was renamed (update the table) or the red test is gone (restore it).")
