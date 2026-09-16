@@ -275,6 +275,77 @@ on-target column, Evo2's REDOX arms look like a flat 3/200 across de novo, seede
 Reading detection, seeding takes it 6 → 11 and steering-plus-seeding 11 → 12. Neither movement
 is significant (p=0.32, p=1.00), but the arm is not inert the way the on-target column suggests.
 
+## 4c. Why the classes differ — label granularity, not gene count
+
+The class set was designed to span a **multi-gene ladder** monotonically. It does. It does not
+predict performance.
+
+```
+QUESTION  which property of a class predicts how well either model generates it?
+MODEL     "best arm" = the highest on-target cell across all 48 arms
+ARM       class design properties, measured on the 8,044 train records per class
+METRIC    on-target /200 at the best arm; detected in parentheses where it differs
+UNIT      nt, gene counts, product-string counts, counts out of 200
+```
+
+| class | median core nt | avg core genes | ≥2 core genes | **antiSMASH product strings** | best arm on-target |
+|---|---|---|---|---|---|
+| TERPENE | 1,157 | 1.24 | 16.9% | 3 | 41/200 |
+| RIPP | 2,234 | 1.48 | 34.7% | **32** | **5/200** |
+| ARYLPOLYENE | 3,599 | 1.62 | **55.9%** | **1** | **73/200** |
+| REDOX_COFACTOR | 3,096 | 2.99 | **100%** | **1** | 3/200 (det 6) |
+
+*Best arm is Evo2 seeded in all four cases except REDOX_COFACTOR, where it is Evo2 de novo.*
+
+⚠ **The multi-gene ladder does not predict performance.** ARYLPOLYENE is 55.9% multi-gene and
+the best class in the benchmark; TERPENE is 16.9% multi-gene and second. REDOX_COFACTOR is 100%
+multi-gene with an average of 3 core genes, and its on-target rate is 3/200 — but that is a
+*scoring* failure (§4b), not a length or gene-count one. Nothing in the length or gene columns
+orders the results.
+
+**What does order them is how many things the class label collapses.** Of antiSMASH's 103
+product strings, ARYLPOLYENE and REDOX_COFACTOR are one each, TERPENE is three, and RIPP is
+**thirty-two**. The two single-product classes are the two the models either nail (ARYLPOLYENE)
+or produce-and-mis-score (REDOX_COFACTOR); the 32-product class is the one that stays at zero.
+
+This matches the independent evidence in FINDINGS §12, which reached the same conclusion from
+held-out loss and subtype entropy: RIPP has ~15 *effective* subtypes and the worst val loss of
+the four (Evo2 1.060 nats/nt against ARYLPOLYENE's 0.715), while REDOX_COFACTOR has ~1.9 and
+the second best (0.721). RIPP is a genuine generation failure; REDOX_COFACTOR is not a learning
+failure at all.
+
+## 4d. What subtype do the correct generations actually produce?
+
+Every on-target generation carries the antiSMASH product string that earned it. Pooled over all
+48 arms, against the real corpus for comparison:
+
+```
+QUESTION  within a class the models get right, WHICH subtype do they make?
+MODEL     both, pooled over all 48 arms (the pattern is identical per arm)
+ARM       every on-target generation
+METRIC    share of on-target generations by antiSMASH product string
+UNIT      counts and % of that class's on-target total
+```
+
+| class | generated subtypes | real corpus (n=82 held-out cores) |
+|---|---|---|
+| **ARYLPOLYENE** (498 on-target) | `arylpolyene` 498 = **100%** | `arylpolyene` 100% — 1 subtype |
+| **REDOX_COFACTOR** (14) | `redox-cofactor` 14 = **100%** | `redox-cofactor` 100% — 1 subtype |
+| **TERPENE** (141) | `terpene-precursor` 135 = **95.7%**<br>`terpene` 6 = 4.3% | `terpene-precursor` 61%<br>`terpene` 39% |
+| **RIPP** (17) | `RiPP-like` 10 = **58.8%**<br>`RRE-containing` 7 = 41.2% | 16 distinct, modal share 42.7%:<br>`RiPP-like` 35, `RRE-containing` 11, `lassopeptide` 7, `ranthipeptide` 7, `cyclic-lactone-autoinducer` 7, `azole-containing-RiPP` 3, `proteusin` 2, `triceptide` 2, + 8 singletons |
+
+⚠ **Both models collapse onto the head of the subtype distribution.** The two single-subtype
+classes are reproduced faithfully because there is nothing to collapse. TERPENE's split is
+61/39 in real cores and **96/4** in generations — the models overwhelmingly produce the easier
+`terpene-precursor`. And RIPP's 16 real subtypes come out as **exactly 2**, which are its two
+commonest; `lassopeptide`, all four `lanthipeptide` classes, `proteusin`, `linaridin`,
+`thioamitides` and the rest are **never produced once** across 9,600 generations.
+
+⇒ So RIPP's near-zero rate is not only "rarely produces anything". When it does produce
+something, it produces the two most frequent subtypes and nothing else. A class label that
+collapses 32 product strings is not one target — it is a distribution, and these models cover
+its head only.
+
 ## 5. What this benchmark says
 
 1. **Unaided, neither model generates BGCs at a useful rate**, and they are statistically
