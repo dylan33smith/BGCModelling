@@ -512,9 +512,10 @@ def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_k
     # ⚠ nats/TOKEN IS NOT COMPARABLE ACROSS SUBSTRATES and this number is read across them.
     # Evo2's token is 1 nt; GenomeOcean's is ~4.8 nt, so the same disruption per nucleotide
     # reads ~4.8x larger on GO. The project has already been bitten once by putting Evo2's
-    # nats/NUCLEOTIDE beside GO's nats/TOKEN in adjacent rows (CLAUDE.md), and this module's
-    # own `alpha_for_target_kl` docstring still asserts GO is "far outside any usable range"
-    # on the strength of the unconverted figure. Measured at alpha=1 on the all-sites
+    # nats/NUCLEOTIDE beside GO's nats/TOKEN in adjacent rows (CLAUDE.md). A now-deleted
+    # helper in this module (`alpha_for_target_kl`, removed 2026-09-16) asserted on the
+    # strength of the UNCONVERTED figure that GO sat "far outside any usable range" at
+    # alpha=1, and a whole calibration path was built on that. Measured at alpha=1 on the all-sites
     # configuration, per NUCLEOTIDE: GO 0.86-1.86 against Evo2 0.83-1.74 -- the same regime.
     # The real asymmetry is `frac_argmax_changed` (GO 98-99%, Evo2 64-72%), which is a rate
     # and needs no conversion. Both are reported so neither has to be recomputed by a reader.
@@ -533,53 +534,3 @@ def kl_vs_unsteered(sub, records: list[dict], directions: torch.Tensor, prefix_k
                           f"nats/token is not (this substrate: {nt_per_token} nt/token)")}
 
 
-@torch.no_grad()
-def alpha_for_target_kl(sub, records, directions, prefix_kind, max_len_nt,
-                        target_kl: float = 1.0, device: str = "cuda:0",
-                        limit: int = 8, lo: float = 1e-3, hi: float = 4.0,
-                        iters: int = 8) -> dict:
-    """Find the α at which injection produces a TARGET effect size, not a target magnitude.
-
-    ⚠ THIS FUNCTION IS NOT ON THE GATE PATH, AND ITS ORIGINAL JUSTIFICATION WAS A UNIT ERROR.
-    It was written on the claim that "at α = 1 Evo2-1B sits at KL 0.197 nats/position while
-    GenomeOcean-4B sits at 3.44-7.81 ... far outside any usable range", i.e. that one model
-    was being probed in its working regime and the other in wreckage. Those two figures are
-    in DIFFERENT UNITS: nats per Evo2 token is nats per NUCLEOTIDE, nats per GenomeOcean
-    token is nats per ~4.8 nucleotides. Measured on the trained per-class adapters at α = 1,
-    converted to nats/NUCLEOTIDE, GO reads 0.86-1.86 against Evo2's 0.83-1.74 — the same
-    regime, not a 5x gap. `kl_vs_unsteered` now returns `mean_kl_nats_per_nt` so the
-    comparable quantity is the one to hand.
-
-    ⚠ AND MATCHING ON REALISED EFFECT IS ITSELF A CROSS-SUBSTRATE MATCH, which SPEC §14A
-    forbids: "probe magnitude" is named there as a TREATMENT parameter, chosen per substrate
-    by measurement, not equalised. Checks (a) and (b) are therefore read at the substrate's
-    OWN generation α grid — the magnitudes the arm actually runs at — which is per-substrate
-    by construction and needs no calibration.
-
-    Kept because bisecting α to a target effect is still the right tool if a future gate
-    needs a magnitude it cannot read off the generation grid. Bisects α so mean KL against
-    unsteered lands near `target_kl`, in nats/TOKEN.
-    """
-    def kl_at(a):
-        return kl_vs_unsteered(sub, records, directions, prefix_kind, max_len_nt,
-                               alpha=float(a), device=device, limit=limit)["mean_kl_nats"]
-
-    k_hi = kl_at(hi)
-    if k_hi < target_kl:                       # even the ceiling is gentle
-        return {"alpha": float(hi), "realised_kl": k_hi, "target_kl": target_kl,
-                "note": "target KL not reachable below hi; returning hi"}
-    a_lo, a_hi = lo, hi
-    best = (hi, k_hi)
-    for _ in range(iters):
-        mid = 0.5 * (a_lo + a_hi)
-        k = kl_at(mid)
-        if abs(k - target_kl) < abs(best[1] - target_kl):
-            best = (mid, k)
-        if k > target_kl:
-            a_hi = mid
-        else:
-            a_lo = mid
-    return {"alpha": float(best[0]), "realised_kl": float(best[1]),
-            "target_kl": target_kl,
-            "criterion": ("alpha bisected so mean KL against unsteered lands near the target "
-                          "-- substrates are probed at matched EFFECT, not matched magnitude")}

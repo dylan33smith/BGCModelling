@@ -17,7 +17,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from bgcbench.model.genconfig import FROZEN, decoding_for
 from bgcbench.model.load import EVO2, Substrate
@@ -36,7 +35,6 @@ class ArmSpec:
     #: compound class, so it does not hand the model the answer the benchmark asks for.
     prefix: str = "none"
     adapter_path: str | None = None
-    steer: dict[str, Any] = field(default_factory=dict)
     # ⚠ None means UNRESOLVED, not "use a default". Decoding is per substrate (§12.A7) and
     # an ArmSpec is built before the substrate is known, so these are filled by
     # `with_decoding(family)` and the generation paths refuse to sample while they are None.
@@ -60,17 +58,19 @@ class ArmSpec:
 
 @dataclass
 class GenConfig:
-    """Instantiated from the FROZEN config (SPEC 7). Do not construct one by hand for a
-    benchmark run -- use `GenConfig.frozen()`, so the values and the hash cannot diverge."""
+    """Instantiated from the FROZEN config (SPEC 7). Every default below IS the frozen value,
+    so a bare `GenConfig()` is the benchmark config and any deviation a caller passes is
+    caught by `off_frozen()` and recorded in the run report.
+
+    ⚠ A `GenConfig.frozen()` classmethod existed until 2026-09-16 and was deleted as dead: it
+    re-listed the same four FROZEN lookups the field defaults already perform, had zero
+    callers in the package, the tests, or the recorded pipeline drivers, and offered a second
+    place for the frozen values to be spelled out -- which is the divergence it claimed to
+    prevent."""
     budget_nt: int = FROZEN["budget_nt"]
     batch_size: int = FROZEN["batch_size"]
     seed: int = FROZEN["rng_seed"]
     min_new_tokens: int = FROZEN["min_new_tokens"]
-
-    @classmethod
-    def frozen(cls) -> "GenConfig":
-        return cls(budget_nt=FROZEN["budget_nt"], batch_size=FROZEN["batch_size"],
-                   seed=FROZEN["rng_seed"], min_new_tokens=FROZEN["min_new_tokens"])
 
 
 def _seed_text(rec: dict, n_nt: int) -> str:

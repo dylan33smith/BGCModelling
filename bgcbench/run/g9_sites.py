@@ -128,12 +128,6 @@ def main() -> int:
                          "BOTH SUBSTRATES; SPEC §14A names probe magnitude a TREATMENT "
                          "parameter, and comparing site sets at a magnitude no arm generates "
                          "at picks the sites that win in a regime nothing runs in.")
-    ap.add_argument("--target-kl", type=float, default=None,
-                    help="calibrate the probe alpha so mean KL lands here, instead of using "
-                         "--alpha literally. ⚠ The same alpha means different things on "
-                         "different substrates: at alpha=1 Evo2 sits at KL 0.197 and GO at "
-                         "3.4-7.8 with ~98%% of tokens flipped. Probing both at one magnitude "
-                         "compares a working model with a wrecked one (§20.1).")
     ap.add_argument("--limit", type=int, default=16,
                     help="records per candidate set for the reach (KL) measurement.")
     ap.add_argument("--check-limit", type=int, default=64,
@@ -219,13 +213,14 @@ def main() -> int:
         print(f"probe alpha resolved from substrate ({sub.family}) generation grid: "
               f"{args.alpha}", flush=True)
     probe_alpha = args.alpha
+    # ⚠ `probe_alpha_calibration` is retained in the artifact as a permanent None so the 8
+    # frozen site selections keep their schema. It once held the output of
+    # `directions.alpha_for_target_kl`, which bisected alpha to a target KL so two substrates
+    # could be probed at matched EFFECT. That was removed 2026-09-16: SPEC 14A names probe
+    # magnitude a TREATMENT parameter, so matching it ACROSS substrates is the thing 14A
+    # forbids, and every one of the 8 final selections recorded calibration=None -- the path
+    # was never taken. Checks now read the substrate's own generation grid instead.
     calib = None
-    if args.target_kl is not None:
-        calib = D.alpha_for_target_kl(sub, va_t, d_all, args.prefix, args.max_len_nt,
-                                      target_kl=args.target_kl, limit=min(8, args.limit))
-        probe_alpha = calib["alpha"]
-        print(f"probe alpha calibrated to KL~{args.target_kl}: alpha={probe_alpha:.4f} "
-              f"(realised KL {calib['realised_kl']:.3f})", flush=True)
 
     cands = candidate_sets(n_sites)
     print(f"{args.substrate}: {n_sites} attention sites, {len(cands)} candidate sets, "
