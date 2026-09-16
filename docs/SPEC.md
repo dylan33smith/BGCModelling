@@ -1088,21 +1088,35 @@ attributing, that is the one condition under which §4.5.2's strata run.
 Equivalence across arms is enforced **structurally**. An arm is a config; there is no per-arm
 script, because a per-arm script is how two arms come to be scored differently.
 
+⚠ **CORRECTED 2026-09-16. The tree below is what exists; the previous version of this section
+described a layout that was never built** — a `conf/` directory of per-class, per-arm and
+per-substrate YAML (configuration ended up in code), `data/build_corpus.py`,
+`score/classmap.py`, a `stats/` package of `power.py`/`tests.py`/`report.py` (never written),
+and `run/stage1.py`/`stage2.py` as the entry points. A reader following it would not have
+found a single file at the stated path.
+
 ```
 bgcbench/
-  conf/
-    classes/<CLASS>.yaml       # class identity only
-    arms/<ARM>.yaml            # one coordinate in the §6 grid
-    substrates/<SUB>.yaml      # model id, context, dtype, versions
-    scoring.yaml               # THE single frozen scoring config
-  data/      build_corpus.py  split.py  manifest.py
-  model/     load.py  train.py  generate.py       # substrate-agnostic
-  score/     antismash.py  classmap.py  novelty.py  endpoints.py
-  stats/     power.py  tests.py  report.py
-  run/       stage1.py  stage2.py
-  tests/
-  reference/frozen/            # prior artifacts for §10 diff ONLY. never imported.
+  provenance.py                  # code_version, corpus_max_len, freeze_id
+  data/      extract.py genbank.py tar_index.py mibig.py negative.py   # raw -> corpus
+             classmap.py cluster.py split.py manifest.py taxonomy.py   # corpus -> splits
+  model/     load.py train.py generate.py genconfig.py                 # substrate-agnostic
+             interventions.py directions.py substrate_config.py        # I1 steering
+  score/     antismash.py novelty.py record.py endpoints.py            # ONE scoring site
+  run/       build_data.py train_arm.py derive_directions.py           # chain steps 2-4
+             g9_sites.py g9_alpha.py arm.py                            # steps 5-7
+             results_table.py checkpoint_ledger.py                     # step 8 + provenance
+             oracle.py score_gates.py g2_health.py g10_termination.py  # calibration
+pipeline/                        # the 8 scripts that invoked the 48 arms, in order
+tests/                           # 136 tests; see §11
+reference/frozen/                # KNOWN_WRONG.md, sweep_evidence.json. never imported
+docs/                            # SPEC (method) DEFECTS (provenance) RESULTS FINDINGS
 ```
+
+The four calibration entry points under `run/` are not part of the chain and nothing imports
+them, but they are what licenses reading a near-zero arm: the G5 ceiling and G1 floor
+(`score_gates.py`), the harness proof (`oracle.py`), the models-beat-shuffled-DNA check
+(`g2_health.py`) and the terminator mechanism (`g10_termination.py`). See `RESULTS.md` §1.
 
 **Hard structural rules, each pinned by a test (§11):**
 1. `score/` has exactly one antiSMASH invocation site and one endpoint computation. No arm-specific
@@ -1111,10 +1125,6 @@ bgcbench/
 3. Every scored artifact filename encodes its scoring-config hash. Two scorings of one generation
    set can never share a name.
 4. No loose files at any run root; every artifact belongs to a run directory.
-5. Run directory names: `<stage>_<SUBSTRATE>_<ARM>_<CLASS>`. Two names differing only in case are
-   the same name and are rejected at creation.
-
----
 
 ## 10. The reconciliation protocol
 
@@ -1149,21 +1159,43 @@ novelty gate that can default to passing on an empty k-mer set (§3.7); split in
 
 ## 11. Verification tests — written before the code they check
 
+⚠ **AUDITED AND CORRECTED 2026-09-16: 12 of this table's 13 test names did not exist.** They
+were written before the code, as the section title says, and were never reconciled with the
+names the suite actually grew — so a section whose purpose is "this constraint is pinned by a
+test" was naming tests that are not there. `test_known_wrong_and_spec11_test_names_all_exist` now
+parses this table and fails if any name is absent.
+
 | test | pins |
 |---|---|
-| `test_novelty_gate_fails_closed` | empty/missing k-mer set raises; never passes |
+| `test_novelty_gate_fails_closed_on_empty_kmers` | empty/missing k-mer set raises; never passes |
 | `test_manifest_additive` | writing class B preserves class A's entry |
-| `test_split_disjoint` | zero genome overlap AND zero cluster overlap; zero near-dups on verification, forward and reverse |
-| `test_split_nonempty` | every class has non-empty train/val/test |
-| `test_seq_len_is_sequence` | `seq_len == len(sequence)` on every record |
-| `test_single_scoring_site` | exactly one antiSMASH invocation in `score/` |
-| `test_no_arm_names_in_generate` | `generate.py` contains no arm identifiers |
-| `test_no_scoring_window` | no truncation of model output anywhere in `score/`; only a seed span may be excluded |
-| `test_case_collision` | run-dir creation rejects case-insensitive duplicates |
-| `test_seed_excluded_from_scored_span` | seeded arms: seed never in scored text |
-| `test_input_is_bare_sequence` | no tag/taxonomy reaches the model |
-| `test_identical_scoring_config` | all arms resolve to one scoring config hash |
-| `test_every_sequence_gets_a_verdict` | antiSMASH scored-count == submitted-count; a shortfall raises |
+| `test_split_uses_every_member_of_an_assigned_cluster_without_leaking`, `test_built_splits_are_leak_free` | zero genome overlap AND zero cluster overlap; zero near-dups forward and reverse |
+| `test_built_splits_are_balanced` | every class has non-empty train/val/test at equal effective_n |
+| `test_seq_len_is_len_sequence` | `seq_len == len(sequence)` on every record |
+| `test_single_antismash_invocation_site` | exactly one antiSMASH invocation in `score/` |
+| `test_generate_has_no_arm_specific_branch`, `test_no_arm_or_class_branching_in_score` | `generate.py` and `score/` contain no arm identifiers |
+| `test_no_truncation_of_model_output_in_score` | no truncation of model output anywhere in `score/`; only a seed span may be excluded |
+| `test_seeded_generation_never_scores_the_seed` | seeded arms: seed never in scored text |
+| `test_scoring_config_is_frozen_and_hashed`, `test_check_uniform_fires_on_realised_not_frozen` | all arms resolve to one scoring config hash, checked on the REALISED value |
+| `test_every_sequence_gets_a_verdict_rejects_duplicates` | antiSMASH scored-count == submitted-count; a shortfall raises |
+| `test_run_directory_refuses_to_overwrite_a_measurement` | a second run cannot destroy the first's measurement |
+
+**Two rows from the original table are retired rather than renamed:**
+
+⚠ **test_case_collision** (name unbackticked: it is not a test that exists) — "run-dir creation rejects case-insensitive duplicates" was **never
+implemented**. `test_run_directory_refuses_to_overwrite_a_measurement` guards exact-name
+collision, which is what actually bit (the realised-config hash makes two configurations differ
+in name); case-insensitive collision was a hypothesised failure that never occurred in 48 arms.
+Registered here rather than quietly dropped.
+
+⚠ **test_input_is_bare_sequence** (likewise) — "no tag/taxonomy reaches the model" **is not a constraint
+this benchmark holds**, and the row was wrong as written. §4.3's default is bare sequence and no
+class tag or metadata ever reaches either model, but a TAXONOMY prefix is permitted for Evo2
+because GTDB lineages are its native pretraining format: all 24 final Evo2 arms run
+`prefix=taxonomy`, all 24 GenomeOcean arms run `prefix=none`. What is pinned instead is that the
+prefix is declared, per substrate, and cross-checked —
+`test_a_direction_cannot_be_attached_under_a_different_prefix` and
+`test_lineage_prompts_are_one_uniform_width`.
 
 ---
 

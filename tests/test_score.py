@@ -2028,7 +2028,7 @@ def test_g9_alpha_checks_gpu_memory_before_every_arm_not_once():
     assert "return" in fn.split("except Exception:")[1][:60], (
         "a missing nvidia-smi must return, not loop forever — that would hang CI")
 
-def test_known_wrong_test_names_all_exist():
+def test_known_wrong_and_spec11_test_names_all_exist():
     """⚠ FIVE OF NINE WERE WRONG. KNOWN_WRONG.md exists to assert that every prior defect has
     a red test in this repo, and its test column had drifted as the suite was renamed:
     test_seq_len_is_sequence, test_novelty_gate_fails_closed, test_split_nonempty,
@@ -2047,11 +2047,18 @@ def test_known_wrong_test_names_all_exist():
     named = set(re.findall(r"`(test_\w+)`", doc))
     assert named, "no test names found in KNOWN_WRONG.md — did the table format change?"
 
+    # ⚠ SPEC §11 HAD THE SAME DEFECT, WORSE: 12 of its 13 names did not exist. Both files make
+    # the same promise ("this constraint is pinned by a test"), so both are checked here.
+    # §11's two retired rows are named in prose, not backticks, so they do not enter this set.
+    spec = (root / "docs" / "SPEC.md").read_text()
+    sec11 = spec[spec.index("## 11. Verification tests"):spec.index("## 12. Gates")]
+    named |= set(re.findall(r"`(test_\w+)`", sec11))
+
     have = set()
     for f in ("test_score.py", "test_data.py"):
         have |= set(re.findall(r"\ndef (test_\w+)\(", (root / "tests" / f).read_text()))
 
     missing = sorted(named - have)
     assert not missing, (
-        f"KNOWN_WRONG.md names {len(missing)} test(s) that do not exist: {missing}. "
+        f"KNOWN_WRONG.md or SPEC §11 names {len(missing)} test(s) that do not exist: {missing}. "
         f"Either the test was renamed (update the table) or the red test is gone (restore it).")

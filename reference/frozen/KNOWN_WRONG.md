@@ -6,7 +6,7 @@ Each entry has a **red test** in this repo so the rebuild cannot reintroduce it.
 ⚠ **The test column was audited and corrected on 2026-09-16: 5 of its 9 named tests did not
 exist.** They had been renamed as the suite grew and nothing checked the reference, so this
 table asserted coverage it could not demonstrate — a file whose entire purpose is "each defect
-has a red test" was naming tests that were not there. `test_known_wrong_test_names_all_exist`
+has a red test" was naming tests that were not there. `test_known_wrong_and_spec11_test_names_all_exist`
 now parses this table and fails if any name is absent, so the drift cannot recur silently.
 
 | # | defect | test |
