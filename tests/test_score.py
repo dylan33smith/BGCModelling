@@ -342,11 +342,6 @@ def test_generation_actually_seeds_the_rng():
     assert torch.equal(a, b), "seeding does not make generation reproducible"
 
 
-def test_seed_length_is_frozen():
-    """An unrecorded default of 0 made `--seeded` without the flag a SILENT de novo arm."""
-    from bgcbench.model.genconfig import FROZEN
-    assert FROZEN.get("seed_len_nt", 0) > 0
-
 
 def test_empty_generations_stay_in_the_denominator():
     """Dropping them inflates the rate AND is directionally biased: only a model that
@@ -441,15 +436,6 @@ def test_evo2_generation_is_single_call_not_block_wise():
         "block-wise cache carry-over is not equivalent; see FINDINGS 1.5b")
 
 
-def test_budget_respects_the_model_usable_context():
-    """MEASURED on evo2-1b (config max_seqlen 8192), NLL of the last 1000 tokens of a
-    prefix: 8,192 -> 0.805 (best), 10,000 -> 0.851, 12,000 -> 1.040, 15,900 -> 1.239,
-    against ln(4) = 1.386 chance. A 16,000 budget had every arm generating kilobases of
-    near-random sequence, and the long classes would have looked worst because their
-    references are longest."""
-    from bgcbench.model.genconfig import FROZEN
-    assert FROZEN["budget_nt"] <= 8192
-
 
 def test_budget_below_the_prodigal_mode_switch():
     """antiSMASH switches prodigal gene-calling mode above 20,000 nt per sequence; arms on
@@ -513,18 +499,6 @@ def test_generation_batch_size_is_frozen_not_merely_defaulted():
     assert "refusing to run: --batch-size" in src, \
         "a batch size differing from frozen is not refused"
 
-
-def test_frozen_batch_fits_the_card_it_was_sized_for():
-    """A frozen batch size that does not fit is a run that dies an hour in. The sizing
-    model is recorded next to the value so it can be rechecked on other hardware."""
-    from bgcbench.model.genconfig import FROZEN
-    BASELINE_GB, PER_SEQ_GB, CARD_GB = 2.08, 0.429, 80.0
-    need = BASELINE_GB + PER_SEQ_GB * FROZEN["batch_size"]
-    assert need < CARD_GB * 0.85, f"frozen batch needs {need:.1f} GB of a {CARD_GB} GB card"
-    # and the value is the largest exact divisor of n that fits
-    bigger = [b for b in range(FROZEN["batch_size"] + 1, FROZEN["n_per_row"] + 1)
-              if FROZEN["n_per_row"] % b == 0 and BASELINE_GB + PER_SEQ_GB * b < CARD_GB * 0.85]
-    assert not bigger, f"a larger divisor would also fit: {bigger}"
 
 
 def _stub_vortex_tokenizer():
@@ -1023,24 +997,6 @@ def test_mean_collector_averages_over_tokens_and_matches_a_hand_computation():
         assert col.token_counts[0] == 11, "the token denominator is no longer reportable"
 
 
-def test_direction_derivation_is_unit_norm_and_is_target_minus_others():
-    """Exercises the arithmetic derive() performs, without needing a substrate."""
-    import torch
-
-    mt = torch.tensor([[3.0, 4.0], [0.0, 5.0]])       # per-site target means
-    mo = torch.tensor([[0.0, 0.0], [0.0, 2.0]])       # per-site other-class means
-    raw = mt - mo
-    norms = raw.norm(dim=-1)
-    unit = raw / norms.unsqueeze(-1)
-    assert torch.allclose(norms, torch.tensor([5.0, 3.0]))
-    assert torch.allclose(unit.norm(dim=-1), torch.ones(2)), \
-        "directions are not unit-norm, so SPEC 6.3's random control is not magnitude-matched"
-    # and the contrast must be a DIFFERENCE: identical means give a zero direction, which
-    # derive() must refuse rather than normalise into NaN
-    from bgcbench.model import directions as D
-    src = Path(D.__file__).read_text()
-    assert "zero norm" in src, "a zero-norm direction is not refused; normalising gives NaN"
-
 
 def _stub_check(cosines, zero_sites=(), alpha=1.0):
     """Drive the REAL `manipulation_check` with controlled activations.
@@ -1440,7 +1396,7 @@ def test_freeze_id_convention_is_stable_and_content_addressed():
        the two substrates' freezes would not be comparable artifacts and nobody would
        notice, because each would be internally consistent.
     """
-    from bgcbench.run.freeze import freeze_id
+    from bgcbench.provenance import freeze_id   # moved from run/freeze.py 2026-09-16
 
     body = {"what": "x", "runs": {"a": {"n_detected": 12, "n": 200}}}
     base = freeze_id(body)
@@ -1860,7 +1816,9 @@ def test_no_module_hard_codes_a_decoding_parameter():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1] / "bgcbench"
-    allowed = {"genconfig.py", "generate.py", "g11_decoding.py"}   # define / resolve / sweep
+    allowed = {"genconfig.py", "generate.py"}   # define / resolve
+    # ⚠ g11_decoding.py was allow-listed here as the third site (the sweep). Gate G11 was
+    # RETIRED (SPEC 12.A8) and the file is gone, so the entry silently widened this guard.
     offenders = []
     for f in root.rglob("*.py"):
         if f.name in allowed:

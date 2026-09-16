@@ -14,6 +14,7 @@ the code that read that config is a separate fact and has to be recorded separat
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -57,3 +58,26 @@ def corpus_max_len(default: int = 8192) -> int:
         return int(v) if v else default
     except Exception:
         return default
+
+
+def freeze_id(body: dict) -> str:
+    """Content address for a frozen result bundle: sha256 of the canonical body with the id
+    itself removed, truncated to 16 hex.
+
+    ⚠ THIS CONVENTION IS LOAD-BEARING AND MUST NOT CHANGE. Published numbers are cited BY
+    BUNDLE ID, not by file path -- SPEC pins the seed length L=64 to
+    G3_FROZEN_816d66441f8624ca, and SPEC and FINDINGS both pin the seeded composition result
+    to SEEDED_DIAGONAL_FROZEN_f1a5fa95dbdc07a1. Change the hashing and the same content
+    yields a different id, so a citation no longer resolves to the evidence it names. The
+    test reproduces f1a5fa95dbdc07a1 from that bundle on disk.
+
+    ⚠ MOVED HERE 2026-09-16 from run/freeze.py, whose writer (collect / endpoint_summary /
+    main) was deleted. That writer produced 10 bundles and not one of them references an
+    `_fx` run -- they all freeze superseded generations -- so nothing needs writing again.
+    Three of those bundles are still cited for evidence the 48 arms cannot supply
+    (G3_FULL_FROZEN's seed-only control, SEED_SOURCE_SIMILARITY's per-record memorisation
+    test, PREFIX_CONTROL_FROZEN's matched prefix on/off), and this function is how their ids
+    stay verifiable.
+    """
+    stripped = {k: v for k, v in body.items() if k != "freeze_id"}
+    return hashlib.sha256(json.dumps(stripped, sort_keys=True).encode()).hexdigest()[:16]
