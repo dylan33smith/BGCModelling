@@ -81,6 +81,17 @@ UNIT      counts out of n=200
 | W1n pooled | 3 | 1 | 0.62 |
 | W0 base | 0 | 0 | — |
 
+**Class distribution of the W1n de novo positives.** The pooled arm has no class channel, so
+"on-target in row C" simply means antiSMASH called that generation class C:
+
+* **Evo2, 3 on-target of 200** — RIPP 2 · ARYLPOLYENE 1 · TERPENE 0 · REDOX_COFACTOR 0
+* **GenomeOcean, 1 on-target of 200** — ARYLPOLYENE 1 · TERPENE 0 · RIPP 0 · REDOX_COFACTOR 0
+
+⚠ Both arms produced **12 and 4 raw detections** respectively (Evo2 3 generations × 4 rows,
+GO 1 × 4): the same handful of sequences counted once per class row. Only the on-target column
+is a count of distinct generations, which is why the pooled row reads 3 and 1 rather than 12
+and 4. At these counts the distribution is not interpretable — it is 3 and 1 sequences.
+
 **No de novo contrast is significant.** Both models sit near the floor unaided, and the
 apparent GenomeOcean lead on ARYLPOLYENE (21 vs 16) is noise at this n.
 
@@ -108,13 +119,34 @@ UNIT      counts
 | REDOX_COFACTOR | 3 → 3 | — | 1 → 1 | — | 0.62 |
 | W1n pooled | 3/200 → **94/800** | — | 1/200 → **60/800** | — | **0.0050** |
 
+**Class distribution of the W1n seeded positives.** Each class contributes its own 200 seeded
+generations here, so these are four independent 200-draw cells, not one pooled 800:
+
+* **Evo2, 94 on-target of 800** — ARYLPOLYENE **62**/200 · TERPENE **27**/200 · REDOX_COFACTOR 3/200 · RIPP 2/200
+* **GenomeOcean, 60 on-target of 800** — ARYLPOLYENE **50**/200 · TERPENE **8**/200 · RIPP 2/200 · REDOX_COFACTOR 0/200
+
+⚠ **The pooled totals are dominated by one class.** ARYLPOLYENE alone is 62 of Evo2's 94 (66%)
+and 50 of GenomeOcean's 60 (83%); with TERPENE it is 95% and 97%. RIPP and REDOX_COFACTOR
+contribute 5 and 2. So the pooled `94 vs 60` contrast — and its p=0.0050 — is very largely an
+ARYLPOLYENE and TERPENE result restated, not independent evidence from four classes. Read it
+alongside the per-class rows above rather than as a separate finding.
+
+⚠ **Precision differs by class and only the pooled row hides it.** Evo2's REDOX_COFACTOR cell
+detected 10 but was on-target 3 (precision 0.30) — seven generations were called as some other
+class. GenomeOcean's RIPP cell detected 4 for 2 on-target (0.50) and its REDOX_COFACTOR
+detected 3 for **0** on-target (0.00). Every other cell is at or near 1.00. That is why the
+detected and on-target totals differ (Evo2 101 vs 94, GO 66 vs 60).
+
 Two findings, both significant:
 
 1. **Seeding is a large, real effect** on the two classes where anything happens at all —
    4.6× on Evo2 ARYLPOLYENE, 6.8× on Evo2 TERPENE.
-2. **Evo2 converts a seed better than GenomeOcean does**, on both of those classes and on the
-   pooled arm. This *reverses* the de novo ordering, where GenomeOcean nominally led
-   ARYLPOLYENE. It is the clearest cross-model result in the benchmark.
+2. **Evo2 converts a seed better than GenomeOcean does** — ARYLPOLYENE p=0.017, TERPENE
+   p=0.0030. This *reverses* the de novo ordering, where GenomeOcean nominally led
+   ARYLPOLYENE, and it is the clearest cross-model result in the benchmark.
+   ⚠ The pooled arm's p=0.0050 is **not a third independent confirmation**: 95% of Evo2's 94
+   and 97% of GenomeOcean's 60 are ARYLPOLYENE and TERPENE, so the pooled contrast largely
+   restates the two above. Count this as two findings, not three.
 
 ⚠ Seeded pooled arms are n=800 (200 per class, each seeded from its own class) because a seed
 carries the class. De novo pooled arms are n=200 generations scored against all four class
